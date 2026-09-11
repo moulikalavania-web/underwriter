@@ -290,6 +290,7 @@ function showQuoteIntelligencePage() {
 // ============================================================================
 let userMasterSelectedResource = "documents";
 let editingTeamUserId = null; // null = Add User modal is in "add" mode; otherwise editing this TEAM_USERS.id
+let assignRightsHighlightRoleKey = null; // roleKey to visually highlight in the Assign Rights matrix, set when opened from a specific Team Roster row
 
 // ============================================================================
 // UNIFIED ACCOUNT VIEW — cross-LOB customer record (Requirement: unified
@@ -522,6 +523,7 @@ function renderTeamRoster() {
         </td>
         <td class="text-xs text-muted">${user.description || '—'}</td>
         <td style="white-space:nowrap;">
+          <button class="btn btn-xs btn-outline" onclick="openAssignRightsModal('${user.id}')" title="Assign Rights" aria-label="Assign Rights"><i class="ph ph-shield-check"></i></button>
           <button class="btn btn-xs btn-outline" onclick="editTeamUser('${user.id}')" title="Edit user" aria-label="Edit user"><i class="ph ph-pencil-simple"></i></button>
           ${user.isDefault ? '' : `<button class="btn btn-xs btn-outline" onclick="removeTeamUser('${user.id}')" title="Remove user" aria-label="Remove user"><i class="ph ph-trash"></i></button>`}
         </td>
@@ -584,6 +586,37 @@ function viewUserAuthority(userId) {
 function closeUserAuthorityModal() {
   const modal = document.getElementById("userAuthorityModal");
   if (modal) modal.style.display = "none";
+}
+
+/**
+ * Assign Rights modal — opened from a Team Roster row. Hosts the same
+ * Permission Matrix editor (identical element IDs, same populate/render/
+ * save/reset functions) that used to sit inline on the page; nothing about
+ * how permissions are read, edited or saved changes, only where the editor
+ * is shown. Pre-selects the clicked user's own role so their current
+ * permissions are what the admin sees first, and highlights that role's
+ * row in the matrix for orientation.
+ */
+function openAssignRightsModal(userId) {
+  const user = TEAM_USERS.find(u => u.id === userId);
+  if (!user) return;
+  const role = USER_ROLES_CONFIG[user.roleKey] || USER_ROLES_CONFIG.junior;
+
+  const titleEl = document.getElementById("assignRightsModalTitle");
+  if (titleEl) titleEl.textContent = `Assign Rights — ${user.name} (${role.title})`;
+
+  assignRightsHighlightRoleKey = user.roleKey;
+  populateResourceSelect();
+  renderPermissionMatrixEditor();
+
+  const modal = document.getElementById("assignRightsModal");
+  if (modal) modal.style.display = "flex";
+}
+
+function closeAssignRightsModal() {
+  const modal = document.getElementById("assignRightsModal");
+  if (modal) modal.style.display = "none";
+  assignRightsHighlightRoleKey = null;
 }
 
 /**
@@ -852,13 +885,14 @@ function renderPermissionMatrixEditor() {
   const rows = roleKeys.map(roleKey => {
     const role = USER_ROLES_CONFIG[roleKey];
     const perms = PERMISSIONS_MATRIX[roleKey][resource];
+    const isHighlighted = roleKey === assignRightsHighlightRoleKey;
     const cells = RBAC_ACTIONS.map(action => `
       <td style="text-align:center;">
         <input type="checkbox" class="rbac-editor-cb" data-role="${roleKey}" data-action="${action}" ${perms[action] ? "checked" : ""} style="width:16px; height:16px;">
       </td>`).join("");
     return `
-      <tr>
-        <td>${role.icon} <strong>${role.title}</strong></td>
+      <tr class="${isHighlighted ? 'rbac-role-highlight' : ''}">
+        <td>${role.icon} <strong>${role.title}</strong>${isHighlighted ? ' <span class="badge badge-primary text-xs">Selected</span>' : ''}</td>
         ${cells}
       </tr>`;
   }).join("");

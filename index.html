@@ -1535,27 +1535,9 @@ run<!--
           <div class="card-body p-0">
             <div class="table-responsive">
               <table class="data-table">
-                <thead><tr><th>User</th><th>Role</th><th>Authority Limit</th><th>Active Submissions</th><th>Jurisdiction & LOB</th><th>Description</th><th></th></tr></thead>
+                <thead><tr><th>User</th><th>Role</th><th>Authority Limit</th><th>Active Submissions</th><th>Jurisdiction & LOB</th><th>Description</th><th>Action</th></tr></thead>
                 <tbody id="userMasterRosterBody"><!-- rendered dynamically --></tbody>
               </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Permission Matrix Editor -->
-        <div class="card">
-          <div class="card-header">
-            <h3><i class="ph ph-sliders"></i> Permission Matrix</h3>
-          </div>
-          <div class="card-body">
-            <p class="text-xs text-muted mb-2">Select a resource, then check which actions each role is allowed to perform. Changes apply immediately across the app.</p>
-            <select id="userMasterResourceSelect" class="form-control mb-3" onchange="renderPermissionMatrixEditor()" style="max-width:420px;">
-              <!-- populated dynamically -->
-            </select>
-            <div id="permissionMatrixEditorContainer"><!-- rendered dynamically --></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
-              <button class="btn btn-outline" onclick="resetPermissionsMatrix()"><i class="ph ph-arrow-counter-clockwise"></i> Reset to Defaults</button>
-              <button class="btn btn-primary" onclick="savePermissionMatrixEditor()"><i class="ph ph-check"></i> Save Permissions</button>
             </div>
           </div>
         </div>
@@ -1564,6 +1546,37 @@ run<!--
     </div>
 
     </main>
+  </div>
+
+  <!-- Assign Rights modal — opened from a Team Roster row's "Assign Rights"
+       button. Hosts the same Permission Matrix editor that used to sit
+       inline on the page; the underlying select/container/reset/save
+       element IDs are unchanged so all existing editor logic keeps working
+       exactly as before, just inside a focused popup instead of an
+       always-open page section. -->
+  <div class="modal-overlay u-hidden" id="assignRightsModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-shield-check text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="assignRightsModalTitle">Assign Rights</h3>
+            <p class="text-xs text-muted u-m0">Select a resource, then check which actions each role is allowed to perform. Changes apply immediately across the app.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeAssignRightsModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <select id="userMasterResourceSelect" class="form-control mb-3" onchange="renderPermissionMatrixEditor()" style="max-width:420px;">
+          <!-- populated dynamically -->
+        </select>
+        <div id="permissionMatrixEditorContainer"><!-- rendered dynamically --></div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="resetPermissionsMatrix()"><i class="ph ph-arrow-counter-clockwise"></i> Reset to Defaults</button>
+        <button class="btn btn-primary" onclick="savePermissionMatrixEditor()"><i class="ph ph-check"></i> Save Permissions</button>
+      </div>
+    </div>
   </div>
 
   <!-- ================================================================ -->

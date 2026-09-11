@@ -1572,6 +1572,14 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
   border-left: 4px solid var(--primary-light);
 }
 
+/* Assign Rights modal — highlights the row of the role whose row was
+   clicked in Team Roster, so the admin can orient themselves instantly in
+   the Permission Matrix. */
+tr.rbac-role-highlight {
+  background-color: #eff6ff;
+  box-shadow: inset 3px 0 0 var(--primary-light);
+}
+
 .submission-main-table tbody tr.referral-row {
   background-color: #fffbeb;
   border-left: 4px solid #f59e0b;
