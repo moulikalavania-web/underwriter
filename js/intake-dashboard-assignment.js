@@ -27,8 +27,8 @@ function renderRoleDashboard() {
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = renderManagerDashboardHtml();
   } else {
-    if (titleEl) titleEl.textContent = "My Work Queue";
-    if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
+    if (titleEl) titleEl.textContent = "";
+    if (subtitleEl) subtitleEl.textContent = "";
     container.innerHTML = renderWorkerDashboardHtml();
   }
 }
@@ -37,23 +37,13 @@ function renderManagerDashboardHtml() {
   // Only real submissions (Integrating API / Email Intake, apiSourced: true)
   // — the hardcoded seed/golden-path demo dataset never appears here.
   const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
-  const unassigned = liveSubmissions.filter(s => !s.assignedTo);
   const byAssignee = {};
   ASSIGNABLE_WORKER_ROLES.forEach(rk => { byAssignee[rk] = liveSubmissions.filter(s => s.assignedTo === rk); });
 
-  const unassignedRows = unassigned.slice(0, 5).map(s => `
-    <tr>
-      <td><code class="font-mono">${s.id}</code></td>
-      <td>${s.insured}</td>
-      <td><span class="badge-priority ${s.priority === 'P1' ? 'badge-priority-p1' : s.priority === 'P2' ? 'badge-priority-p2' : 'badge-priority-p3'}">${s.priority}</span></td>
-      <td>
-        <select class="form-control" style="font-size:11px; padding:3px 6px; height:auto; width:auto;" onchange="assignSubmissionToUser('${s.id}', this.value)" aria-label="Assign ${s.id}">
-          <option value="">Assign to —</option>
-          ${ASSIGNABLE_WORKER_ROLES.map(rk => `<option value="${rk}">${USER_ROLES_CONFIG[rk].name}</option>`).join("")}
-        </select>
-      </td>
-    </tr>`).join("");
-
+  // "Needs Assignment" (with its own inline dropdown) has been removed —
+  // assignment now happens from the "Assigned To" column of the main
+  // submissions table via the Assign Submission modal, so this duplicate
+  // pending-assignment widget is redundant.
   const workloadCards = ASSIGNABLE_WORKER_ROLES.map(rk => {
     const r = USER_ROLES_CONFIG[rk];
     const subs = byAssignee[rk];
@@ -65,20 +55,16 @@ function renderManagerDashboardHtml() {
       </div>`;
   }).join("");
 
+  // Per-team-member workload cards (Emily Watson, Sarah Jenkins, David Chen,
+  // etc.) expose everyone's individual caseload — restricted to the System
+  // Administrator persona only, not every manager-tier role that can see
+  // this dashboard (Senior UW, CUO, Binding Ops also land here).
+  const workloadCardsSection = currentUserRole === "admin"
+    ? `<div class="metrics-summary-bar">${workloadCards}</div>`
+    : "";
+
   return `
-    <div class="card mb-2" style="${unassigned.length > 0 ? 'border-color:#fcd34d;' : ''}">
-      <div class="card-header">
-        <h3><i class="ph ph-user-plus"></i> Needs Assignment</h3>
-        <span class="badge ${unassigned.length > 0 ? 'badge-warning' : 'badge-success'}">${unassigned.length} Unassigned</span>
-      </div>
-      <div class="card-body p-0">
-        ${unassigned.length === 0
-          ? `<div class="text-muted text-sm" style="padding:16px;">Nothing waiting on assignment right now.</div>`
-          : `<table class="data-table"><thead><tr><th>Submission</th><th>Insured</th><th>Priority</th><th>Assign</th></tr></thead><tbody>${unassignedRows}</tbody></table>
-             ${unassigned.length > 5 ? `<div class="text-xs text-muted" style="padding:8px 16px;">+ ${unassigned.length - 5} more below in the queue.</div>` : ""}`}
-      </div>
-    </div>
-    <div class="metrics-summary-bar">${workloadCards}</div>
+    ${workloadCardsSection}
   `;
 }
 
@@ -104,8 +90,7 @@ function renderWorkerDashboardHtml() {
         </div>
         <button class="btn btn-primary" onclick="openCaseAtCurrentStep('${next.id}')"><i class="ph ph-arrow-right"></i> Continue Work</button>
       </div>
-    </div>` : `
-    <div class="card mb-2"><div class="card-body text-muted text-sm">Nothing assigned to you yet. Your manager will hand you work from the Assignment Dashboard.</div></div>`;
+    </div>` : "";
 
   return `
     ${nextActionCard}
@@ -243,19 +228,20 @@ function renderSubmissionsTable() {
     let emptyIcon = "ph-tray";
     let emptyAction = "";
     if (liveSubmissions.length === 0) {
-      emptyMsg = "No submissions yet. Ingest a product JSON or add a raw email through the Integrating API module to create your first submission.";
-      emptyIcon = "ph-cloud-arrow-up";
-      emptyAction = `<button class="btn btn-sm btn-primary mt-2" onclick="showIntegratingApiPage()"><i class="ph ph-plugs-connected"></i> Go to Integrating API</button>`;
+      emptyMsg = "No data found.";
+      emptyIcon = "ph-tray";
     } else if (!isManagerView) {
       emptyMsg = "You have no submissions assigned to you yet. Ask your Underwriting Manager to assign one from the Intake Queue.";
       emptyIcon = "ph-user-focus";
     }
     tbody.innerHTML = `
       <tr>
-        <td colspan="11" style="text-align: center; padding: 24px; color: var(--text-muted);">
-          <i class="ph ${emptyIcon}" style="font-size: 24px; margin-bottom: 8px; display: block;"></i>
-          ${emptyMsg}
-          ${emptyAction}
+        <td colspan="11" style="padding: 0; border: none;">
+          <div style="position: sticky; left: 50%; transform: translateX(-50%); width: max-content; text-align: center; padding: 24px; color: var(--text-muted);">
+            <i class="ph ${emptyIcon}" style="font-size: 28px; margin-bottom: 8px; display: block;"></i>
+            ${emptyMsg}
+            ${emptyAction}
+          </div>
         </td>
       </tr>
     `;
@@ -332,17 +318,12 @@ function renderSubmissionsTable() {
               ? `<span class="badge badge-info"><i class="ph ph-user-circle"></i> ${assigneeRole.name}</span>`
               : `<span class="badge badge-secondary"><i class="ph ph-user-minus"></i> Unassigned</span>`;
             if (!isManagerView) return assigneeChip;
-            const options = ASSIGNABLE_WORKER_ROLES.map(rk => {
-              const r = USER_ROLES_CONFIG[rk];
-              return `<option value="${rk}" ${sub.assignedTo === rk ? "selected" : ""}>${r.name} (${r.title.split(' (')[0]})</option>`;
-            }).join("");
             return `
-              <div style="display:flex; flex-direction:column; gap:4px; min-width:170px;">
+              <div style="display:flex; align-items:center; gap:6px;">
                 ${assigneeChip}
-                <select class="form-control" style="font-size:11px; padding:3px 6px; height:auto;" onchange="assignSubmissionToUser('${sub.id}', this.value)" aria-label="Assign ${sub.id} to underwriter">
-                  <option value="">— Assign to —</option>
-                  ${options}
-                </select>
+                <button class="btn btn-xs btn-outline" onclick="openAssignSubmissionModal('${sub.id}')" title="${sub.assignedTo ? 'Reassign' : 'Assign'}" aria-label="${sub.assignedTo ? 'Reassign' : 'Assign'} ${sub.id}">
+                  <i class="ph ph-user-switch"></i>
+                </button>
               </div>`;
           })()}
         </td>
@@ -399,6 +380,87 @@ function assignSubmissionToUser(subId, roleKey) {
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
 }
 window.assignSubmissionToUser = assignSubmissionToUser;
+
+// ============================================================================
+// ASSIGN SUBMISSION MODAL — replaces the old inline <select> in the
+// submissions table's "Assigned To" column with a proper popup: pick a
+// team member from a clean list, confirm, and the chip in the table updates
+// immediately. Delegates the actual assignment to assignSubmissionToUser()
+// unchanged, so the underlying logic (permission check, decision log,
+// Needs Assignment refresh, persistence) is exactly as before.
+// ============================================================================
+let assignSubmissionModalSubId = null;
+let assignSubmissionModalSelectedRole = null;
+
+function openAssignSubmissionModal(subId) {
+  if (!canManageAssignments()) {
+    denyPermission("workflow", "approve");
+    return;
+  }
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
+  if (!sub) return;
+
+  assignSubmissionModalSubId = subId;
+  assignSubmissionModalSelectedRole = sub.assignedTo || null;
+
+  const titleEl = document.getElementById("assignSubmissionModalTitle");
+  if (titleEl) titleEl.textContent = `Assign — ${sub.insured} (${sub.id})`;
+
+  renderAssignSubmissionModalOptions();
+
+  const modal = document.getElementById("assignSubmissionModal");
+  if (modal) modal.style.display = "flex";
+}
+window.openAssignSubmissionModal = openAssignSubmissionModal;
+
+function closeAssignSubmissionModal() {
+  const modal = document.getElementById("assignSubmissionModal");
+  if (modal) modal.style.display = "none";
+  assignSubmissionModalSubId = null;
+  assignSubmissionModalSelectedRole = null;
+}
+window.closeAssignSubmissionModal = closeAssignSubmissionModal;
+
+function renderAssignSubmissionModalOptions() {
+  const list = document.getElementById("assignSubmissionModalList");
+  if (!list) return;
+
+  const unassignedRow = `
+    <div class="assign-modal-option ${assignSubmissionModalSelectedRole === null ? 'selected' : ''}" onclick="selectAssignSubmissionOption(null)">
+      <i class="ph ph-user-minus"></i>
+      <span>Unassigned</span>
+      ${assignSubmissionModalSelectedRole === null ? '<i class="ph ph-check-circle assign-modal-check"></i>' : ''}
+    </div>`;
+
+  const roleRows = ASSIGNABLE_WORKER_ROLES.map(rk => {
+    const r = USER_ROLES_CONFIG[rk];
+    const isSelected = assignSubmissionModalSelectedRole === rk;
+    return `
+      <div class="assign-modal-option ${isSelected ? 'selected' : ''}" onclick="selectAssignSubmissionOption('${rk}')">
+        <span class="assign-modal-avatar">${r.icon}</span>
+        <span>
+          <strong>${r.name}</strong>
+          <div class="text-xs text-muted">${r.title}</div>
+        </span>
+        ${isSelected ? '<i class="ph ph-check-circle assign-modal-check"></i>' : ''}
+      </div>`;
+  }).join("");
+
+  list.innerHTML = unassignedRow + roleRows;
+}
+
+function selectAssignSubmissionOption(roleKey) {
+  assignSubmissionModalSelectedRole = roleKey;
+  renderAssignSubmissionModalOptions();
+}
+window.selectAssignSubmissionOption = selectAssignSubmissionOption;
+
+function confirmAssignSubmissionModal() {
+  if (!assignSubmissionModalSubId) return;
+  assignSubmissionToUser(assignSubmissionModalSubId, assignSubmissionModalSelectedRole || "");
+  closeAssignSubmissionModal();
+}
+window.confirmAssignSubmissionModal = confirmAssignSubmissionModal;
 
 function filterSubmissionsTable(filterType) {
   currentTableFilter = filterType;

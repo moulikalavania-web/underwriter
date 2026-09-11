@@ -535,13 +535,20 @@ function extractDriverDetails(raw) {
     }
 
     if (d.name === undefined) {
-      const firstSegment = rest.split(",")[0].trim();
-      const looksLikeName = firstSegment
-        && !/^age\b/i.test(firstSegment)
-        && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(firstSegment)
-        && firstSegment.length >= 2 && firstSegment.length <= 40
-        && /^[A-Za-z .'-]+$/.test(firstSegment);
-      if (looksLikeName) d.name = firstSegment;
+      const segments = rest.split(",").map(s => s.trim()).filter(Boolean);
+      const looksLikeName = (s) => !!s
+        && !/^age\b/i.test(s)
+        && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(s)
+        && s.length >= 2 && s.length <= 40
+        && /^[A-Za-z .'-]+$/.test(s)
+        && !/licen[sc]e|experience|class|cdl/i.test(s);
+      // Name can lead the line ("Rahul Sharma, Age 24, ...") or trail it
+      // ("Age 24, TX Class A license, 3 years CDL experience, Rahul Sharma").
+      if (segments.length && looksLikeName(segments[0])) {
+        d.name = segments[0];
+      } else if (segments.length > 1 && looksLikeName(segments[segments.length - 1])) {
+        d.name = segments[segments.length - 1];
+      }
     }
   }
 
@@ -555,22 +562,92 @@ function extractDriverDetails(raw) {
   return details;
 }
 
+// Parses the "Loss Run History" block into structured rows matching
+// sub.losses' shape — one entry per line formatted
+// "<year range>: <description> — <status> — $<amount> incurred".
+function extractLossHistory(raw) {
+  const losses = [];
+  if (!raw) return losses;
+  const re = /(\d{4}\s*-\s*\d{4}):\s*([^—\n]+?)\s*—\s*([^—\n]+?)\s*—\s*\$?([\d,]+)\s*incurred/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    losses.push({
+      year: m[1].replace(/\s+/g, " ").trim(),
+      desc: m[2].trim(),
+      status: m[3].trim(),
+      incurred: `$${m[4]}`
+    });
+  }
+  return losses;
+}
+
+// Parses the "Vehicles" block into per-unit details, keyed by unit number
+// (1-based) — "Unit <N>: <year> <make> <model> — Stated Value $<amount> —
+// assigned to <driver>".
+function extractVehicleDetails(raw) {
+  const vehicles = {};
+  if (!raw) return vehicles;
+  const re = /Unit\s*(\d+)\s*:\s*(\d{4})\s+([^—\n]+?)\s*—\s*Stated Value\s*\$?([\d,]+)\s*—\s*assigned to\s*([^\n]+)/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const makeModelParts = m[3].trim().split(/\s+/);
+    vehicles[parseInt(m[1], 10)] = {
+      year: parseInt(m[2], 10),
+      make: makeModelParts[0] || "",
+      model: makeModelParts.slice(1).join(" "),
+      stated_value: parseInt(m[4].replace(/,/g, ""), 10),
+      assigned_driver: m[5].trim()
+    };
+  }
+  return vehicles;
+}
+
+// The insured's name is never explicitly labeled in this email template —
+// it's only the sign-off ("Thanks,\n<Name>" / "Regards,\n<Name>" / etc.).
+function extractSignOffName(raw) {
+  if (!raw) return null;
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const closingIdx = lines.findIndex(l => /^(thanks|regards|best|sincerely|best regards|kind regards)[,]?$/i.test(l));
+  const isPlausibleName = (s) => !!s && /^[A-Za-z][A-Za-z .'-]{1,40}$/.test(s);
+  if (closingIdx !== -1 && isPlausibleName(lines[closingIdx + 1])) return lines[closingIdx + 1];
+  const last = lines[lines.length - 1];
+  if (isPlausibleName(last) && !/^(thanks|regards|best|sincerely)/i.test(last)) return last;
+  return null;
+}
+
 function buildLocalNormalizationDraft(sub) {
   const raw = sub.rawEmailText || "";
   const find = (pattern) => {
     const match = raw.match(pattern);
     return match ? match[1].trim() : null;
   };
-  const insured = find(/(?:legal\s+(?:named\s+)?insured|insured\s+legal\s+entity|company\s+name|client)\s*(?:is|:|,)\s*([^\n,.]+(?:\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Co\.?))?)/i)
+
+  // Insured: this email template never labels it directly — it's the
+  // sign-off name. Falls back to the old label-based patterns for emails
+  // that don't follow the template.
+  const insured = extractSignOffName(raw)
+    || find(/(?:legal\s+(?:named\s+)?insured|insured\s+legal\s+entity|company\s+name|client)\s*(?:is|:|,)\s*([^\n,.]+(?:\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Co\.?))?)/i)
     || find(/(?:for\s+coverage|for)\s*:\s*([^\n,.]+)/i);
+
+  // Broker: this template addresses them directly in the greeting line
+  // ("Hi Arora & Sons team,"), rather than a labeled "Broker:" field.
+  const brokerGreetingMatch = raw.match(/^(?:Hi|Hello|Dear)\s+([^,\n]+?)(?:\s+team)?\s*,/im);
+  const broker = (brokerGreetingMatch ? brokerGreetingMatch[1].trim() : null)
+    || find(/(?:broker(?:\s+of\s+record)?|brokerage)\s*(?:is|:)\s*([^\n,.]+)/i);
+
   const email = find(/From:\s*[^<\n]*<([^>]+)>/i) || find(/([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})/);
-  const broker = find(/(?:broker(?:\s+of\s+record)?|brokerage)\s*(?:is|:)\s*([^\n,.]+)/i);
-  const fein = find(/FEIN\s*[:#]?\s*([A-Z0-9-]+)/i);
-  const dot = find(/DOT\s*#?\s*([A-Z0-9-]+)/i);
-  const mcNumber = find(/MC[-\s#]*([A-Z0-9-]+)/i);
-  const limit = find(/\$([\d,]+)\s*(?:requested\s+limit|limit)/i);
+  const address = find(/Address\s*:\s*([^\n]+)/i);
+  const effectiveDate = find(/Effective Date\s*:\s*([^\n]+)/i);
+  const fein = find(/\bFEIN\b\s*(?:\/\s*Tax\s*ID)?\s*[:#]?\s*([A-Z0-9-]+)/i);
+  const dot = find(/\bDOT\b\s*(?:Number)?\s*#?\s*:?\s*([A-Z0-9-]+)/i);
+  const mcNumber = find(/\bMC\b\s*(?:Number)?\s*#?\s*:?\s*(MC-?\d+|[A-Z0-9-]+)/i);
+  const limit = find(/Requested Limit\s*\/?\s*TIV\s*\(\$\)\s*:\s*\$?\s*([\d,]+)/i)
+    || find(/\$([\d,]+)\s*(?:requested\s+limit|limit)/i);
   const lobKey = sub.lobKey || (/(?:warehouse|building|contents|property)/i.test(raw) ? "property" : "trucking");
   const driverDetails = extractDriverDetails(raw);
+  const lossHistory = extractLossHistory(raw);
+  const vehicleDetails = extractVehicleDetails(raw);
   const fields = { insured, fein, dot, mcNumber, broker, email, exposureVal: limit ? Number(limit.replace(/,/g, "")) : null };
   const confidence = {};
   Object.keys(fields).forEach(key => { if (fields[key] !== null) confidence[key] = "medium"; });
@@ -579,12 +656,14 @@ function buildLocalNormalizationDraft(sub) {
   return {
     lobKey,
     driverDetails,
+    lossHistory,
+    vehicleDetails,
     ...fields,
     channelType: broker ? "broker" : "direct",
-    address: null,
-    effectiveDate: null,
+    address,
+    effectiveDate,
     coverageSummary: "Coverage requested in the captured submission; verify details.",
-    lossHistorySummary: null,
+    lossHistorySummary: lossHistory.length ? `${lossHistory.length} prior loss(es) captured from email` : null,
     brokerNote: null,
     fields_confidence: confidence,
     missing_critical_fields: missing,
@@ -907,6 +986,41 @@ function applyNormalizedDataToSubmission(subId) {
     // against these email-sourced ages the moment they land — never leave
     // it showing eligibility computed off the old template ages.
     sub.driverAgeGuardrail = undefined;
+  }
+
+  // --- Loss history captured from the "Loss Run History" block — replaces
+  // the cloned template's losses entirely, since these are this submission's
+  // actual prior losses, not the template's placeholder ones. ---
+  if (draft.lossHistory && draft.lossHistory.length) {
+    sub.losses = draft.lossHistory;
+  }
+
+  // --- Vehicle details captured from the "Vehicles" block. Only the fields
+  // the email actually stated are overwritten (year/make/model/stated
+  // value/assigned driver) — every rating-specific field (base rate,
+  // factors, etc.) stays as cloned from the template. New vehicle rows are
+  // added if the email names more units than the template had. ---
+  if (draft.vehicleDetails && Object.keys(draft.vehicleDetails).length) {
+    if (!sub.vehicles) sub.vehicles = [];
+    const templateVehicleShape = sub.vehicles[0] || {};
+    Object.keys(draft.vehicleDetails).forEach(unitNum => {
+      const idx = parseInt(unitNum, 10) - 1;
+      if (idx < 0) return;
+      const v = draft.vehicleDetails[unitNum];
+
+      while (sub.vehicles.length <= idx) {
+        sub.vehicles.push(Object.assign({}, templateVehicleShape, {
+          id: Date.now() + sub.vehicles.length,
+          xid: sub.vehicles.length + 1
+        }));
+      }
+      const vehicleRecord = sub.vehicles[idx];
+      vehicleRecord.year = v.year;
+      vehicleRecord.make = v.make;
+      vehicleRecord.model = v.model;
+      vehicleRecord.stated_value = v.stated_value;
+      vehicleRecord.assigned_driver = v.assigned_driver;
+    });
   }
 
   // --- Bookkeeping — rawEmailText / rawAttachments are intentionally NOT

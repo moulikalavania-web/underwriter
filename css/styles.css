@@ -1580,6 +1580,39 @@ tr.rbac-role-highlight {
   box-shadow: inset 3px 0 0 var(--primary-light);
 }
 
+/* Assign Submission modal — selectable team-member list */
+.assign-modal-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.assign-modal-option:hover {
+  border-color: var(--primary-light);
+  background-color: #f8fafc;
+}
+
+.assign-modal-option.selected {
+  border-color: var(--primary-light);
+  background-color: #eff6ff;
+}
+
+.assign-modal-option .assign-modal-avatar {
+  font-size: 18px;
+}
+
+.assign-modal-option .assign-modal-check {
+  margin-left: auto;
+  color: var(--primary-light);
+  font-size: 18px;
+}
+
 .submission-main-table tbody tr.referral-row {
   background-color: #fffbeb;
   border-left: 4px solid #f59e0b;

@@ -1579,6 +1579,33 @@ run<!--
     </div>
   </div>
 
+  <!-- Assign Submission modal — opened from the "Assigned To" column of the
+       Submission Intake table (replaces the old inline dropdown). Pick a
+       team member, Confirm; delegates to the existing assignSubmissionToUser()
+       so permission checks, decision log, Needs Assignment refresh, and
+       persistence all work exactly as before. -->
+  <div class="modal-overlay u-hidden" id="assignSubmissionModal" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-user-switch text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="assignSubmissionModalTitle">Assign Submission</h3>
+            <p class="text-xs text-muted u-m0">Choose who this submission should go to.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeAssignSubmissionModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="assignSubmissionModalList"><!-- rendered dynamically --></div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeAssignSubmissionModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmAssignSubmissionModal()"><i class="ph ph-check"></i> Confirm Assignment</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ================================================================ -->
   <!-- MODAL: COMPLETE END-TO-END CASE SUMMARY & ALL 7 STEPS PREVIEW -->
   <!-- ================================================================ -->
