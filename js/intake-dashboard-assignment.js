@@ -34,9 +34,12 @@ function renderRoleDashboard() {
 }
 
 function renderManagerDashboardHtml() {
-  const unassigned = SUBMISSIONS_DATASET.filter(s => !s.assignedTo);
+  // Only real submissions (Integrating API / Email Intake, apiSourced: true)
+  // — the hardcoded seed/golden-path demo dataset never appears here.
+  const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+  const unassigned = liveSubmissions.filter(s => !s.assignedTo);
   const byAssignee = {};
-  ASSIGNABLE_WORKER_ROLES.forEach(rk => { byAssignee[rk] = SUBMISSIONS_DATASET.filter(s => s.assignedTo === rk); });
+  ASSIGNABLE_WORKER_ROLES.forEach(rk => { byAssignee[rk] = liveSubmissions.filter(s => s.assignedTo === rk); });
 
   const unassignedRows = unassigned.slice(0, 5).map(s => `
     <tr>
@@ -80,7 +83,7 @@ function renderManagerDashboardHtml() {
 }
 
 function renderWorkerDashboardHtml() {
-  const mine = SUBMISSIONS_DATASET.filter(s => s.assignedTo === currentUserRole);
+  const mine = SUBMISSIONS_DATASET.filter(s => s.apiSourced && s.assignedTo === currentUserRole);
   const notStarted = mine.filter(s => (s.currentStep || 1) === 1 && (!s.completedSteps || s.completedSteps.length === 0));
   const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < WORKFLOW_STEPS.length);
   const readyToQuote = mine.filter(s => (s.currentStep || 1) === WORKFLOW_STEPS.length);
@@ -116,12 +119,14 @@ function renderWorkerDashboardHtml() {
 }
 
 function renderAuditorDashboardHtml() {
-  const total = SUBMISSIONS_DATASET.length;
-  const bound = SUBMISSIONS_DATASET.filter(s => s.pasSync && s.pasSync.status === "success").length;
-  const declined = DECLINE_LOG.length;
+  const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+  const liveDeclines = DECLINE_LOG.filter(d => d.apiSourced);
+  const total = liveSubmissions.length;
+  const bound = liveSubmissions.filter(s => s.pasSync && s.pasSync.status === "success").length;
+  const declined = liveDeclines.length;
   const inFlight = total - bound;
 
-  const recentDeclines = DECLINE_LOG.slice(0, 5).map(d => `
+  const recentDeclines = liveDeclines.slice(0, 5).map(d => `
     <tr>
       <td><code class="font-mono">${d.subId}</code></td>
       <td>${d.insured}</td>
@@ -152,8 +157,15 @@ function renderSubmissionsTable() {
   const tbody = document.getElementById("submissionsTableBody");
   if (!tbody) return;
 
+  // 0. The Submission Intake queue shows only real submissions — ones that
+  // actually came in through the Integrating API (product ingestion) or
+  // Email Intake (apiSourced: true). The hardcoded seed/golden-path demo
+  // dataset never appears here, even if it's loaded in the background for
+  // other purposes (e.g. an Email Intake normalization template).
+  const liveSubmissions = SUBMISSIONS_DATASET.filter(sub => sub.apiSourced);
+
   // 1. Filter dataset by selected LOB from LOB Switcher
-  const filteredByLOB0 = SUBMISSIONS_DATASET.filter(sub => {
+  const filteredByLOB0 = liveSubmissions.filter(sub => {
     return (currentLOBFilter === "all" || !currentLOBFilter) ? true : sub.lobKey === currentLOBFilter;
   });
 
@@ -230,10 +242,10 @@ function renderSubmissionsTable() {
     let emptyMsg = "No submissions found for the selected LOB filter and channel criteria.";
     let emptyIcon = "ph-tray";
     let emptyAction = "";
-    if (SUBMISSIONS_DATASET.length === 0) {
-      emptyMsg = "No submissions yet. Ingest a product through the Integrating API module to create your first submissions.";
+    if (liveSubmissions.length === 0) {
+      emptyMsg = "No submissions yet. Ingest a product JSON or add a raw email through the Integrating API module to create your first submission.";
       emptyIcon = "ph-cloud-arrow-up";
-      emptyAction = `<button class="btn btn-sm btn-primary mt-2" onclick="showIntegratingApiPage()"><i class="ph ph-plugs-connected"></i> Go to Integrating API</button> <button class="btn btn-sm btn-outline mt-2" onclick="loadSeedDemoData()"><i class="ph ph-flask"></i> Load Demo Data Instead</button>`;
+      emptyAction = `<button class="btn btn-sm btn-primary mt-2" onclick="showIntegratingApiPage()"><i class="ph ph-plugs-connected"></i> Go to Integrating API</button>`;
     } else if (!isManagerView) {
       emptyMsg = "You have no submissions assigned to you yet. Ask your Underwriting Manager to assign one from the Intake Queue.";
       emptyIcon = "ph-user-focus";

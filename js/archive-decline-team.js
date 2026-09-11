@@ -730,6 +730,20 @@ function renderTeamActivityMonthlyChart() {
   const container = document.getElementById("teamActivityMonthlyChart");
   if (!container) return;
 
+  // Team Activity reflects only submissions that came in through a real
+  // channel — the Integrating API module or the Email Intake module
+  // (both flagged apiSourced: true) — never the hardcoded seed/golden-path
+  // demo dataset.
+  const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+
+  if (liveSubmissions.length === 0) {
+    container.innerHTML = `
+      <div class="alert alert-info u-fs-12">
+        <i class="ph ph-info"></i> No submissions have been ingested yet via the Integrating API or Email Intake. Team Activity will populate automatically once real submissions come in.
+      </div>`;
+    return;
+  }
+
   const now = new Date();
   const isThisMonth = (ts) => {
     if (!ts) return false;
@@ -737,10 +751,10 @@ function renderTeamActivityMonthlyChart() {
     return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
   };
 
-  let scope = SUBMISSIONS_DATASET.filter(s => isThisMonth(s.receivedTimestamp));
+  let scope = liveSubmissions.filter(s => isThisMonth(s.receivedTimestamp));
   let usedFallback = false;
   if (scope.length === 0) {
-    scope = SUBMISSIONS_DATASET;
+    scope = liveSubmissions;
     usedFallback = true;
   }
 
@@ -769,15 +783,15 @@ function renderTeamActivityMonthlyChart() {
 
   // ---- Team-wide KPI summary strip (computed live, same source data) ----
   const byUW = {};
-  SUBMISSIONS_DATASET.forEach(sub => {
+  liveSubmissions.forEach(sub => {
     const uw = sub.underwriter || "Unassigned";
     if (!byUW[uw]) byUW[uw] = [];
     byUW[uw].push(sub);
   });
   const teamCount = Object.keys(byUW).length;
-  const activeCount = SUBMISSIONS_DATASET.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length).length;
-  const completedCount = SUBMISSIONS_DATASET.filter(s => (s.currentStep || 1) >= WORKFLOW_STEPS.length).length;
-  const delayedCount = SUBMISSIONS_DATASET.filter(s => computeSubmissionActivityFlags(s).isDelayed).length;
+  const activeCount = liveSubmissions.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length).length;
+  const completedCount = liveSubmissions.filter(s => (s.currentStep || 1) >= WORKFLOW_STEPS.length).length;
+  const delayedCount = liveSubmissions.filter(s => computeSubmissionActivityFlags(s).isDelayed).length;
 
   const kpiStrip = `
     <div class="team-kpi-strip">
@@ -824,9 +838,11 @@ function renderTeamActivityBoard() {
   const container = document.getElementById("teamActivityBoard");
   if (!container) return;
 
-  // Group all submissions by underwriter (team member)
+  // Group only real ingested submissions (Integrating API or Email Intake —
+  // apiSourced: true) by underwriter (team member); the hardcoded
+  // seed/golden-path demo dataset never appears here.
   const byUW = {};
-  SUBMISSIONS_DATASET.forEach(sub => {
+  SUBMISSIONS_DATASET.filter(s => s.apiSourced).forEach(sub => {
     const uw = sub.underwriter || "Unassigned";
     if (!byUW[uw]) byUW[uw] = [];
     byUW[uw].push(sub);
@@ -892,7 +908,7 @@ function renderTeamActivityBoard() {
       </div>`;
   }).join("");
 
-  container.innerHTML = cards || `<div class="text-muted text-sm">No submissions found.</div>`;
+  container.innerHTML = cards || `<div class="text-muted text-sm">No submissions have been ingested yet via the Integrating API or Email Intake.</div>`;
 }
 
 // ============================================================================

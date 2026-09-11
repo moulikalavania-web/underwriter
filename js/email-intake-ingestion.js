@@ -274,6 +274,13 @@ async function createRawSubmissionFromEmail() {
     newSub.id = newId;
     newSub.lobKey = lobKey;
 
+    // Real data captured from an actual inbound email — flagged the same as
+    // Integrating API ingestions so dashboards that must reflect only real
+    // ingested data (e.g. Team Activity) count this submission, and never
+    // the hardcoded seed/golden-path demo dataset it borrowed its schema
+    // shape from.
+    newSub.apiSourced = true;
+
     // --- Placeholder / pending display fields. These are NOT extracted from
     // the raw text — they are honest placeholders until a human explicitly
     // runs AI Document Ingestion. Nothing here reads or alters rawEmailText.
@@ -481,6 +488,73 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// Pulls per-driver details (name, age, CDL experience, license state/class)
+// out of the raw pasted email text, keyed by driver number (1-based) so
+// they can be matched onto sub.drivers[index] later. Nothing here is
+// invented — a field is only set if the email text actually contains it;
+// everything else on that driver (dob, sex, license number, tenure,
+// status, driver_factor) stays exactly as cloned from the LOB template.
+// Recognized formats:
+//   "Driver 1 Name: Rahul Sharma"
+//   "Driver 1: Rahul Sharma, Age 24, TX Class A license, 3 years CDL experience"
+//   "Driver 1: Age 24, TX Class A license, 3 years CDL experience"  (no name given)
+//   "Driver Name: Rahul Sharma" / "Age: 24"  (single unnumbered driver, applies to Driver 1)
+function extractDriverDetails(raw) {
+  const details = {};
+  if (!raw) return details;
+
+  function ensure(idx) {
+    if (!details[idx]) details[idx] = {};
+    return details[idx];
+  }
+
+  const namePattern = "[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,3}";
+
+  const reNumberedNamed = new RegExp(`Driver\\s*(\\d+)\\s*Name\\s*[:\\-]\\s*(${namePattern})`, "gi");
+  let m;
+  while ((m = reNumberedNamed.exec(raw)) !== null) {
+    ensure(parseInt(m[1], 10)).name = m[2].trim();
+  }
+
+  const reNumberedLine = /Driver\s*(\d+)\s*:\s*([^\n]+)/gi;
+  while ((m = reNumberedLine.exec(raw)) !== null) {
+    const idx = parseInt(m[1], 10);
+    const rest = m[2].trim();
+    const d = ensure(idx);
+
+    const ageMatch = rest.match(/age\s*[:\s]?\s*(\d+(?:\.\d+)?)/i) || rest.match(/\b(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*old\b/i);
+    if (ageMatch && d.age === undefined) d.age = parseFloat(ageMatch[1]);
+
+    const expMatch = rest.match(/(\d+)\s*years?\s*(?:CDL\s*)?experience/i);
+    if (expMatch && d.experience === undefined) d.experience = `${expMatch[1]} Years`;
+
+    const licMatch = rest.match(/\b([A-Z]{2})\s*Class\s*([A-Za-z0-9]+)\s*licen[sc]e/i);
+    if (licMatch && d.licensestate === undefined) {
+      d.licensestate = licMatch[1];
+      d.licenseclasstype = `Class ${licMatch[2]}`;
+    }
+
+    if (d.name === undefined) {
+      const firstSegment = rest.split(",")[0].trim();
+      const looksLikeName = firstSegment
+        && !/^age\b/i.test(firstSegment)
+        && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(firstSegment)
+        && firstSegment.length >= 2 && firstSegment.length <= 40
+        && /^[A-Za-z .'-]+$/.test(firstSegment);
+      if (looksLikeName) d.name = firstSegment;
+    }
+  }
+
+  if (Object.keys(details).length === 0) {
+    const single = raw.match(new RegExp(`Driver\\s*Name\\s*[:\\-]\\s*(${namePattern})`, "i"));
+    if (single) ensure(1).name = single[1].trim();
+    const ageSingle = raw.match(/(?:^|\W)age\s*[:\s]?\s*(\d+(?:\.\d+)?)/i);
+    if (ageSingle) ensure(1).age = parseFloat(ageSingle[1]);
+  }
+
+  return details;
+}
+
 function buildLocalNormalizationDraft(sub) {
   const raw = sub.rawEmailText || "";
   const find = (pattern) => {
@@ -496,6 +570,7 @@ function buildLocalNormalizationDraft(sub) {
   const mcNumber = find(/MC[-\s#]*([A-Z0-9-]+)/i);
   const limit = find(/\$([\d,]+)\s*(?:requested\s+limit|limit)/i);
   const lobKey = sub.lobKey || (/(?:warehouse|building|contents|property)/i.test(raw) ? "property" : "trucking");
+  const driverDetails = extractDriverDetails(raw);
   const fields = { insured, fein, dot, mcNumber, broker, email, exposureVal: limit ? Number(limit.replace(/,/g, "")) : null };
   const confidence = {};
   Object.keys(fields).forEach(key => { if (fields[key] !== null) confidence[key] = "medium"; });
@@ -503,6 +578,7 @@ function buildLocalNormalizationDraft(sub) {
   if (lobKey === "trucking" && !fields.dot) missing.push("dot");
   return {
     lobKey,
+    driverDetails,
     ...fields,
     channelType: broker ? "broker" : "direct",
     address: null,
@@ -789,6 +865,49 @@ function applyNormalizedDataToSubmission(subId) {
       loss_history_summary: lossHistorySummary
     }
   });
+
+  // --- Driver details captured from the raw email itself (Drivers Schedule
+  // & Verification Status, and therefore the Minimum Driver Age eligibility
+  // check, reflect this email's actual drivers — not the cloned LOB
+  // template's placeholder ones). Only fields the email actually stated are
+  // overwritten; anything not mentioned (dob, sex, license number, tenure,
+  // status, driver_factor) stays as cloned from the template. If the email
+  // names more drivers than the template had, new driver rows are added —
+  // the submission's driver count is driven by the email, not the template. ---
+  if (draft.driverDetails && Object.keys(draft.driverDetails).length) {
+    if (!sub.drivers) sub.drivers = [];
+    const templateDriverShape = sub.drivers[0] || {};
+    Object.keys(draft.driverDetails).forEach(driverNum => {
+      const idx = parseInt(driverNum, 10) - 1;
+      if (idx < 0) return;
+      const d = draft.driverDetails[driverNum];
+
+      while (sub.drivers.length <= idx) {
+        sub.drivers.push(Object.assign({}, templateDriverShape, {
+          id: `DRV-${sub.drivers.length + 1}`,
+          given_name: null, last_name: null, age: null, dob: null, sex: null,
+          licenseNumber: null, licensestate: null, licenseclasstype: null,
+          experience: null, tenure: null, status: "Pending Verification", driver_factor: null
+        }));
+      }
+      const driverRecord = sub.drivers[idx];
+
+      if (d.name) {
+        const nameParts = d.name.trim().split(/\s+/);
+        driverRecord.given_name = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : nameParts[0];
+        driverRecord.last_name = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+      }
+      if (d.age !== undefined) driverRecord.age = d.age;
+      if (d.experience !== undefined) driverRecord.experience = d.experience;
+      if (d.licensestate !== undefined) driverRecord.licensestate = d.licensestate;
+      if (d.licenseclasstype !== undefined) driverRecord.licenseclasstype = d.licenseclasstype;
+    });
+
+    // Minimum Driver Age eligibility (Underwriting Workbench) must re-check
+    // against these email-sourced ages the moment they land — never leave
+    // it showing eligibility computed off the old template ages.
+    sub.driverAgeGuardrail = undefined;
+  }
 
   // --- Bookkeeping — rawEmailText / rawAttachments are intentionally NOT
   // referenced or modified anywhere above. ---
