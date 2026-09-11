@@ -681,8 +681,6 @@ function recordQuoteVersion(sub, isBound = false) {
   sub.quoteNo = versionId;
   sub.quote_id = versionId;
 
-  if (typeof updateSidebarApiCounts === "function") updateSidebarApiCounts();
-
   if (currentPage === "quote-versions") {
     renderQuoteVersionsLedger();
   }

@@ -1029,6 +1029,52 @@ function renderSubjectivities(subjs) {
 }
 
 /**
+ * Underwriter-editable Minimum Driver Age guardrail (Drivers Schedule &
+ * Verification Status, Screen 5). Changing it re-checks every driver's
+ * eligibility live — driver age always comes from the submission's own
+ * JSON (d.age), never a hardcoded result.
+ */
+function updateDriverAgeGuardrail(inputEl) {
+  if (!hasPermission("appetiteRules", "override")) {
+    denyPermission("appetiteRules", "override");
+    return;
+  }
+
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  if (!sub) return;
+
+  const newGuardrail = parseFloat(inputEl.value);
+  if (isNaN(newGuardrail) || newGuardrail < 0) {
+    showToast("Enter a valid Minimum Driver Age guardrail.", "danger");
+    inputEl.value = sub.driverAgeGuardrail;
+    return;
+  }
+
+  sub.driverAgeGuardrail = newGuardrail;
+
+  // Keep the Step 7 Appetite Rules table's per-driver Minimum Driver Age
+  // rows (if the ingested product defines any) in sync with the same
+  // guardrail, so both screens always agree.
+  (sub.appetiteRules || []).forEach(r => {
+    const f = (r.factor || "").toLowerCase();
+    if (f.indexOf("driver age") !== -1 && r.baseValue !== undefined && r.baseValue !== null) {
+      r.baseValue = newGuardrail;
+      r.guardrail = `>= ${newGuardrail} Years`;
+      const ageNum = parseRuleNumber(r.val);
+      r.pass = ageNum !== null ? ageNum >= newGuardrail : r.pass;
+      r.manualPassOverride = false;
+    }
+  });
+
+  renderUnderwritingWorkbench(sub);
+  if (typeof renderAppetiteRules === "function" && sub.appetiteRules) renderAppetiteRules(sub.appetiteRules);
+  if (typeof persistAppState === "function") persistAppState();
+
+  showToast(`Minimum Driver Age guardrail updated to ${newGuardrail} — all drivers re-checked.`, "success");
+}
+window.updateDriverAgeGuardrail = updateDriverAgeGuardrail;
+
+/**
  * Dynamic Underwriting Workbench Data Renderer (Screen 5)
  * Displays account info, coverages, limits, operational factors, vehicles schedule, and driver schedule.
  */
@@ -1384,10 +1430,27 @@ function renderUnderwritingWorkbench(sub) {
       // fleet-wide "Minimum Driver Age"/"Minimum Driver Experience" rule)
       // is shown on every driver's card instead, labeled as fleet-wide
       // rather than guessed onto one driver.
+      // Minimum Driver Age eligibility is handled separately below (its own
+      // editable-guardrail box, driven live off sub.driverAgeGuardrail) —
+      // excluded here so it isn't rendered twice.
       const driverGuardrailRules = (sub.appetiteRules || []).filter(r => {
         const f = (r.factor || "").toLowerCase();
-        return f.indexOf("driver age") !== -1 || f.indexOf("driver experience") !== -1;
+        return f.indexOf("driver experience") !== -1;
       });
+
+      // Minimum Driver Age guardrail: an Underwriter-editable value that
+      // drives every driver's Eligible/Ineligible status live — never a
+      // hardcoded pass/fail. Initialized once from the ingested product
+      // JSON's own Minimum Driver Age rule (if present), else 21.
+      if (sub.driverAgeGuardrail === undefined || sub.driverAgeGuardrail === null) {
+        const existingAgeRule = (sub.appetiteRules || []).find(r => {
+          const f = (r.factor || "").toLowerCase();
+          return f.indexOf("driver age") !== -1 && r.baseValue !== undefined && r.baseValue !== null;
+        });
+        sub.driverAgeGuardrail = existingAgeRule ? Number(existingAgeRule.baseValue) : 21;
+      }
+      const ageGuardrail = sub.driverAgeGuardrail;
+      const canEditAgeGuardrail = hasPermission("appetiteRules", "override");
 
       function driverIdLabel(d, i) {
         return d.id !== undefined ? (String(d.id).startsWith("DRV-") ? d.id : `DRV-${d.id}`) : `DRV-${i + 1}`;
@@ -1410,10 +1473,17 @@ function renderUnderwritingWorkbench(sub) {
       }
 
       driversContainer.innerHTML = `
-        <div class="card-header" style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0;">
+        <div class="card-header" style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
           <h3 style="font-size: 14px; font-weight: 800; color: #0f172a; margin: 0;">
             <i class="ph ph-identification-card text-success"></i> Drivers Schedule & Verification Status (${drivers.length} Driver${drivers.length === 1 ? '' : 's'})
           </h3>
+          <div style="display:flex; align-items:center; gap:6px; font-size:12px;" title="Underwriter-editable — changing this re-checks every driver's eligibility immediately.">
+            <span class="text-muted" style="font-weight:700;">Minimum Driver Age / Guardrail:</span>
+            ${canEditAgeGuardrail
+              ? `<input type="number" min="0" step="1" value="${ageGuardrail}" class="driver-age-guardrail-input" style="width:64px; padding:3px 6px; border:1px solid var(--border-color); border-radius:4px; font-weight:700;" onchange="updateDriverAgeGuardrail(this)">`
+              : `<strong>${ageGuardrail}</strong>`}
+            <span class="text-muted">Years</span>
+          </div>
         </div>
         <div class="card-body">
           <div class="driver-sections-grid">
@@ -1421,6 +1491,8 @@ function renderUnderwritingWorkbench(sub) {
               const driverRules = rulesForDriver(d, i);
               const idLabel = driverIdLabel(d, i);
               const name = driverDisplayName(d, i);
+              const driverAge = d.age !== undefined && d.age !== null ? Number(d.age) : null;
+              const isAgeEligible = driverAge !== null ? driverAge >= ageGuardrail : null;
               return `
               <div class="driver-section-card">
                 <div class="driver-section-header">
@@ -1437,6 +1509,19 @@ function renderUnderwritingWorkbench(sub) {
                   <div class="driver-field-row"><span>Tenure</span><strong>${d.tenure !== undefined ? `${d.tenure} Years` : NP}</strong></div>
                   <div class="driver-field-row"><span>Status</span><strong>${d.status ? `<span class="badge badge-success"><i class="ph ph-check-circle"></i> ${d.status}</span>` : NP}</strong></div>
                   <div class="driver-field-row"><span>Driver Factor</span><strong class="font-mono">${wbFmt(d.driver_factor)}</strong></div>
+                </div>
+                <div class="driver-knockout-box ${isAgeEligible === false ? 'fail' : 'pass'}">
+                  <div class="driver-knockout-title">
+                    <i class="ph ${isAgeEligible === false ? 'ph-x-circle' : 'ph-check-circle'}"></i> Minimum Driver Age Eligibility
+                  </div>
+                  <div class="driver-knockout-detail">
+                    Value: <strong>${driverAge !== null ? `${driverAge} Years` : NP}</strong> vs Guardrail: <strong>&gt;= ${ageGuardrail} Years</strong>
+                  </div>
+                  <div class="driver-knockout-result">
+                    <span class="badge ${isAgeEligible === false ? 'badge-danger' : (isAgeEligible === true ? 'badge-success' : 'badge-light')}">
+                      ${isAgeEligible === null ? 'Age Not Provided' : (isAgeEligible ? 'Eligible' : 'Ineligible')}
+                    </span>
+                  </div>
                 </div>
                 ${driverRules.map(({ rule, fleetWide }) => `
                 <div class="driver-knockout-box ${rule.pass ? 'pass' : 'fail'}">

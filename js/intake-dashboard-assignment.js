@@ -215,8 +215,6 @@ function renderSubmissionsTable() {
   if (elDirect) elDirect.textContent = `${directCount} Submissions (${total > 0 ? Math.round((directCount/total)*100) : 0}%)`;
   if (elPipe) elPipe.textContent = `${total} Normalized`;
 
-  if (typeof updateSidebarApiCounts === "function") updateSidebarApiCounts();
-
   // 5. Update tab counts
   const tabAll = document.getElementById("tabFilterAll");
   const tabBroker = document.getElementById("tabFilterBroker");

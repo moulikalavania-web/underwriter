@@ -536,8 +536,6 @@ function renderDeclineCenter() {
   if (appEl) appEl.textContent = `${countByTrigger["Appetite Knockout"]} Record${countByTrigger["Appetite Knockout"] !== 1 ? 's' : ''}`;
   if (senEl) senEl.textContent = `${countByTrigger["Senior UW Decline"]} Record${countByTrigger["Senior UW Decline"] !== 1 ? 's' : ''}`;
   if (totalEl) totalEl.textContent = `${DECLINE_LOG.length} Record${DECLINE_LOG.length !== 1 ? 's' : ''} Logged`;
-
-  if (typeof updateSidebarApiCounts === "function") updateSidebarApiCounts();
 }
 
 function fixDuplicateFein(logIndex) {

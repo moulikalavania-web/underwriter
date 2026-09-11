@@ -2208,34 +2208,6 @@ function canManageAssignments() {
 // explicitly opt into the pre-built demo dataset instead.
 var SUBMISSIONS_DATASET = [];
 
-// Sidebar badge counts must reflect ONLY data ingested through the
-// Integrating API (submissions/quotes/declines flagged apiSourced: true) —
-// never the hardcoded seed/demo dataset or golden-path sample data. When no
-// API data has been ingested yet, badges show 0.
-function updateSidebarApiCounts() {
-  const intakeBadge = document.getElementById("sidebarIntakeCount");
-  if (intakeBadge) {
-    intakeBadge.textContent = (typeof SUBMISSIONS_DATASET !== "undefined")
-      ? SUBMISSIONS_DATASET.filter(s => s.apiSourced).length
-      : 0;
-  }
-
-  const declineBadge = document.getElementById("sidebarDeclineCount");
-  if (declineBadge) {
-    declineBadge.textContent = (typeof DECLINE_LOG !== "undefined")
-      ? DECLINE_LOG.filter(e => e.apiSourced).length
-      : 0;
-  }
-
-  const versionsBadge = document.getElementById("sidebarVersionsCount");
-  if (versionsBadge) {
-    versionsBadge.textContent = (typeof QUOTE_VERSIONS_DATASET !== "undefined")
-      ? QUOTE_VERSIONS_DATASET.filter(v => v.apiSourced).reduce((n, v) => n + v.quotes.length, 0)
-      : 0;
-  }
-}
-window.updateSidebarApiCounts = updateSidebarApiCounts;
-
 function loadSeedDemoData() {
   SUBMISSIONS_DATASET = SEED_SUBMISSIONS_DATASET.map(s => Object.assign({}, s));
   window.SUBMISSIONS_DATASET = SUBMISSIONS_DATASET;

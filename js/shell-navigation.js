@@ -83,7 +83,6 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSubmissionsTable();
   selectSubmission(activeSubmissionId, false);
   showIntakePage();
-  if (typeof updateSidebarApiCounts === "function") updateSidebarApiCounts();
   if (restored) showToast("📂 Restored your last saved session.", "info");
 });
 

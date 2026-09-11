@@ -592,6 +592,18 @@ function buildProductAppetiteRules(schemaObj, sub) {
     );
   }
 
+  // Normalize field names to what renderAppetiteRules() / the MGA override
+  // controls (toggleAppetiteRuleOverride, validateMgaOverrideInput,
+  // evaluateAppetiteRule) actually key off, so every rule — including the
+  // per-driver Minimum Driver Age rows above — renders and evaluates
+  // identically, with working PASS/FAIL badges and override buttons.
+  rules.forEach(r => {
+    if (!r.ruleId) r.ruleId = r.id || r.code;
+    if (!r.factor) r.factor = r.name || r.desc;
+    if (!r.guardrail) r.guardrail = r.threshold;
+    if (r.canOverride === undefined) r.canOverride = r.ruleType !== "Knockout";
+  });
+
   return rules;
 }
 
@@ -1700,8 +1712,6 @@ function ingestProductSchema(schemaObj) {
     lobSelect.innerHTML = '<option value="' + pId + '" selected>🚛 ' + pId + ': ' + pName + ' (' + pLob + ' v' + pVer + ')</option>';
   }
 
-  // 3. Update sidebar intake badge count
-  if (typeof updateSidebarApiCounts === "function") updateSidebarApiCounts();
 
   // 4. Render product studio
   renderActiveInsuranceProduct();
