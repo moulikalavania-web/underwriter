@@ -1,0 +1,2633 @@
+run<!--
+  VeriDex Platform Framework v3.0 — Recorded Exception (§25)
+  ------------------------------------------------------------------
+  Deviation: Dummy data (§27) does not use the platform's PRD-001–PRD-006
+  product set or its full named-user roster (only Anika Sharma is reused,
+  as Product Manager on ingested product schemas).
+  Rationale: This module's domain is commercial trucking/auto underwriting,
+  which has no analog in the platform's official product list (Private Car,
+  SME Property, Group Health, Marine Cargo, Travel). Its role hierarchy
+  (Assistant → Junior UW → Senior UW → CUO → Binding Ops → Auditor → Admin)
+  is a 7-role underwriting authority ladder that does not map to the
+  platform's 6 generic named users (PM/Actuary/UW Manager/Compliance/
+  Publisher/Admin) without producing inaccurate role labels.
+  Scope: Product IDs, insured names, and underwriting-desk personas only.
+  Platform ID format (§27) and all design tokens/components are followed.
+  Status: Pending Platform Design review — not yet formally approved.
+-->
+<!DOCTYPE html>
+<html lang="en" style="background-color: #1A1D23;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="pageTitleTag">Submission Intake &amp; Ingestion Queue — Underwriting Workflow | VeriDex</title>
+  <meta name="description" content="VeriDex Underwriting Engine — commercial insurance submission-to-quote lifecycle: intake, clearance, enrichment, underwriting workbench, authority review, rating, and quote &amp; bind.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='48' fill='%231A1D23'/%3E%3Cpath fill='%232563eb' d='M128 32l72 28v56c0 56-31 92-72 108-41-16-72-52-72-108V60z'/%3E%3Cpath fill='%23fff' d='M111 158l-30-30 15-15 15 15 45-45 15 15z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <a href="#appMainContent" class="skip-link">Skip to main content</a>
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <button class="btn-sidebar-toggle" id="btnToggleSidebar" onclick="toggleSidebar()" title="Toggle Navigation Sidebar" aria-label="Toggle Navigation Sidebar">
+        <i class="ph ph-list"></i>
+      </button>
+      <div class="logo-box">
+        <i class="ph ph-shield-check logo-icon"></i>
+        <div class="logo-text">
+          <span class="brand-title">VeriDex <strong>Underwriting Engine</strong></span>
+          <span class="brand-subtitle">Commercial Insurance Submission-to-Quote Lifecycle</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="user-role-selector-group">
+        <label for="userRoleSelect"><i class="ph ph-user-shield"></i> UW Role:</label>
+        <select id="userRoleSelect" class="role-dropdown" onchange="changeUserRole(this.value)">
+          <option value="assistant">📋 Intake & Clearance Assistant (Emily Watson - $0 Limit)</option>
+          <option value="junior" selected>👨‍💼 Junior UW (Sarah Jenkins - $2M Limit)</option>
+          <option value="senior_uw">👩‍💼 Senior Underwriter (David Chen - $10M Limit)</option>
+          <option value="senior">👔 Chief Underwriting Officer / CUO (Marcus Vance - $25M Limit)</option>
+          <option value="binder">⚡ Binding & Operations Lead (Elena Rostova - $50M Limit)</option>
+          <option value="auditor">🛡️ Risk & Compliance Auditor (Jonathan Reed - Read-Only)</option>
+          <option value="admin">🛠️ System Administrator (Priya Nair - Full Access)</option>
+        </select>
+      </div>
+
+      <div class="lob-selector-group">
+        <label for="lobSelect"><i class="ph ph-stack"></i> LOB Switcher:</label>
+        <select id="lobSelect" class="lob-dropdown">
+          <option value="trucking" selected>🚚 Commercial Auto / Trucking</option>
+          <option value="property">🏢 Commercial Property</option>
+          <option value="mpl">💼 MPL - Professional Liability</option>
+          <option value="gl_cpc">🏗️ GL CPC - Package & Contractors</option>
+          <option value="gl_cas">⚗️ GL CAS - High Hazard Casualty</option>
+          <option value="prd016">🚗 PRD-016: Yash_new (Motor v2026.08)</option>
+          <option value="all">🌐 All Lines of Business (Show All)</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- Breadcrumb Bar -->
+  <nav class="breadcrumb-bar" id="breadcrumbBar" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list" id="breadcrumbList">
+      <li class="breadcrumb-item"><span>VeriDex</span></li>
+      <li class="breadcrumb-sep">›</li>
+      <li class="breadcrumb-item breadcrumb-current" id="breadcrumbCurrent" aria-current="page">Submission Intake</li>
+    </ol>
+  </nav>
+
+  <!-- Main Application Body with Left Sidebar Layout -->
+  <div class="app-layout" id="appLayout">
+    
+    <!-- Left Navigation Sidebar -->
+    <aside class="app-sidebar" id="appSidebar" aria-label="Primary">
+      <div class="sidebar-inner">
+        
+        <!-- Primary Navigation Links -->
+        <div class="sidebar-section">
+          <div class="sidebar-section-title" id="navLabelSubmissions">SUBMISSIONS</div>
+          <nav class="sidebar-nav" aria-labelledby="navLabelSubmissions">
+            <button class="sidebar-nav-item active" id="navItemIntake" onclick="showIntakePage()" title="Submission Intake">
+              <div class="nav-icon"><i class="ph ph-tray"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Submission Intake</span>
+              </div>
+              <span class="nav-badge" id="sidebarIntakeCount">0</span>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemDecline" onclick="showDeclinePage()" title="Decline Center">
+              <div class="nav-icon"><i class="ph ph-prohibit"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Decline Center</span>
+              </div>
+              <span class="nav-badge" id="sidebarDeclineCount">0</span>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemQuoteVersions" onclick="showQuoteVersionsPage()" title="Quote Versioning">
+              <div class="nav-icon"><i class="ph ph-stack"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Quote Versioning</span>
+              </div>
+              <span class="nav-badge" id="sidebarVersionsCount">0</span>
+            </button>
+          </nav>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-title" id="navLabelComparison">COMPARISON</div>
+          <nav class="sidebar-nav" aria-labelledby="navLabelComparison">
+            <button class="sidebar-nav-item" id="navItemQuoteIntel" onclick="showQuoteIntelligencePage()" title="Quote Intelligence">
+              <div class="nav-icon"><i class="ph ph-chart-bar"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Quote Comparison</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item u-hidden" id="navItemUnifiedAccount" onclick="showUnifiedAccountPage()" title="Unified Account View">
+              <div class="nav-icon"><i class="ph ph-buildings"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Unified Account View</span>
+              </div>
+            </button>
+          </nav>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-title" id="navLabelIntegrations">INTEGRATIONS</div>
+          <nav class="sidebar-nav" aria-labelledby="navLabelIntegrations">
+            <button class="sidebar-nav-item" id="navItemIntegratingApi" onclick="showIntegratingApiPage()" title="Integrating API">
+              <div class="nav-icon"><i class="ph ph-plugs-connected"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Integrating API</span>
+                <span class="nav-subtitle">Product Schema Ingestion</span>
+              </div>
+              <span class="nav-badge badge-primary text-xs font-mono" style="font-size: 9px;">API</span>
+            </button>
+          </nav>
+        </div>
+
+        <div class="sidebar-section u-hidden" id="sidebarComplianceSection">
+          <div class="sidebar-section-title" id="navLabelCompliance">COMPLIANCE</div>
+          <nav class="sidebar-nav" aria-labelledby="navLabelCompliance">
+            <button class="sidebar-nav-item" id="navItemAuditLog" onclick="showAuditLogPage()" title="Audit Log">
+              <div class="nav-icon"><i class="ph ph-clock-counter-clockwise"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Audit Log</span>
+              </div>
+            </button>
+          </nav>
+        </div>
+
+        <div class="sidebar-section u-hidden" id="sidebarAdminSection">
+          <div class="sidebar-section-title" id="navLabelAdmin">ADMIN</div>
+          <nav class="sidebar-nav" aria-labelledby="navLabelAdmin">
+            <button class="sidebar-nav-item" id="navItemArchive" onclick="showArchivePage()" title="Archive">
+              <div class="nav-icon"><i class="ph ph-archive"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Archive</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemTeamActivity" onclick="showTeamActivityPage()" title="Team Activity">
+              <div class="nav-icon"><i class="ph ph-users-three"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Team Activity</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemUserMaster" onclick="showUserMasterPage()" title="User Master">
+              <div class="nav-icon"><i class="ph ph-shield-check"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">User Master</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemReviewRules" onclick="openReviewRoutingModal()" title="Configure Senior/Manager review routing rules">
+              <div class="nav-icon"><i class="ph ph-sliders"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Review Routing Rules</span>
+              </div>
+            </button>
+          </nav>
+        </div>
+
+
+        <!-- Sidebar Footer User Card -->
+        <div class="sidebar-footer">
+          <div class="user-avatar-circle" id="sidebarUserAvatar">👨‍💼</div>
+          <div class="user-info-text">
+            <strong id="sidebarUserName">Sarah Jenkins</strong>
+            <span id="sidebarUserRoleTitle">Junior UW ($2M Limit)</span>
+          </div>
+          <button type="button" class="btn-icon" title="Clear saved session & reset demo data" aria-label="Reset demo data" onclick="if(confirm('Clear your saved session and reload with fresh demo data? This cannot be undone.')) resetPrototypeData();" style="margin-left:auto; background:transparent; border:none; color:#94a3b8; cursor:pointer; padding:4px;">
+            <i class="ph ph-arrow-counter-clockwise"></i>
+          </button>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- Main Application Content Area -->
+    <main class="app-main-content" id="appMainContent">
+      
+      <!-- ==================================================================== -->
+      <!-- PAGE 1: SUBMISSION INTAKE PAGE (Screen 1 Queue & Portals Hub) -->
+      <!-- ==================================================================== -->
+      <div class="page-view active" id="intakePageView">
+        <!-- Screen 1: Broker / Direct Intake & Central Submissions Table -->
+        <section id="screen-1" class="screen-view active">
+          <div class="screen-header">
+            <div>
+              <span class="phase-pill phase-1-pill"><i class="ph ph-tray"></i> Intake & Portals Hub</span>
+              <h2 id="intakeDashboardTitle">Submission Intake & Ingestion Queue</h2>
+              <p class="text-xs text-muted u-m0" id="intakeDashboardSubtitle" style="margin-top:2px;"></p>
+            </div>
+          </div>
+
+          <!-- Role-Specific Dashboard — content and layout differ per persona.
+               Populated by renderRoleDashboard(), called on every role switch
+               and every intake-page visit. Not the same view for everyone. -->
+          <div id="roleDashboardContainer" class="mb-3"></div>
+
+          <!-- Intake Metrics Row -->
+          <div class="metrics-summary-bar">
+            <div class="metric-box">
+              <span class="lbl"><i class="ph ph-tray"></i> Total Incoming Submissions</span>
+              <strong class="val" id="countTotalSubs">8 Total Cases</strong>
+            </div>
+            <div class="metric-box">
+              <span class="lbl"><i class="ph ph-briefcase text-primary"></i> Broker Intake Channel</span>
+              <strong class="val text-primary" id="countBrokerSubs">5 Submissions (62%)</strong>
+            </div>
+            <div class="metric-box">
+              <span class="lbl"><i class="ph ph-user-circle text-success"></i> Direct Customer Portal</span>
+              <strong class="val text-success" id="countDirectSubs">3 Submissions (38%)</strong>
+            </div>
+            <div class="metric-box">
+              <span class="lbl"><i class="ph ph-gears text-warning"></i> Ready for Ingestion Pipeline</span>
+              <strong class="val text-warning" id="countPipelineSubs">8 Normalized</strong>
+            </div>
+          </div>
+
+          <!-- Submissions Table Filter & Control Bar -->
+          <div class="table-filter-bar mt-3">
+            <div class="filter-tabs">
+              <button class="tab-btn active" id="tabFilterAll" onclick="filterSubmissionsTable('all')">All Submissions (8)</button>
+              <button class="tab-btn" id="tabFilterBroker" onclick="filterSubmissionsTable('broker')"><i class="ph ph-briefcase"></i> Broker Intake (5)</button>
+              <button class="tab-btn" id="tabFilterDirect" onclick="filterSubmissionsTable('direct')"><i class="ph ph-user"></i> Direct Customer (3)</button>
+              <button class="tab-btn" id="tabFilterReferrals" onclick="filterSubmissionsTable('referral')"><i class="ph ph-user-check text-warning"></i> Senior Referrals (3)</button>
+            </div>
+            
+            <div class="table-right-controls">
+              <div class="queue-sort-box">
+                <label for="queueSortSelect"><i class="ph ph-sort-descending"></i> Queue Order:</label>
+                <select id="queueSortSelect" class="queue-sort-dropdown" onchange="changeQueueSorting(this.value)">
+                  <option value="priority" selected>⚡ Priority & SLA (Urgent First)</option>
+                  <option value="fifo">⏱️ FIFO (First-In, First-Out Arrival)</option>
+                  <option value="exposure">💰 Exposure (Highest Value First)</option>
+                </select>
+              </div>
+              <div class="search-box">
+                <i class="ph ph-magnifying-glass search-icon"></i>
+                <input type="text" id="tableSearchInput" placeholder="Search by Insured, FEIN, Broker..." onkeyup="searchSubmissionsTable()">
+              </div>
+            </div>
+          </div>
+
+          <!-- Central Submissions Table -->
+          <div class="card mt-2">
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="data-table submission-main-table" id="submissionsMasterTable">
+                  <thead>
+                    <tr>
+                      <th>Priority & SLA</th>
+                      <th>Submission ID</th>
+                      <th>Intake Channel</th>
+                      <th>Named Insured Entity</th>
+                      <th>Line of Business (LOB)</th>
+                      <th>Attached Documents</th>
+                      <th> Submission Versions</th>
+                      <th>Received (FIFO)</th>
+                      <th>Flow Status</th>
+                      <th>Assigned To</th>
+                      <th class="u-text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="submissionsTableBody">
+                    <!-- Populated dynamically by JavaScript -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="step-guide-bar mt-4">
+            <i class="ph ph-lightbulb"></i>
+            <div>
+              <strong>Submission Flow Logic:</strong> Submissions arrive from either <strong>Brokers</strong> or <strong>Direct Customers</strong>. Click <strong>"View Case"</strong> on any row above to load the account into the <strong>Workflow Engine</strong> where all completed steps and active progression are tracked!
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ==================================================================== -->
+      <!-- PAGE 2: UNDERWRITING WORKFLOW (Screens 2 through 9 with Stepper) -->
+      <!-- ==================================================================== -->
+      <div class="page-view u-hidden" id="workflowPageView">
+        
+        <!-- Workflow Top Active Case Header Bar -->
+        <div class="workflow-case-header-bar" id="workflowCaseHeader">
+          <div class="wf-header-left">
+            <button class="btn btn-sm btn-outline back-to-intake-btn" onclick="showIntakePage()" title="Return to Submission Intake Queue">
+              <i class="ph ph-arrow-left"></i> <span>Intake Queue</span>
+            </button>
+            <div class="wf-case-title-box">
+              <div class="wf-title-row">
+                <h3 id="wfHeaderInsured">Apex Freight LLC</h3>
+                <span class="badge badge-light font-mono" id="wfHeaderSubId">SUB-48213-TX</span>
+                <span class="badge badge-primary" id="wfHeaderLob">Trucking</span>
+              </div>
+              <div class="wf-sub-row">
+                <span>FEIN: <strong id="wfHeaderFEIN">81-440000TX</strong></span>
+                <span>• Submitter: <strong id="wfHeaderChannel">Marsh & McLennan</strong></span>
+                <span>• Desk: <strong id="wfHeaderDesk">Specialty Fleet UW</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="wf-header-right">
+            <div class="wf-metric-pill">
+              <span class="lbl">Priority & SLA</span>
+              <span class="val badge badge-danger" id="wfHeaderPriority">P1 • 4h Fast-Track</span>
+            </div>
+            <div class="wf-metric-pill">
+              <span class="lbl">Exposure / TIV</span>
+              <span class="val font-mono" id="wfHeaderExposure">$1,850,000</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visual phase grouping above the 7-step stepper (purely informational,
+             does not change step navigation/click behavior below) -->
+        <div class="stepper-phase-groups" aria-hidden="true">
+          <span class="phase-group-label" style="flex: 2;">Intake & Clearance</span>
+          <span class="phase-group-label" style="flex: 3;">Underwriting & Authority</span>
+          <span class="phase-group-label" style="flex: 2;">Rating & Bind</span>
+        </div>
+
+        <!-- Workflow Horizontal Stepper Bar (Starts at Step 1: Doc Ingestion) -->
+        <nav class="horizontal-stepper-bar workflow-stepper-bar" id="workflowStepperBar">
+          <div class="h-stepper-track">
+            
+            <!-- Step 1: Doc Ingestion -->
+            <div class="h-stepper-item active" data-step="1" data-screen="screen-2" onclick="goToWorkflowStep(1)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">1</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Doc Ingestion</span>
+                <span class="h-stepper-desc">OCR & Schema</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="1"></div>
+
+            <!-- Step 2: Clearance Check -->
+            <div class="h-stepper-item" data-step="2" data-screen="screen-3" onclick="goToWorkflowStep(2)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">2</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Clearance Check</span>
+                <span class="h-stepper-desc">FEIN & Knockout</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="2"></div>
+
+            <!-- Step 3: Data Enrichment -->
+            <div class="h-stepper-item" data-step="3" data-screen="screen-4" onclick="goToWorkflowStep(3)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">3</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Data Enrichment</span>
+                <span class="h-stepper-desc">APIs & Routing</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="3"></div>
+
+            <!-- Step 4: UW Workbench -->
+            <div class="h-stepper-item" data-step="4" data-screen="screen-5" onclick="goToWorkflowStep(4)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">4</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">UW Workbench</span>
+                <span class="h-stepper-desc">Review & RFI</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="4"></div>
+
+            <!-- Step 5: Authority Desk -->
+            <div class="h-stepper-item" data-step="5" data-screen="screen-6" onclick="goToWorkflowStep(5)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">5</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Authority Desk</span>
+                <span class="h-stepper-desc">CUO Referral</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="5"></div>
+
+            <!-- Step 6: Rating Engine -->
+            <div class="h-stepper-item" data-step="6" data-screen="screen-7" onclick="goToWorkflowStep(6)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">6</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Rating Engine</span>
+                <span class="h-stepper-desc">LOB Pricing</span>
+              </div>
+            </div>
+
+            <div class="h-stepper-line" data-line="6"></div>
+
+            <!-- Step 7: Quote & Bind -->
+            <div class="h-stepper-item" data-step="7" data-screen="screen-8" onclick="goToWorkflowStep(7)">
+              <div class="h-stepper-node">
+                <span class="h-stepper-num">7</span>
+                <i class="ph ph-check h-stepper-check"></i>
+              </div>
+              <div class="h-stepper-label">
+                <span class="h-stepper-title">Quote & Bind</span>
+                <span class="h-stepper-desc">PDF & Binding</span>
+              </div>
+            </div>
+
+          </div>
+        </nav>
+
+        <!-- Workflow Step Screens Container -->
+        <div class="workflow-screens-wrapper">
+
+      <!-- Screen 2: Ingestion Pipeline & Canonical Submission Record -->
+      <section id="screen-2" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2>Document Ingestion Pipeline & Canonical Submission Record</h2>
+            <p class="screen-desc">Cloud storage parsing (S3/OCI), AI-driven OCR extraction, and schema normalization into a single source-of-truth Canonical Record.</p>
+          </div>
+        </div>
+
+        <!-- Raw Email Capture & AI Normalization (Add-On) — only rendered
+             when the active submission arrived via Email Digest raw capture
+             and has not yet been AI-normalized. Untouched otherwise. -->
+        <div id="rawEmailCaptureContainer"></div>
+
+        <div class="two-col-grid">
+          <!-- OCR Extraction Visualizer — hidden until AI normalization has
+               actually completed for raw email-captured submissions. Always
+               visible for submissions that didn't arrive via raw email
+               capture (they're already normalized on ingest). -->
+          <div class="card" id="ocrPipelineCard">
+            <div class="card-header">
+              <h3><i class="ph ph-brain"></i> AI / OCR Extraction Pipeline (S3 / OCI)</h3>
+              <span class="badge badge-info"><i class="ph ph-circle-notch fa-spin"></i> Extraction 100% Normalized</span>
+            </div>
+            <div class="card-body">
+              <div class="ocr-stepper">
+                <div class="ocr-step done">
+                  <div class="ocr-step-node"><i class="ph ph-cloud-arrow-up"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                  <div class="ocr-step-label">S3 Cloud Ingestion</div>
+                  <div class="ocr-step-status">Complete</div>
+                </div>
+                <div class="ocr-step-connector done"></div>
+                <div class="ocr-step done">
+                  <div class="ocr-step-node"><i class="ph ph-cpu"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                  <div class="ocr-step-label">OCR Document Parser</div>
+                  <div class="ocr-step-status">99.4% Confidence</div>
+                </div>
+                <div class="ocr-step-connector done"></div>
+                <div class="ocr-step done">
+                  <div class="ocr-step-node"><i class="ph ph-magic-wand"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                  <div class="ocr-step-label">Schema Normalization</div>
+                  <div class="ocr-step-status">Canonical Mapped</div>
+                </div>
+              </div>
+
+              <div class="extracted-fields-list" id="extractedFieldsList">
+                <!-- Populated dynamically based on active submission -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Canonical Record JSON / Object View — same visibility rule as
+               the OCR pipeline card above. -->
+          <div class="card" id="canonicalRecordCard">
+            <div class="card-header">
+              <h3><i class="ph ph-database"></i> Canonical Submission Record</h3>
+            </div>
+            <div class="card-body">
+              <div class="canonical-header-summary">
+                <div class="summary-stat">
+                  <span class="lbl">Applicant</span>
+                  <strong class="val" id="canonInsured">Apex Freight LLC</strong>
+                </div>
+                <div class="summary-stat">
+                  <span class="lbl">Target Exposure</span>
+                  <strong class="val" id="canonExposure">$1,850,000</strong>
+                </div>
+                <div class="summary-stat">
+                  <span class="lbl">Pipeline State</span>
+                  <strong class="val tag-ready">Normalized</strong>
+                </div>
+              </div>
+
+              <div class="code-editor-box">
+                <div class="code-editor-bar">
+                  <span><i class="ph ph-code"></i> canonical_submission_record.json</span>
+                  <span class="badge badge-light">Read Only (Canonical Schema v2.4)</span>
+                </div>
+                <pre class="code-content"><code id="canonicalJsonDisplay">Loading canonical data...</code></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-guide-bar">
+          <i class="ph ph-lightbulb"></i>
+          <div>
+            <strong>Phase 1 Step Flow:</strong> The pipeline reads raw PDF forms and tables without manual re-keying, converts them into standard data fields, and persists the <strong>Canonical Submission Record</strong> which every subsequent clearance and underwriting phase accesses.
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 3: Clearance, Appetite & Knockouts -->
+      <section id="screen-3" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2>Clearance, FEIN Duplicate Check & Appetite Knockouts</h2>
+            <p class="screen-desc">Automated clearance checks to verify broker ownership, eliminate duplicate submissions, and evaluate hard appetite knockout criteria.</p>
+          </div>
+        </div>
+
+        <div class="two-col-grid">
+          <!-- FEIN Duplicate Clearance -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph ph-identification-badge"></i> Step 6: FEIN Clearance & Duplicate Detection</h3>
+              <span class="badge badge-success" id="feinStatusBadge"><i class="ph ph-check-circle"></i> Unique Entity Cleared</span>
+            </div>
+            <div class="card-body">
+              <div class="clearance-box">
+                <div class="clearance-row">
+                  <span class="key">Active In-Flight Submissions:</span>
+                  <span class="val font-bold text-success" id="activeSubCount">0 Conflicting (Unique Registered Entity)</span>
+                </div>
+                <div class="clearance-row">
+                  <span class="key">Broker Priority Lock:</span>
+                  <span class="val text-primary" id="brokerLock">Marsh & McLennan (Authorized Direct Producer)</span>
+                </div>
+                <div class="clearance-row">
+                  <span class="key">System Clearance Action:</span>
+                  <span class="val badge badge-success" id="clearanceActionResult">Passed Clearance → Proceed to Appetite Evaluation</span>
+                </div>
+              </div>
+
+              <!-- Interactive Duplicate Test Button -->
+              <div class="simulation-tool-box">
+                <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Duplicate Scenario</span>
+                <button class="btn btn-sm btn-outline-danger" onclick="triggerDuplicateExit()"><i class="ph ph-prohibit"></i> Simulate Duplicate FEIN Conflict (Exit Path 1)</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Appetite Rules Knockout Engine -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph ph-scales"></i> Step 7: Appetite Rules & Automated Knockouts</h3>
+              <span class="badge badge-success" id="appetiteStatusBadge"><i class="ph ph-check"></i> All Appetite Rules Met</span>
+            </div>
+            <div class="card-body">
+              <div class="rules-table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Appetite Knockout Criteria</th>
+                      <th>Submission Value</th>
+                      <th>MGA Base Value / Carrier Guardrail</th>
+                      <th>Evaluation</th>
+                    </tr>
+                  </thead>
+                  <tbody id="appetiteRulesTable">
+                    <!-- Dynamic rules rendered based on active submission -->
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Interactive Knockout Test Button -->
+              <div class="simulation-tool-box">
+                <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Appetite Failure</span>
+                <button class="btn btn-sm btn-outline-danger" onclick="triggerAppetiteFailureExit()"><i class="ph ph-warning"></i> Simulate Appetite Knockout (Auto-Decline)</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-guide-bar">
+          <i class="ph ph-lightbulb"></i>
+          <div>
+            <strong>Phase 2 Flow Logic:</strong> Submissions with duplicate FEINs are blocked to prevent conflicting quotes among competing brokers. If the risk violates hard appetite rules, the system triggers an <strong>Auto-Decline Notice</strong> instantly without wasting underwriter time.
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Third-Party Data Enrichment & Smart Routing -->
+      <section id="screen-4" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2><i class="ph ph-database text-primary"></i> Data Enrichment & Smart Routing</h2>
+            <p class="screen-desc">Automated verified registry checks (FMCSA, Credit Bureaus, Catastrophe Models) & underwriter queue assignment.</p>
+          </div>
+          <div class="header-status-badge">
+            <span class="badge badge-success" style="font-size: 11px; padding: 6px 12px;">
+              <i class="ph ph-check-circle"></i> 3 of 3 External Sources Verified
+            </span>
+          </div>
+        </div>
+
+        <!-- 3 Simple, Clear Enrichment Metric Cards -->
+        <div class="enrichment-cards-grid" id="enrichmentCardsGrid">
+          <!-- Dynamic cards for FMCSA, HazardHub, ISO, Credit -->
+        </div>
+
+        <!-- Two-Column Clean Layout: Smart Routing & Priority Ranking -->
+        <div class="enrichment-details-grid mt-4">
+          
+          <!-- Left Card: Manual Underwriter Assignment (Optional) -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph ph-user-pen text-primary"></i> Manual Underwriter Assignment</h3>
+              <span class="badge badge-light" id="assignmentBadge"><i class="ph ph-info"></i> Optional Assignment</span>
+            </div>
+            <div class="card-body">
+              <div class="clean-meta-list">
+                
+                <!-- Desk / Department Selection -->
+                <div class="clean-form-row">
+                  <label class="form-row-label" for="manualDeskSelect"><i class="ph ph-buildings text-muted"></i> Assigned Desk / Team:</label>
+                  <select id="manualDeskSelect" class="form-control-sm" onchange="onManualAssignmentChange()">
+                    <option value="Specialty Transportation & Fleet UW Team">🚚 Specialty Transportation & Fleet Team</option>
+                    <option value="Commercial Property & Real Estate Desk">🏢 Commercial Property & Real Estate Desk</option>
+                    <option value="General Liability & Casualty Team">🏗️ General Liability & Casualty Team</option>
+                    <option value="Executive & Financial Lines Desk">💼 Executive & Financial Lines Desk</option>
+                    <option value="General Underwriting Pool">🌐 General Underwriting Pool</option>
+                  </select>
+                </div>
+
+                <!-- Underwriter Person Selection (Optional) -->
+                <div class="clean-form-row">
+                  <label class="form-row-label" for="manualUnderwriterSelect"><i class="ph ph-user-check text-muted"></i> Assigned Underwriter (Optional):</label>
+                  <select id="manualUnderwriterSelect" class="form-control-sm" onchange="onManualAssignmentChange()">
+                    <option value="Unassigned (Open Team Queue)">⚡ Unassigned (Open Team Pool)</option>
+                    <option value="Sarah Jenkins (Senior Fleet UW)">Sarah Jenkins (Senior Fleet UW)</option>
+                    <option value="David Chen (Property Senior UW)">David Chen (Property Senior UW)</option>
+                    <option value="Elena Rostova (GL / Casualty UW)">Elena Rostova (GL / Casualty UW)</option>
+                    <option value="Marcus Vance (Senior UW / CUO)">Marcus Vance (Senior UW / CUO)</option>
+                  </select>
+                </div>
+
+                <!-- Turnaround SLA -->
+                <div class="clean-meta-row" style="margin-top: 2px;">
+                  <span class="meta-label"><i class="ph ph-timer text-muted"></i> Target Turnaround</span>
+                  <strong class="meta-value text-success" id="assignedSlaTarget">4 Hours (P1 Fast-Track)</strong>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Card: Priority Score & Queue Ranking -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph ph-medal text-warning"></i> Queue Priority & Triage Ranking</h3>
+              <span class="badge badge-danger" id="triagePriorityBadge">Priority: P1 - Highest (Score: 96/100)</span>
+            </div>
+            <div class="card-body">
+              <div class="clean-meta-list">
+                <div class="clean-meta-row">
+                  <span class="meta-label"><i class="ph ph-clock text-muted"></i> Ingestion Queue Time</span>
+                  <span class="meta-value font-mono" id="triageFifoTime">09:14 AM (Queue Position #1)</span>
+                </div>
+                <div class="clean-meta-row">
+                  <span class="meta-label"><i class="ph ph-briefcase text-muted"></i> Submitter Profile</span>
+                  <span class="meta-value" id="triageProducerTier">Tier-1 Commercial Broker</span>
+                </div>
+                <div class="clean-meta-row">
+                  <span class="meta-label"><i class="ph ph-hourglass-medium text-muted"></i> SLA Countdown</span>
+                  <strong class="meta-value text-success" id="triageSlaCountdown">3h 45m Remaining</strong>
+                </div>
+              </div>
+
+              <!-- Quick Priority Modifier Pills -->
+              <div class="priority-adjuster-bar mt-3">
+                <span class="text-xs text-muted font-bold" style="text-transform: uppercase;">Adjust Priority:</span>
+                <div class="priority-pills-group">
+                  <button class="btn-priority-pill p1" onclick="escalateSubmissionPriority('P1')" title="Escalate to Highest Priority"><i class="ph ph-fire"></i> Highest (P1)</button>
+                  <button class="btn-priority-pill p2" onclick="escalateSubmissionPriority('P2')" title="Set to High Priority"><i class="ph ph-lightning"></i> High (P2)</button>
+                  <button class="btn-priority-pill p3" onclick="escalateSubmissionPriority('P3')" title="Reset to Standard FIFO"><i class="ph ph-arrow-counter-clockwise"></i> Standard (P3)</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- Screen 5: Underwriting Workbench -->
+      <section id="screen-5" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2>Underwriting Workbench & Risk Evaluation</h2>
+            <p class="screen-desc">Underwriter's primary workspace: live document viewer, loss-run triaging, subjectivity management, and broker RFI communication.</p>
+          </div>
+          <div class="action-toolbar">
+            <button class="btn btn-warning" onclick="openRFIModal()"><i class="ph ph-envelope-open"></i> Send RFI to Submitter</button>
+            <button class="btn btn-danger" onclick="openDeclineSubmissionModal(activeSubmissionId)"><i class="ph ph-prohibit"></i> Decline Submission</button>
+          </div>
+        </div>
+
+        <!-- Dynamic Underwriting Workbench Data Containers -->
+        <div id="wbAccountOverviewContainer" class="mb-3"></div>
+        <div id="wbAttachedDocsContainer" class="mb-3"></div>
+        <div id="wbQuestionnaireContainer" class="mb-3"></div>
+        <div id="wbCoveragesGridContainer" class="mb-3"></div>
+        <div id="wbVehiclesScheduleContainer" class="card mb-3"></div>
+        <div id="wbDriversScheduleContainer" class="card mb-3"></div>
+
+        <!-- Risk Score (Add-On) — auto-calculated from all workbench data
+             above (coverages, loss runs, exposure, drivers, appetite rule
+             failures). Underwriter can edit before moving to Authority
+             Desk. -->
+        <div id="wbRiskScoreContainer" class="mb-3"></div>
+
+
+
+        <div class="step-guide-bar">
+          <i class="ph ph-lightbulb"></i>
+          <div>
+            <strong>Phase 3 Flow Logic:</strong> The underwriter inspects the schedule and loss runs. If information is missing (like missing VIN numbers or unverified roof age), an <strong>RFI (Request for Information)</strong> is dispatched to the broker portal.
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 6: Authority Matrix & Senior UW Referral -->
+      <section id="screen-6" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2>Underwriter Authority Matrix & Senior Referral</h2>
+            <p class="screen-desc">Exposure evaluation against assigned authority limit ($2M vs $5M+), senior underwriter referral workflow, and sign-off approval.</p>
+          </div>
+          <div class="action-toolbar">
+            <button class="btn btn-primary" onclick="openGenerateFinalJsonModal()">
+              <i class="ph ph-file-code"></i> Generate JSON
+            </button>
+          </div>
+        </div>
+
+        <div class="two-col-grid">
+          <!-- Authority Limits Evaluation -->
+          <div class="card">
+            <div class="card-header">
+              <h3><i class="ph ph-gavel"></i> Step 12: Underwriter Authority Evaluation</h3>
+              <span class="badge badge-success" id="authCheckBadge"><i class="ph ph-check"></i> Within Assigned Authority</span>
+            </div>
+            <div class="card-body">
+              <div class="authority-matrix-box">
+                <div class="auth-stat-row">
+                  <span class="lbl">Active Underwriter Persona:</span>
+                  <strong class="val" id="authUnderwriterName">Sarah Jenkins (Junior UW - $2M Limit)</strong>
+                </div>
+                <div class="auth-stat-row">
+                  <span class="lbl">Maximum Single Risk Authority Limit:</span>
+                  <strong class="val font-mono" id="authMaxLimitDisplay">$2,000,000 Exposure</strong>
+                </div>
+                <div class="auth-stat-row">
+                  <span class="lbl">Current Submission Exposure:</span>
+                  <strong class="val font-mono text-primary" id="currentAuthExposure">$1,850,000</strong>
+                </div>
+                <!-- Risk Score carried over from the Underwriting Workbench (Add-On) -->
+                <div id="authRiskScoreContainer"></div>
+                <div class="auth-meter-box">
+                  <div class="meter-bar-track">
+                    <div class="meter-bar-fill" id="authMeterFill" style="width: 92.5%;"></div>
+                  </div>
+                  <span class="meter-label" id="authMeterLabel">92.5% of Primary Authority ($1.85M / $2.00M)</span>
+                </div>
+              </div>
+
+              <!-- Authority Simulation Trigger -->
+              <div class="simulation-tool-box mt-3">
+                <span class="tool-label"><i class="ph ph-flask"></i> Test Exposure Limit Scenarios:</span>
+                <div class="btn-group">
+                  <button class="btn btn-sm btn-outline" onclick="setExposureScenario('within')"><i class="ph ph-check"></i> Normal ($1.85M - Within Limit)</button>
+                  <button class="btn btn-sm btn-outline-warning" onclick="setExposureScenario('exceeds')"><i class="ph ph-warning"></i> High Exposure ($15M - Referral Required)</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Senior UW Referral Desk & Junior Escalation Form -->
+          <div class="card" id="referralCard">
+            <div class="card-header">
+              <h3><i class="ph ph-user-check"></i> Step 13 - 14: Senior UW Referral & Sign-Off Desk</h3>
+              <span class="badge badge-info" id="referralStatusBadge">Sign-Off Complete (Ready for Pricing)</span>
+            </div>
+            <div class="card-body">
+              <!-- Junior View Panel: When Junior UW is logged in -->
+              <div id="juniorUWPanel">
+                <div class="referral-note">
+                  <div class="note-author">
+                    <i class="ph ph-chat-dots"></i> <strong>Junior UW Escalation Notes:</strong>
+                  </div>
+                  <textarea class="form-control mt-2" id="juniorEscalationText" rows="3" placeholder="Enter notes and justification for Senior UW referral...">Risk exposure exceeds $2.0M Level-2 authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</textarea>
+                </div>
+                <div class="mt-3" id="juniorActionBox">
+                  <button class="btn btn-warning" id="btnJuniorEscalate" onclick="submitJuniorEscalation()">
+                    <i class="ph ph-paper-plane-tilt"></i> Refer to Senior — Marcus Vance (CUO)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Senior View Panel: When Senior UW / CUO is logged in -->
+              <div class="u-hidden" id="seniorUWPanel">
+                <div class="referral-details-box">
+                  <div class="referral-note" style="background: #f8fafc; border-left: 4px solid var(--primary); padding: 12px; border-radius: 4px;">
+                    <div class="note-author">
+                      <i class="ph ph-user-tie text-primary"></i> <strong>Escalation from Primary UW (Sarah Jenkins):</strong>
+                    </div>
+                    <p id="primaryUWNoteText" class="mt-1 text-sm">Risk exposure exceeds $2.0M Level-2 authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</p>
+                  </div>
+
+                  <div class="senior-approval-panel mt-3">
+                    <label class="form-label"><strong>Executive CUO Decision & Authority Sign-off:</strong></label>
+                    <div class="decision-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+                      <button class="btn btn-success" id="btnSignOffApprove" onclick="seniorUWAction('approve')">
+                        <i class="ph ph-signature"></i> Approve & Sign-Off (CUO Authority)
+                      </button>
+                      <button class="btn btn-outline-warning" onclick="seniorUWAction('revise')">
+                        <i class="ph ph-arrow-counter-clockwise"></i> Request Junior UW Revision
+                      </button>
+                      <button class="btn btn-outline-danger" onclick="seniorUWAction('decline')">
+                        <i class="ph ph-prohibit"></i> Decline & Reject Risk
+                      </button>
+                    </div>
+                    <div class="signoff-stamp mt-3" id="signoffStamp">
+                      <i class="ph ph-stamp"></i> <strong>OFFICIALLY SIGNED OFF:</strong> Cleared for Pricing by Marcus Vance (Chief Underwriting Officer) • Ready for Phase 4
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-guide-bar">
+          <i class="ph ph-lightbulb"></i>
+          <div>
+            <strong>Phase 3 Flow Logic:</strong> If the risk exposure exceeds the primary underwriter's authority limit, it automatically routes to a Senior Underwriter. Once approved or cleared within limit, it transitions to <strong>Ready for Pricing</strong>.
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 7: Automated Rating Engine Transition Screen -->
+      <section id="screen-7" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2><i class="ph ph-calculator text-primary"></i> Actuarial Rating Engine Processing</h2>
+            <p class="screen-desc">Automated rating engine calculation, territory baserate lookups, vehicle schedule factors, and actuarial premium generation.</p>
+          </div>
+          <span class="badge badge-warning" style="font-size: 12px; font-weight: 700;">
+            <i class="ph ph-spinner spin"></i> Automated Rating Active
+          </span>
+        </div>
+
+        <div class="rating-transition-card card p-4" style="max-width: 720px; margin: 20px auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: var(--shadow-md);">
+          <!-- Top Icon & Title -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div style="width: 72px; height: 72px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 14px; position: relative;">
+              <i class="ph ph-calculator"></i>
+              <div style="position: absolute; inset: -4px; border: 3px solid #bfdbfe; border-top-color: #2563eb; border-radius: 50%; animation: spin 1.2s linear infinite;"></div>
+            </div>
+            <h3 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 6px 0;">
+              Rating Engine Transition & Calculation
+            </h3>
+            <p style="color: #64748b; font-size: 13.5px; margin: 0;">
+              Connecting to actuarial rating services to calculate bindable quote terms...
+            </p>
+          </div>
+
+          <!-- Master Progress Bar -->
+          <div style="margin-bottom: 24px;">
+            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 6px;">
+              <span style="color: #475569;"><i class="ph ph-chart-line text-primary"></i> Rating Engine Pipeline</span>
+              <span id="ratingPercentText" class="font-mono text-primary">0%</span>
+            </div>
+            <div style="background: #f1f5f9; border-radius: 999px; height: 10px; overflow: hidden; border: 1px solid #e2e8f0;">
+              <div id="ratingProgressBar" style="background: linear-gradient(90deg, #2563eb, #3b82f6); height: 100%; width: 0%; transition: width 0.15s linear;"></div>
+            </div>
+          </div>
+
+          <!-- Sequential Status Loaders -->
+          <div style="display: flex; flex-direction: column; gap: 12px; background: #f8fafc; padding: 18px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 24px;">
+            
+            <!-- Loader 1: Hitting rating engine... -->
+            <div id="ratingLoader1" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; transition: all 0.3s ease;">
+              <div class="u-row-gap12">
+                <span id="ratingIcon1" style="width: 26px; height: 26px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 14px;">
+                  <i class="ph ph-spinner spin"></i>
+                </span>
+                <span id="ratingTitle1" style="font-size: 14px; font-weight: 700; color: #0f172a;">Hitting rating engine...</span>
+              </div>
+              <span id="ratingBadge1" class="badge badge-primary font-mono text-xs">In Progress</span>
+            </div>
+
+            <!-- Loader 2: Fetching data... -->
+            <div id="ratingLoader2" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; opacity: 0.5; transition: all 0.3s ease;">
+              <div class="u-row-gap12">
+                <span id="ratingIcon2" style="width: 26px; height: 26px; border-radius: 50%; background: #f1f5f9; color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 14px;">
+                  <i class="ph ph-circle"></i>
+                </span>
+                <span id="ratingTitle2" style="font-size: 14px; font-weight: 600; color: #64748b;">Fetching data...</span>
+              </div>
+              <span id="ratingBadge2" class="badge badge-light font-mono text-xs">Queued</span>
+            </div>
+
+            <!-- Loader 3: Calculating... -->
+            <div id="ratingLoader3" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; opacity: 0.5; transition: all 0.3s ease;">
+              <div class="u-row-gap12">
+                <span id="ratingIcon3" style="width: 26px; height: 26px; border-radius: 50%; background: #f1f5f9; color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 14px;">
+                  <i class="ph ph-circle"></i>
+                </span>
+                <span id="ratingTitle3" style="font-size: 14px; font-weight: 600; color: #64748b;">Calculating...</span>
+              </div>
+              <span id="ratingBadge3" class="badge badge-light font-mono text-xs">Queued</span>
+            </div>
+
+          </div>
+
+          <!-- Bottom Footer / Countdown -->
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: #64748b; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
+            <span><i class="ph ph-arrow-right-circle text-primary"></i> Target Redirect: Step 7 Formal Quote & Policy Binding</span>
+            <span>Auto-redirect in <strong id="ratingCountdown" class="font-mono text-primary" style="font-size: 13.5px;">6.0s</strong></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 8: Formal Quote Generation, PDF Preview & Binding -->
+      <!-- Screen 8: Formal Quote Generation & Actuarial Breakdown Studio -->
+      <!-- Screen 8: Formal Quote Generation & Actuarial Breakdown Studio -->
+      <section id="screen-8" class="screen-view">
+        <!-- Hidden file input for direct system JSON upload -->
+        <input class="u-hidden" type="file" id="quoteJsonSystemDirectInput" accept=".json,application/json" onchange="handleSystemJsonFileSelect(event)">
+
+        <div class="screen-header" id="step7HeaderView">
+          <div>
+            <h2 id="step7HeaderTitle">Commercial Trucking Formal Quote & Binding</h2>
+            <p class="screen-desc" id="step7HeaderDesc">Import rating engine JSON output from your local system to generate and bind the commercial quote.</p>
+          </div>
+          <div class="action-toolbar" id="step7HeaderActions" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-warning" onclick="triggerSystemJsonUpload()" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; background: #f59e0b; border-color: #d97706; color: #ffffff;" title="Select rating engine .json file from your system">
+              <i class="ph ph-file-arrow-up"></i> <span>Import JSON</span>
+            </button>
+            <button class="btn btn-primary" onclick="openAllStepsSummaryModal()" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700;" title="View comprehensive 7-step modal summary">
+              <i class="ph ph-list-checks"></i> <span>Summary</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Underwriting Discretionary Pricing (Post-Rating) -->
+        <div id="discretionaryPricingContainer"><!-- rendered dynamically by renderStep7View() --></div>
+
+        <!-- Dynamic Main Step 7 Content Container -->
+        <div id="step7MainContentContainer" class="step7-quote-container">
+          <!-- Dynamically populated via renderStep7View() -->
+        </div>
+
+        <div class="step-guide-bar mt-3">
+          <i class="ph ph-lightbulb"></i>
+          <div>
+            <strong>Actuarial Rating Engine:</strong> Final bindable quote is calculated by applying base territory loss costs, increased limits factors (ILF), vehicle stated value tiers, driver schedules, discretionary schedule credits, itemized state taxes, TRIA, and filing fees.
+          </div>
+        </div>
+      </section>
+
+      </div> <!-- /workflow-screens-wrapper -->
+    </div> <!-- /workflowPageView -->
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 3: DEDICATED DECLINE ARCHIVE & COMPLIANCE LOGS -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="integratingApiPageView">
+      
+      <div class="ps-studio-container">
+        
+        <!-- Top Hero Bar -->
+        <div class="ps-hero-bar">
+          <div class="ps-hero-left">
+            <div class="ps-hero-icon">
+              <i class="ph ph-shield-check"></i>
+            </div>
+            <div class="ps-hero-title">
+              <h2>Integrating API</h2>
+              <p>Upload and ingest insurance product definition packages (via the Insurance Product Studio schema) to activate covers, rating factors, and rules.</p>
+            </div>
+          </div>
+          <div>
+            <button class="btn btn-primary" onclick="openEmailDigestModal()" title="Copy raw email text and documents into a new Submission — AI normalization happens later, at Document Ingestion">
+              <i class="ph ph-envelope-open"></i> Copy Email into Submission
+            </button>
+          </div>
+        </div>
+
+        <!-- Ingest Dropzone & Schema Loader -->
+        <div class="ps-upload-card">
+          <div class="ps-dropzone-box" id="psJsonDropzone" onclick="document.getElementById('psJsonFileInput').click()">
+            <input class="u-hidden" type="file" id="psJsonFileInput" accept=".json" onchange="handleJsonFileSelect(event)">
+            <div style="font-size:36px; color:#f97316; margin-bottom:8px;"><i class="ph ph-cloud-arrow-up"></i></div>
+            <div style="font-size:15px; font-weight:700; color:#0f172a;">Drag & Drop your Insurance Product Studio JSON file here or <span style="color:#f97316; text-decoration:underline;">Browse Files</span></div>
+            <div style="font-size:12px; color:#64748b; margin-top:4px;">Supported schema: <code>insurance-product-studio-product-v1</code> (e.g. PRD-021 Trucking_test, Auto Liability, Property)</div>
+          </div>
+        </div>
+
+    
+
+        <!-- LOADED PRODUCT CONTENT BOX (Hidden until JSON is uploaded) -->
+        <div class="u-hidden" id="psLoadedContentBox" style="margin-top:14px; padding:12px 16px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <i class="ph ph-check-circle" style="font-size:20px; color:#16a34a;"></i>
+            <div style="font-size:13px; color:#166534;">
+              <strong id="psProductName">Product</strong> — <span class="font-mono" id="psIdBadge">PRD-021</span> is now the active ingested product.
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="showIntakePage()">
+            <i class="ph ph-arrow-right"></i> Go to Submission Intake
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+
+    <div class="page-view u-hidden" id="archivePageView">
+      
+      <!-- Dedicated Archive Header Banner -->
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-archive text-danger u-fs-24"></i>
+            <h2>Archive & Compliance Audit Trail</h2>
+          </div>
+          <p class="archive-header-desc">Configurable retention policy and archival queue for retired, bound-closed, and terminated submission records with full compliance tracking.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()">
+            <i class="ph ph-arrow-left"></i> Return to Intake Hub
+          </button>
+        </div>
+      </div>
+
+      <!-- Admin-only restriction notice (shown when content is hidden) -->
+      <div id="archivePageAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px;">
+        <i class="ph ph-lock"></i> The Archive module — including the archival policy and archived records — is restricted to the System Administrator persona.
+      </div>
+
+      <!-- Screen 9: Archival Policy & Eligibility -->
+      <div id="archivePageContent">
+      <section id="screen-9" class="screen-view active" style="display: block;">
+        <div class="screen-header">
+          <div>
+            <span class="phase-pill phase-exit-pill"><i class="ph ph-archive"></i> Archive & Retention Center</span>
+            <h2>Archival Policy, Eligibility & Records</h2>
+            <p class="screen-desc">Define retention policy, track which records are eligible for archival, and browse already-archived records — always accessible for audit purposes.</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ph ph-sliders"></i> Archival Policy Configuration</h3>
+            <span class="badge badge-info">Manager / Admin Configurable</span>
+          </div>
+          <div class="card-body">
+            <p class="text-xs text-muted mb-3">Define when customer submission and audit records become eligible for archival. Archived records are never deleted — they remain fully accessible below for future reference or audit requirements.</p>
+            <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;">
+              <div class="form-group" style="min-width:220px;">
+                <label class="u-label-sm">Archive records that reach status</label>
+                <select id="archivalPolicyTriggerStatus" class="form-control">
+                  <option value="declined">Declined / Terminated</option>
+                  <option value="retired" selected>Retired</option>
+                  <option value="bound_closed">Bound & Closed</option>
+                </select>
+              </div>
+              <div class="form-group" style="min-width:180px;">
+                <label class="u-label-sm">After this many days</label>
+                <input type="number" id="archivalPolicyRetentionDays" class="form-control" value="90" min="1">
+              </div>
+              <div class="form-group" style="min-width:220px;">
+                <label style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:8px;">
+                  <input class="u-icon-16" type="checkbox" id="archivalPolicyRequireApproval" checked>
+                  Require manager approval before archiving
+                </label>
+              </div>
+              <div class="form-group">
+                <button class="btn btn-primary" onclick="saveArchivalPolicy()"><i class="ph ph-check"></i> Save Policy</button>
+              </div>
+            </div>
+            <div id="archivalPolicySummary" class="alert alert-info mt-3 u-fs-12-5">
+              <i class="ph ph-info"></i> <span id="archivalPolicySummaryText">Loading current policy…</span>
+            </div>
+            <div id="archivalPolicyAuditTrail" class="text-xs text-muted mt-2"></div>
+          </div>
+        </div>
+
+        <div id="archivalEligibilityAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px; margin-top:16px;">
+          <i class="ph ph-lock"></i> The Archival Eligibility Queue is restricted to the System Administrator persona.
+        </div>
+        <div id="archivalEligibilityQueue"><!-- rendered dynamically by renderArchivalEligibilityQueue() --></div>
+      </section>
+      </div>
+
+    </div> <!-- /archivePageView -->
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: DECLINE CENTER (visible to all roles) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="declinePageView">
+
+      <!-- Dedicated Decline Header Banner -->
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-prohibit text-danger u-fs-24"></i>
+            <h2>Decline Center</h2>
+          </div>
+          <p class="archive-header-desc">Tracks submissions terminated early across the 3 rejection checkpoints (Duplicate FEIN, Appetite Knockout, Senior UW Decline).</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()">
+            <i class="ph ph-arrow-left"></i> Return to Intake Hub
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3><i class="ph ph-warning"></i> Submission Exit Point Logs</h3>
+          <span class="badge badge-danger" id="declineTotalBadge">0 Records Logged</span>
+        </div>
+        <div class="card-body">
+          <div class="exit-path-cards-grid">
+            <div class="exit-card">
+              <div class="exit-card-header">
+                <i class="ph ph-copy-simple text-danger"></i>
+                <strong>Exit Path 1: Duplicate FEIN (Step 6)</strong>
+              </div>
+              <p>Occurs when another broker has already locked the customer's FEIN. Prevents conflicting dual-agency quotes.</p>
+              <div class="status-tag" id="exitCountDuplicateFein">0 Records</div>
+            </div>
+
+            <div class="exit-card">
+              <div class="exit-card-header">
+                <i class="ph ph-prohibit text-danger"></i>
+                <strong>Exit Path 2: Appetite Knockout (Step 7)</strong>
+              </div>
+              <p>Triggered when risk criteria fall outside carrier underwriting guidelines (e.g. excess hazmat, extreme loss ratio, out-of-territory).</p>
+              <div class="status-tag" id="exitCountAppetiteKnockout">0 Records</div>
+            </div>
+
+            <div class="exit-card">
+              <div class="exit-card-header">
+                <i class="ph ph-user-xmark text-danger"></i>
+                <strong>Exit Path 3: Senior UW Decline (Step 13)</strong>
+              </div>
+              <p>High-exposure risk referred to Senior UW and rejected due to loss trends or adverse hazard findings.</p>
+              <div class="status-tag" id="exitCountSeniorDecline">0 Records</div>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <h4>Recent Rejected & Terminated Submissions (Audit Log)</h4>
+            <table class="data-table mt-2">
+              <thead>
+                <tr>
+                  <th>Submission ID</th>
+                  <th>Insured Name</th>
+                  <th>LOB</th>
+                  <th>Exit Trigger Point</th>
+                  <th>Reason / Rationale</th>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="exitAuditTable">
+                <!-- rendered dynamically by renderDeclineCenter() from DECLINE_LOG -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div> <!-- /declinePageView -->
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 4: SUBMISSION QUOTE VERSION HISTORY -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="quoteVersionsPageView">
+      
+      <!-- Header Banner -->
+      <div class="archive-header-bar quote-versions-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-stack text-primary u-fs-24"></i>
+            <h2>Submission Quote Version History</h2>
+          </div>
+          <p class="archive-header-desc">
+            Har submission ke behalf par generate hue saare quotes ki clear version history (Initial Quotes, Revised Quotes, aur Final Bound Terms).
+          </p>
+        </div>
+        <div class="archive-header-right u-row-gap8">
+          <button class="btn btn-sm btn-success" onclick="exportQuoteVersionsCSV()">
+            <i class="ph ph-file-csv"></i> Export to CSV
+          </button>
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()">
+            <i class="ph ph-arrow-left"></i> Return to Intake Hub
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Summary Metric Bar -->
+      <div class="versions-summary-bar mb-3">
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Total Quotes Generated</span>
+          <strong class="v-sum-val" id="kpiTotalVersions">14 Quotes</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active Submissions</span>
+          <strong class="v-sum-val">6 Submissions</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Bound Policies</span>
+          <strong class="v-sum-val text-success" id="kpiBoundCount">3 Bound</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active / In Progress</span>
+          <strong class="v-sum-val text-primary">3 Active</strong>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="table-filter-bar mb-3">
+        <div class="filter-tabs" id="versionStatusFilterTabs">
+          <button class="tab-btn active" id="tabFilterVerAll" onclick="filterQuoteVersions('all')">All Quotes (<span id="tabCountVerAll">14</span>)</button>
+          <button class="tab-btn" id="tabFilterVerBound" onclick="filterQuoteVersions('bound')"><i class="ph ph-lock text-success"></i> Bound Policies (<span id="tabCountVerBound">3</span>)</button>
+          <button class="tab-btn" id="tabFilterVerActive" onclick="filterQuoteVersions('active')"><i class="ph ph-lightning text-primary"></i> Latest Active Quotes (<span id="tabCountVerActive">4</span>)</button>
+          <button class="tab-btn" id="tabFilterVerSuperceded" onclick="filterQuoteVersions('superceded')"><i class="ph ph-clock-counter-clockwise text-muted"></i> Previous Versions (<span id="tabCountVerSuperceded">7</span>)</button>
+        </div>
+
+        <div class="table-right-controls" style="display: flex; gap: 10px; align-items: center;">
+          <div class="submission-select-box" style="display: flex; align-items: center; gap: 6px;">
+            <label for="versionSubSelect" style="font-size: 11.5px; font-weight: 700; color: #475569; white-space: nowrap;">
+              <i class="ph ph-folder-open text-primary"></i> Select Submission:
+            </label>
+            <select id="versionSubSelect" class="form-control form-control-sm" style="font-weight: 700; min-width: 260px;" onchange="onVersionSubSelectChange(this.value)">
+              <option value="all" selected>All Submissions (14 Quotes)</option>
+              <option value="SUB-48213-TX">SUB-48213-TX • Apex Freight LLC (4 Versions)</option>
+              <option value="SUB-45537">SUB-45537 • Test DR Sanjiv (3 Versions)</option>
+              <option value="SUB-49002-IL">SUB-49002-IL • Midwest Bulk Haulers (2 Versions)</option>
+              <option value="SUB-47991-CA">SUB-47991-CA • Precision Machining (2 Versions)</option>
+              <option value="SUB-50122-FL">SUB-50122-FL • Coastal Cold Storage (2 Versions)</option>
+              <option value="SUB-46109-TX">SUB-46109-TX • Lone Star Heavy Haul (1 Version)</option>
+            </select>
+          </div>
+          
+          <div class="search-box">
+            <i class="ph ph-magnifying-glass search-icon"></i>
+            <input type="text" id="versionSearchInput" placeholder="Search Insured, Quote #, Status..." onkeyup="searchQuoteVersionsTable()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Submissions Quote Version Cards Container -->
+      <div id="quoteVersionCardsContainer" class="quote-version-cards-container">
+        <!-- Rendered dynamically by renderQuoteVersionsLedger() -->
+      </div>
+
+    </div> <!-- /quoteVersionsPageView -->
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 5: TEAM ACTIVITY (Admin/Manager Process Tracking) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="teamActivityPageView">
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-users-three text-primary u-fs-24"></i>
+            <h2>Team Process Tracking</h2>
+          </div>
+          <p class="archive-header-desc">Monitor what each team member is working on, current submission stage, completed activities, and pending or delayed tasks.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
+        </div>
+      </div>
+
+      <div id="teamActivityAuthNotice" class="alert alert-danger" style="display:none; font-size:12.5px; margin-bottom:12px;">
+        <i class="ph ph-lock"></i> Team Activity is restricted to the System Administrator persona.
+      </div>
+
+      <div id="teamActivityMonthlyChart"><!-- rendered dynamically by renderTeamActivityMonthlyChart() --></div>
+
+      <div id="teamActivityBoard"><!-- rendered dynamically --></div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 5b: AUDIT LOG (Compliance — Consolidated UW Trail) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="auditLogPageView">
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-clock-counter-clockwise text-primary u-fs-24"></i>
+            <h2>Underwriting Audit Log</h2>
+          </div>
+          <p class="archive-header-desc">A consolidated, read-only record of every underwriting action across all submissions — approvals, declines, referrals, pricing overrides, RFIs and binds — with the underwriter's name, role and recorded rationale.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
+        </div>
+      </div>
+
+      <div id="auditLogAuthNotice" class="alert alert-danger" style="display:none; font-size:12.5px; margin-bottom:12px;">
+        <i class="ph ph-lock"></i> The Audit Log is restricted to Compliance, Executive and Administrative personas.
+      </div>
+
+      <div id="auditLogPageContent">
+        <div id="auditLogSummary" class="audit-log-summary"><!-- rendered dynamically by renderAuditLogFeed() --></div>
+
+        <div class="card mt-3">
+          <div class="card-header audit-log-filter-header">
+            <h3><i class="ph ph-funnel"></i> Filter Actions</h3>
+            <div class="audit-log-filters">
+              <div class="search-box audit-log-search">
+                <i class="ph ph-magnifying-glass search-icon"></i>
+                <input type="text" id="auditLogSearchInput" placeholder="Search submission, insured or underwriter..." oninput="renderAuditLogFeed()">
+              </div>
+              <select id="auditLogActionFilter" class="queue-sort-dropdown" onchange="renderAuditLogFeed()">
+                <option value="all">All Action Types</option>
+              </select>
+              <select id="auditLogActorFilter" class="queue-sort-dropdown" onchange="renderAuditLogFeed()">
+                <option value="all">All Underwriters</option>
+              </select>
+              <button class="btn btn-sm btn-outline" onclick="resetAuditLogFilters()"><i class="ph ph-x"></i> Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="auditLogFeed" class="mt-3"><!-- rendered dynamically by renderAuditLogFeed() --></div>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 6: QUOTE INTELLIGENCE (Premium Visibility + Compare) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="quoteIntelligencePageView">
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-chart-bar text-primary u-fs-24"></i>
+            <h2>Quote Comparison</h2>
+          </div>
+          <p class="archive-header-desc">Compare a customer's prior policy against the new quote, and compare multiple quotes with matching coverage side by side.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
+        </div>
+      </div>
+
+      <div class="filter-tabs mb-3" id="qiTabNav">
+        <button class="tab-btn active" id="qiTabRenewal" onclick="switchQuoteIntelTab('renewal')"><i class="ph ph-arrows-clockwise"></i> Old vs New (Renewal)</button>
+        <button class="tab-btn" id="qiTabCompare" onclick="switchQuoteIntelTab('compare')"><i class="ph ph-columns"></i> Multiple Quote Comparison</button>
+      </div>
+
+      <!-- Panel: Old vs New (Renewal) Comparison -->
+      <div id="qiPanelRenewal">
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ph ph-arrows-clockwise"></i> Select a Submission with a Prior Policy on File</h3>
+          </div>
+          <div class="card-body">
+            <p class="text-xs text-muted mb-2">Compares this customer's <strong>previous policy already held with us</strong> against the <strong>new quote</strong> being written now for the same submission.</p>
+            <select id="renewalSubmissionSelect" class="form-control" onchange="renderRenewalComparison()" style="max-width:420px;">
+              <option value="">Select submission...</option>
+            </select>
+            <div id="renewalComparisonResult" class="mt-3"><!-- rendered dynamically --></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Compare Quotes (same coverage type only) -->
+      <div class="u-hidden" id="qiPanelCompare">
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ph ph-list-checks"></i> Select Quotes to Compare (2–3)</h3>
+          </div>
+          <div class="card-body">
+            <p class="text-xs text-muted mb-2">Only submissions with the <strong>same coverage / line of business</strong> can be compared side by side. Pick a coverage type first.</p>
+            <select id="compareLobFilterSelect" class="form-control mb-2" onchange="renderQuoteCompareSelector()" style="max-width:420px;">
+              <option value="">Select coverage type...</option>
+            </select>
+            <div id="quoteCompareSelector"><!-- rendered dynamically --></div>
+            <button class="btn btn-primary mt-2" onclick="renderQuoteComparisonTable()"><i class="ph ph-columns"></i> Compare Selected</button>
+          </div>
+        </div>
+        <div id="quoteComparisonResult" class="mt-3"><!-- rendered dynamically --></div>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: UNIFIED ACCOUNT VIEW (Cross-LOB customer record) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="unifiedAccountPageView">
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-buildings text-primary u-fs-24"></i>
+            <h2>Unified Account View</h2>
+          </div>
+          <p class="archive-header-desc">See every submission for a customer's parent account across all lines of business — trucking, property, GL, and more — in one unified record.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
+        </div>
+      </div>
+
+      <div id="unifiedAccountAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px; margin-bottom:12px;">
+        <i class="ph ph-lock"></i> Cross-LOB account visibility is restricted to authorized roles (Senior Underwriter, CUO, Binding Ops, Auditor, Admin). Your current persona doesn't have access.
+        <button class="btn btn-xs btn-primary" style="margin-left:8px;" onclick="document.getElementById('userRoleSelect').value='senior_uw'; changeUserRole('senior_uw'); showUnifiedAccountPage();">
+          Switch to Senior Underwriter
+        </button>
+      </div>
+
+      <div id="unifiedAccountSearchArea">
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ph ph-magnifying-glass"></i> Search Account / Customer</h3>
+          </div>
+          <div class="card-body">
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+              <div class="form-group" style="flex:1; min-width:260px;">
+                <label class="u-label-sm">Account or Customer Name</label>
+                <input type="text" id="unifiedAccountSearchInput" class="form-control" placeholder="Type any account or customer name..." onkeydown="if(event.key==='Enter'){renderUnifiedAccountView();}">
+              </div>
+              <button class="btn btn-primary" onclick="renderUnifiedAccountView()">
+                <i class="ph ph-eye"></i> Show
+              </button>
+            </div>
+            <div id="unifiedAccountResults" class="mt-3"><!-- rendered dynamically --></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: INTEGRATING API FROM PRODUCT (Standalone JSON Ingestion) -->
+    <!-- ================================================================ -->
+    
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE 7: USER MASTER (Admin-only Roles & Permissions) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="userMasterPageView">
+      <div class="archive-header-bar">
+        <div class="archive-header-left">
+          <div class="archive-header-title">
+            <i class="ph ph-shield-check text-primary u-fs-24"></i>
+            <h2>User Master</h2>
+          </div>
+          <p class="archive-header-desc">Admin-only dashboard: monitor team-wide process activity and configure exactly which role can view, edit, approve, override, or archive each part of the system.</p>
+        </div>
+        <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
+        </div>
+      </div>
+
+      <div id="userMasterAuthNotice" class="alert alert-danger" style="display:none; font-size:12.5px; margin-bottom:12px;">
+        <i class="ph ph-lock"></i> User Master is restricted to the System Administrator persona.
+      </div>
+
+      <div id="userMasterContent">
+
+        <!-- Team Roster -->
+        <div class="card mb-3">
+          <div class="card-header">
+            <h3><i class="ph ph-users-three"></i> Team Roster</h3>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="badge badge-info" id="userMasterRosterCount">0 users</span>
+              <button class="btn btn-sm btn-primary" onclick="openAddUserModal()"><i class="ph ph-user-plus"></i> Add User</button>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead><tr><th>User</th><th>Role</th><th>Authority Limit</th><th>Active Submissions</th><th>Jurisdiction & LOB</th><th>Description</th><th></th></tr></thead>
+                <tbody id="userMasterRosterBody"><!-- rendered dynamically --></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Permission Matrix Editor -->
+        <div class="card">
+          <div class="card-header">
+            <h3><i class="ph ph-sliders"></i> Permission Matrix</h3>
+          </div>
+          <div class="card-body">
+            <p class="text-xs text-muted mb-2">Select a resource, then check which actions each role is allowed to perform. Changes apply immediately across the app.</p>
+            <select id="userMasterResourceSelect" class="form-control mb-3" onchange="renderPermissionMatrixEditor()" style="max-width:420px;">
+              <!-- populated dynamically -->
+            </select>
+            <div id="permissionMatrixEditorContainer"><!-- rendered dynamically --></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
+              <button class="btn btn-outline" onclick="resetPermissionsMatrix()"><i class="ph ph-arrow-counter-clockwise"></i> Reset to Defaults</button>
+              <button class="btn btn-primary" onclick="savePermissionMatrixEditor()"><i class="ph ph-check"></i> Save Permissions</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    </main>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: COMPLETE END-TO-END CASE SUMMARY & ALL 7 STEPS PREVIEW -->
+  <!-- ================================================================ -->
+  <div class="modal-overlay u-hidden" id="allStepsSummaryModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl case-summary-modal-dialog">
+      <div class="modal-header">
+        <div class="summary-modal-title-box">
+          <div class="u-row-gap12">
+            <div class="summary-modal-header-icon">
+              <i class="ph ph-clipboard-text"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0; font-size: 18px; color: #0f172a; font-weight: 800;">
+                End-to-End Underwriting Case Summary & Audit Preview
+              </h3>
+              <p class="text-xs text-muted u-m0">
+                Consolidated Lifecycle Inspection: Doc Ingestion → Clearance → Enrichment → Workbench → Authority → Rating Engine → Quote & Bind
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="summary-modal-header-actions" style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn btn-xs btn-outline" onclick="window.print()" title="Print Summary Report"><i class="ph ph-printer"></i> Print</button>
+          <button class="btn-close" aria-label="Close" onclick="closeAllStepsSummaryModal()" title="Close Modal"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+
+      <!-- Quick Summary Meta Strip -->
+      <div class="summary-account-strip" id="summaryModalAccountStrip">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- In-Modal Step Tabs Navigation -->
+      <div class="summary-modal-step-tabs" id="summaryModalStepTabs">
+        <button class="s-tab-btn active" onclick="switchSummaryModalTab('all')" data-tab="all">
+          <i class="ph ph-stack"></i> All 7 Steps Overview
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step1')" data-tab="step1">
+          <span class="s-tab-num">1</span> Doc Ingestion
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step2')" data-tab="step2">
+          <span class="s-tab-num">2</span> Clearance Check
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step3')" data-tab="step3">
+          <span class="s-tab-num">3</span> Data Enrichment
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step4')" data-tab="step4">
+          <span class="s-tab-num">4</span> UW Workbench
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step5')" data-tab="step5">
+          <span class="s-tab-num">5</span> Authority Desk
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step6')" data-tab="step6">
+          <span class="s-tab-num">6</span> Rating Engine
+        </button>
+        <button class="s-tab-btn" onclick="switchSummaryModalTab('step7')" data-tab="step7">
+          <span class="s-tab-num">7</span> Quote & Bind
+        </button>
+      </div>
+
+      <div class="modal-body case-summary-modal-body" id="allStepsSummaryModalBody">
+        <!-- Populated dynamically via renderAllStepsSummaryModal() -->
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 12px 20px;">
+        <button class="btn btn-outline" onclick="closeAllStepsSummaryModal()">
+          <i class="ph ph-x"></i> Close Preview
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-success u-fw-700" onclick="closeAllStepsSummaryModal(); issueQuoteAction();">
+            <i class="ph ph-paper-plane-tilt"></i> Issue Quote
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Import Rating JSON & Recalculate Quote -->
+  <!-- Configurable Review Routing Rules Modal (#8) -->
+  <div class="modal-overlay u-hidden" id="reviewRoutingModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-sliders text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Configurable Review Routing Rules</h3>
+            <p class="text-xs text-muted u-m0">Admins define when a submission automatically requires Senior Underwriter or Manager review before it can proceed.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeReviewRoutingModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div id="reviewRoutingModalAuthNotice" class="alert alert-warning py-2 px-3 mb-3" style="display:none; font-size:12px;">
+          <i class="ph ph-lock"></i> Review Routing Rules are restricted to the System Administrator persona.
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Require Senior Underwriter review when premium exceeds</label>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>$</span>
+            <input type="number" id="ruleSeniorPremiumThreshold" class="form-control" value="2000000" min="0">
+          </div>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Require Manager review when premium exceeds</label>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>$</span>
+            <input type="number" id="ruleManagerPremiumThreshold" class="form-control" value="10000000" min="0">
+          </div>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Require Senior review when customer trust/risk score is below</label>
+          <input type="number" id="ruleTrustScoreThreshold" class="form-control" value="65" min="0" max="100">
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Require Senior review for risk level</label>
+          <select id="ruleRiskLevelTrigger" class="form-control">
+            <option value="high" selected>High risk only</option>
+            <option value="medium_high">Medium and High risk</option>
+            <option value="any">Any flagged risk</option>
+          </select>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Products always requiring Senior review</label>
+          <input type="text" id="ruleProductsList" class="form-control" value="Hazmat Trucking, Environmental Liability, Excess Umbrella" placeholder="Comma-separated product / LOB names">
+        </div>
+
+        <div class="form-group mb-3">
+          <label style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:8px;">
+            <input class="u-icon-16" type="checkbox" id="ruleOverAuthorityForcesReview" checked>
+            Always require review when exposure exceeds the underwriter's individual authority limit
+          </label>
+        </div>
+
+        <div class="alert alert-info u-fs-12">
+          <i class="ph ph-info"></i> These rules are evaluated automatically at the Authority & Referral Desk stage. A submission that trips any rule is routed to Senior Underwriter or Manager review before it can advance — straightforward cases that trip none of these rules can move forward without additional review.
+        </div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeReviewRoutingModal()">Cancel</button>
+        <button class="btn btn-primary" id="saveReviewRoutingBtn" onclick="saveReviewRoutingRules()"><i class="ph ph-check"></i> Save Rules</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Human Decision Gate Modal (#6) -->
+  <div class="modal-overlay u-hidden" id="stageDecisionModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap12">
+          <div class="decision-modal-icon"><i class="ph ph-user-check"></i></div>
+          <div>
+            <h3 class="u-title-16" id="stageDecisionModalTitle">Review Automated Results & Decide</h3>
+            <p class="text-xs text-muted" style="margin: 2px 0 0;">Automated checks are complete. Your decision, name, role, and timestamp will be recorded in the audit trail.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeStageDecisionModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" id="stageDecisionModalBody">
+        <!-- populated dynamically -->
+      </div>
+      <div class="modal-body decision-notes-section" style="padding-bottom: 18px;">
+        <label for="stageDecisionNotes"><i class="ph ph-note-pencil"></i> Decision Notes <span class="u-text-danger">*</span></label>
+        <textarea id="stageDecisionNotes" class="form-control" rows="3" placeholder="Add rationale for this decision..." oninput="clearFieldError('stageDecisionNotes')"></textarea>
+        <span class="field-error-text u-hidden" id="stageDecisionNotesError">Decision Notes is required.</span>
+      </div>
+      <div class="modal-footer u-row-between" style="margin-top: 8px;">
+        <button class="btn btn-outline" onclick="closeStageDecisionModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitStageDecision(true)"><i class="ph ph-check"></i> Approve &amp; Advance</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Trust Score-Based Premium Adjustment Modal (#7) -->
+  <!-- Submission Intake — Quick Version List Modal -->
+  <!-- Submission Intake — Customer Data Version History Modal -->
+  <div class="modal-overlay u-hidden" id="intakeVersionListModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-stack text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="intakeVersionListModalTitle">Submission Data Versions</h3>
+            <p class="text-xs text-muted u-m0">Customer communication thread and resulting data versions, tracked via the submission's original channel (Broker or Direct).</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeIntakeVersionListModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" id="intakeVersionListModalBody">
+        <!-- populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Submission Intake — Edit Customer-Provided Data Modal -->
+  <div class="modal-overlay u-hidden" id="editSubmissionDataModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-pencil-simple text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Log Customer Communication & Data Update</h3>
+            <p class="text-xs text-muted u-m0">Communication travels through the same channel the submission arrived on. Saving creates a new tracked submission version. Submission stays within the Intake workflow.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeEditSubmissionDataModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" id="editSubmissionDataModalBody">
+        <!-- populated dynamically -->
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeEditSubmissionDataModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSubmissionDataEdit()"><i class="ph ph-check"></i> Save & Create Version</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Underwriting Discretionary Pricing Modal (Post-Rating Credit/Debit) -->
+  <div class="modal-overlay u-hidden" id="discretionaryPricingModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-sliders text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Apply Discretionary Credit / Debit</h3>
+            <p class="text-xs text-muted u-m0">Applied after the base rating engine, before final quote generation. Capped at −15% credit / +25% debit.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeDiscretionaryPricingModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" id="discretionaryPricingModalBody">
+        <!-- populated dynamically -->
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeDiscretionaryPricingModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveDiscretionaryPricing()"><i class="ph ph-check"></i> Apply & Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Typed-Confirmation Modal (§10.16) — for destructive/irreversible actions -->
+  <!-- Add User Modal (User Master) -->
+  <!-- Decline Submission Modal (Underwriting Workbench) -->
+  <div class="modal-overlay u-hidden" id="declineSubmissionModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-prohibit text-danger u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Decline Submission</h3>
+            <p class="text-xs text-muted u-m0">This removes the submission from the active pipeline and logs it in the Decline Center. This cannot be undone from here.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeDeclineSubmissionModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:13px; margin-bottom:10px;" id="declineSubmissionIdLabel"></div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Exit Trigger Point <span class="u-text-danger">*</span></label>
+          <select id="declineTriggerPoint" class="form-control">
+            <option value="Duplicate FEIN">Duplicate FEIN — conflicting submission already locked by another broker</option>
+            <option value="Appetite Knockout">Appetite Knockout — outside carrier underwriting guidelines</option>
+            <option value="Senior UW Decline">Senior UW Decline — rejected after executive review</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Reason / Rationale <span class="u-text-danger">*</span></label>
+          <textarea id="declineReasonText" class="form-control" rows="3" placeholder="e.g. Prior 3-year loss ratio exceeds 140% with open environmental claim..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="u-label-sm">Type <code id="declineConfirmExpected" class="font-mono"></code> to confirm</label>
+          <input type="text" id="declineConfirmInput" class="form-control" autocomplete="off" oninput="validateDeclineConfirmInput()">
+        </div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeDeclineSubmissionModal()">Cancel</button>
+        <button class="btn btn-danger" id="declineSubmitBtn" onclick="submitDeclineSubmission()" disabled>Decline Submission</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay u-hidden" id="addUserModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-user-plus text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="addUserModalTitle">Add New User</h3>
+            <p class="text-xs text-muted u-m0" id="addUserModalDesc">Adds a team member to the roster. They inherit permissions from the assigned role.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeAddUserModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Full Name <span class="u-text-danger">*</span></label>
+          <input type="text" id="addUserName" class="form-control" placeholder="e.g. Michael Torres">
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Job Title <span class="u-text-danger">*</span></label>
+          <input type="text" id="addUserTitle" class="form-control" placeholder="e.g. Junior Underwriter (L2)">
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Email</label>
+          <input type="email" id="addUserEmail" class="form-control" placeholder="e.g. michael.torres@company.com">
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Role (determines permissions) <span class="u-text-danger">*</span></label>
+          <select id="addUserRole" class="form-control" onchange="prefillAddUserAuthorityLimit()">
+            <!-- populated dynamically -->
+          </select>
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Authority Limit ($)</label>
+          <input type="number" id="addUserLimit" class="form-control" min="0">
+          <p class="text-xs text-muted u-mt-4">Prefilled from the selected role's default limit — adjust if this user has a custom authority.</p>
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Authorized States (Underwriting Jurisdiction)</label>
+          <select id="addUserStates" class="form-control" multiple size="6">
+            <!-- populated dynamically -->
+          </select>
+          <p class="text-xs text-muted u-mt-4">Ctrl/Cmd-click (or shift-click) to select every state this user is licensed to underwrite in.</p>
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Lines of Business</label>
+          <div id="addUserLobChecklist" style="display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--color-border, #dcdfe4); border-radius:6px;">
+            <!-- populated dynamically -->
+          </div>
+        </div>
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Authorized Coverages</label>
+          <div id="addUserCoverageChecklist" style="display:flex; flex-direction:column; gap:6px; padding:8px; border:1px solid var(--color-border, #dcdfe4); border-radius:6px; max-height:220px; overflow-y:auto;">
+            <!-- populated dynamically based on selected LOBs -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeAddUserModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveNewUser()"><i class="ph ph-check"></i> <span id="addUserSaveBtnLabel">Add User</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Read-only Jurisdiction & LOB Authority modal, opened from the Team Roster's compact "View" button -->
+  <div class="modal-overlay u-hidden" id="userAuthorityModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-map-pin-area text-primary u-fs-22"></i>
+          <h3 class="u-title-16" id="userAuthorityModalTitle">Jurisdiction & LOB Authority</h3>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeUserAuthorityModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label style="font-weight:600; font-size:12px; display:block; margin-bottom:6px;">Authorized States</label>
+          <div id="userAuthorityStates"><!-- rendered dynamically --></div>
+        </div>
+        <div>
+          <label style="font-weight:600; font-size:12px; display:block; margin-bottom:6px;">Lines of Business & Coverages</label>
+          <div id="userAuthorityLobs"><!-- rendered dynamically --></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; align-items: center;">
+        <button class="btn btn-outline" onclick="closeUserAuthorityModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay u-hidden" id="typedConfirmModal" role="dialog" aria-modal="true">
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-warning text-danger u-fs-22"></i>
+          <h3 class="u-title-16" id="typedConfirmTitle">Confirm Action</h3>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeTypedConfirmModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm" id="typedConfirmMessage" style="margin-bottom: 14px;"></p>
+        <div class="form-group">
+          <label class="u-label-sm">Type <code id="typedConfirmExpectedText" class="font-mono"></code> to confirm</label>
+          <input type="text" id="typedConfirmInput" class="form-control" autocomplete="off" oninput="validateTypedConfirmInput()">
+        </div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeTypedConfirmModal()">Cancel</button>
+        <button class="btn btn-danger" id="typedConfirmSubmitBtn" onclick="submitTypedConfirm()" disabled>Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay u-hidden" id="premiumAdjustModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-calculator text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Adjust Premium Based on Trust/Risk Score</h3>
+            <p class="text-xs text-muted u-m0">Adjustments must stay within your authorized limit and are logged with reason and user details.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closePremiumAdjustModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" id="premiumAdjustModalBody">
+        <!-- populated dynamically -->
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closePremiumAdjustModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitPremiumAdjustment()"><i class="ph ph-check"></i> Save Adjustment</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay u-hidden" id="importQuoteJsonModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-file-code text-warning u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16">Import Rating JSON from Local System</h3>
+            <p class="text-xs text-muted u-m0">Upload a .json rating file from your computer or paste custom rating JSON to generate the bindable quote.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeImportQuoteJsonModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- File Dropzone for System JSON Import -->
+        <input class="u-hidden" type="file" id="quoteJsonModalFileInput" accept=".json,application/json" onchange="handleSystemJsonFileSelect(event)">
+        
+        <div class="json-dropzone mb-3" id="jsonDropzoneBox" onclick="document.getElementById('quoteJsonModalFileInput').click()" ondragover="handleJsonDragOver(event)" ondragleave="handleJsonDragLeave(event)" ondrop="handleJsonFileDrop(event)">
+          <div class="dropzone-icon">
+            <i class="ph ph-cloud-arrow-up text-primary" style="font-size: 32px;"></i>
+          </div>
+          <div class="dropzone-text">
+            <strong style="font-size: 13.5px; color: #0f172a;">Click to browse .JSON file from your system, or drag and drop here</strong>
+            <p style="margin: 3px 0 0 0; font-size: 11.5px; color: #64748b;">Supports Actuarial Rating payload schema (quote, coverages, fees, factors)</p>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary u-fw-700" onclick="event.stopPropagation(); document.getElementById('quoteJsonModalFileInput').click();">
+            <i class="ph ph-folder-open"></i> Browse Computer
+          </button>
+        </div>
+
+        <div id="loadedFileIndicator" class="alert alert-info py-1 px-3 mb-2" style="display: none; font-size: 11.5px; align-items: center; justify-content: space-between;">
+          <span><i class="ph ph-file-text text-success"></i> Loaded File: <strong id="loadedFileName">rating.json</strong> (<span id="loadedFileSize">0 KB</span>)</span>
+          <span class="badge badge-success">Ready to Generate</span>
+        </div>
+
+        <div class="form-group mb-2 u-row-between">
+          <label style="font-weight: 700; font-size: 12px; margin: 0;">Rating JSON Payload Editor / Preview:</label>
+          <button type="button" class="btn btn-xs btn-outline" onclick="loadSampleRatingJson()"><i class="ph ph-arrow-counter-clockwise"></i> Load Default Trucking Sample</button>
+        </div>
+        <textarea id="importQuoteJsonTextarea" class="form-control font-mono" style="font-size: 11px; height: 260px; line-height: 1.4; resize: vertical; background: #0f172a; color: #38bdf8; border-color: #334155;" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeImportQuoteJsonModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="handleApplyImportedJson()" style="font-weight: 700; background: #16a34a; border-color: #15803d;">
+          <i class="ph ph-lightning"></i> Generate Formal Quote
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: View Specific Quote Version PDF Document -->
+  <div class="modal-overlay u-hidden" id="quoteVersionPreviewModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-file-pdf text-danger u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="modalQuotePreviewTitle">Quote Document Preview</h3>
+            <p class="text-xs text-muted u-m0" id="modalQuotePreviewSub">Version Details & Underwriting Terms</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="btn btn-xs btn-outline" onclick="window.print()"><i class="ph ph-printer"></i> Print</button>
+          <button class="btn-close" aria-label="Close" onclick="closeQuoteVersionPreviewModal()"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+      <div class="modal-body" id="quoteVersionPreviewModalBody">
+        <!-- Rendered dynamically via openQuoteVersionPreviewModal() -->
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeQuoteVersionPreviewModal()">Close</button>
+        <button class="btn btn-primary" onclick="showToast('Quote PDF downloaded!', 'success')">
+          <i class="ph ph-download-simple"></i> Download Quote PDF
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Issue Quote -> Auto Email -> Broker (Add-On) -->
+  <div class="modal-overlay" id="issueQuoteEmailModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3><i class="ph ph-envelope-simple-open text-primary"></i> Quote Email Sent to Broker</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeIssueQuoteEmailModal()" style="font-size:20px; line-height:1; font-weight:700;">
+          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted u-m0" style="margin-bottom:10px;">
+          Automatically generated from the imported rating JSON, with any Underwriting Discretionary Pricing
+          (Post-Rating) change already applied — no manual email writing.
+        </p>
+        <div class="alert alert-success u-fs-12-5" style="margin-bottom:10px;">
+          <i class="ph ph-paper-plane-tilt"></i> Sent to: <strong id="issueQuoteEmailRecipient"></strong>
+        </div>
+        <pre class="ps-json-editor" id="issueQuoteEmailBody" style="height:480px; overflow:auto; white-space:pre-wrap; font-family:monospace;"></pre>
+        <div class="modal-footer mt-3" style="margin:0; padding:12px 0 0 0;">
+          <button type="button" class="btn btn-outline" onclick="copyIssueQuoteEmailToClipboard()"><i class="ph ph-copy"></i> Copy Email</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Generate Final Underwriting JSON (Add-On, Authority Desk) -->
+  <div class="modal-overlay" id="generateFinalJsonModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3><i class="ph ph-file-code text-primary"></i> Final Underwriting JSON — <span id="finalJsonModalSubId" class="font-mono"></span></h3>
+        <button class="btn-close" aria-label="Close" onclick="closeGenerateFinalJsonModal()" style="font-size:20px; line-height:1; font-weight:700;">
+          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted u-m0" style="margin-bottom:10px;">
+          Same <code>ratingInputs</code> structure as the reference JSON template, populated live from the
+          Underwriting Workbench — only fields present in that template are included, nothing extra.
+        </p>
+        <div class="ps-json-editor" id="finalJsonCodeBlock" style="height:480px; overflow:auto; white-space:pre;"></div>
+        <div class="modal-footer mt-3" style="margin:0; padding:12px 0 0 0;">
+          <button type="button" class="btn btn-outline" onclick="copyFinalJsonToClipboard()"><i class="ph ph-copy"></i> Copy JSON</button>
+          <button type="button" class="btn btn-primary" onclick="downloadFinalJson()"><i class="ph ph-download-simple"></i> Download JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Email → Raw Data & Document Capture (Add-On Intake Path)
+       Caveman rule: this step NEVER cleans, extracts, or edits anything the
+       customer/broker sent. It only copies raw text + raw files verbatim
+       into a new Submission. AI normalization happens later, deliberately,
+       at the Document Ingestion step (Screen 2). -->
+  <div class="modal-overlay" id="emailDigestModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3><i class="ph ph-envelope-open text-primary"></i> Copy Raw Email into a New Submission</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeEmailDigestModal()" style="font-size:20px; line-height:1; font-weight:700;">
+          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">
+          Open the email and copy/paste the raw text below, and attach any documents that came with it
+          (ACORD forms, loss runs, SOVs, screenshots). This step only <strong>captures exactly what was
+          sent</strong> — nothing is cleaned, extracted, or changed here. AI normalization happens later,
+          on demand, at the <strong>Document Ingestion</strong> step, and never overwrites this raw copy.
+        </p>
+
+        <div class="email-digest-tabs">
+          <button class="tab-btn active" id="emailDigestTabPaste" onclick="switchEmailDigestTab('paste')">
+            <i class="ph ph-clipboard-text"></i> Paste Email
+          </button>
+          <button class="tab-btn" id="emailDigestTabInbox" onclick="switchEmailDigestTab('inbox')">
+            <i class="ph ph-tray-arrow-down"></i> Inbox Connector (Demo)
+          </button>
+        </div>
+
+        <!-- Panel: Paste raw email + attachments (raw capture only) -->
+        <div id="emailDigestPastePanel">
+          <div class="form-group">
+            <label>Line of Business (for routing only — not extracted from content)</label>
+            <select class="form-control" id="emailDigestLobSelect">
+              <option value="trucking">🚚 Commercial Auto / Trucking</option>
+              <option value="property">🏢 Commercial Property</option>
+              <option value="mpl">💼 MPL - Professional Liability</option>
+              <option value="gl_cpc">🏗️ GL CPC - Commercial Package & Contractors</option>
+              <option value="gl_cas">⚗️ GL CAS - High Hazard Casualty & Surplus</option>
+            </select>
+          </div>
+
+          <div class="form-group mt-2">
+            <label>Raw Email Text — copy/paste exactly as received</label>
+            <textarea class="form-control" id="emailDigestRawText" rows="9" placeholder="Paste the full email here, including From: and Subject: lines if available..."></textarea>
+          </div>
+
+          <div class="form-group mt-2">
+            <label>Raw Documents from the Email (optional — attached exactly as received)</label>
+            <div class="email-digest-dropzone" onclick="document.getElementById('emailDigestFileInput').click()">
+              <i class="ph ph-upload-simple"></i> Click to attach PDF or image files exactly as they came in the email
+            </div>
+            <input type="file" id="emailDigestFileInput" accept="application/pdf,image/*" multiple style="display:none" onchange="handleEmailDigestFileSelect(event)">
+            <div class="email-digest-file-list" id="emailDigestFileList"></div>
+          </div>
+
+          <div class="modal-footer mt-3" style="margin: 0 -20px 0 -20px; padding-bottom: 0;">
+            <button type="button" class="btn btn-primary" id="emailDigestCreateBtn" onclick="createRawSubmissionFromEmail()">
+              <i class="ph ph-tray-arrow-down"></i> Add Raw Data & Documents to Submission
+            </button>
+          </div>
+          <p class="text-xs text-muted u-m0" style="margin-top:8px;">
+            <i class="ph ph-info"></i> No AI runs in this step. The submission is created with your raw
+            text/files untouched, status <strong>"Raw Intake — Pending Document Ingestion."</strong>
+          </p>
+        </div>
+
+        <!-- Panel: Simulated inbox connector -->
+        <div id="emailDigestInboxPanel" style="display:none;">
+          <div class="email-digest-inbox-connect-box">
+            <div>
+              <strong><i class="ph ph-plugs"></i> Demo Mode — Simulated Inbox</strong>
+              <div class="meta">Real Gmail / Outlook / IMAP sync requires a backend OAuth service (not available in this browser-only prototype). Loading a sample message here still only performs raw capture — no AI runs until Document Ingestion.</div>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="connectRealInboxStub()"><i class="ph ph-plug"></i> Connect Real Inbox</button>
+          </div>
+          <div class="email-digest-inbox-list" id="emailDigestInboxList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: + New Submission Intake -->
+  <div class="modal-overlay" id="newIntakeModal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="ph ph-file-plus text-primary"></i> Create / Ingest New Submission</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeNewIntakeModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="newIntakeForm" onsubmit="handleCreateNewIntake(event)">
+          <div class="form-group">
+            <label>Intake Origin Channel</label>
+            <select class="form-control" id="newIntakeChannel" onchange="toggleModalBrokerField()">
+              <option value="broker" selected>🏢 Broker Intake (Email / Broker Portal)</option>
+              <option value="direct">👤 Direct Customer Portal (Self-Service Online Form)</option>
+            </select>
+          </div>
+
+          <div class="form-group mt-2">
+            <label>Line of Business (LOB)</label>
+            <select class="form-control" id="newIntakeLOB">
+              <option value="trucking">🚚 Commercial Auto / Trucking</option>
+              <option value="property">🏢 Commercial Property</option>
+              <option value="mpl">💼 MPL - Professional Liability</option>
+              <option value="gl_cpc">🏗️ GL CPC - Commercial Package & Contractors</option>
+              <option value="gl_cas">⚗️ GL CAS - High Hazard Casualty & Surplus</option>
+            </select>
+          </div>
+
+          <div class="form-grid mt-2">
+            <div class="form-group">
+              <label>Named Insured / Legal Entity</label>
+              <input type="text" class="form-control" id="newIntakeInsured" placeholder="e.g. Metro Freight Express LLC" required>
+            </div>
+            <div class="form-group">
+              <label>FEIN / Tax ID</label>
+              <input type="text" class="form-control" id="newIntakeFEIN" placeholder="e.g. 74-9842109" required>
+            </div>
+          </div>
+
+          <div class="form-group mt-2" id="modalBrokerFieldGroup">
+            <label>Broker / Producer Agency</label>
+            <input type="text" class="form-control" id="newIntakeBroker" value="Marsh & McLennan Commercial Brokerage">
+          </div>
+
+          <div class="form-group mt-2">
+            <label>Attached Required Underwriting Documents</label>
+            <div class="checkbox-group">
+              <label><input type="checkbox" checked disabled> ACORD Application Form (PDF)</label>
+              <label><input type="checkbox" checked disabled> Statement of Values / Asset Schedule (XLSX)</label>
+              <label><input type="checkbox" checked disabled> 3-Year Prior Loss Runs (PDF)</label>
+            </div>
+          </div>
+
+          <div class="modal-footer mt-4" style="margin: 0 -20px -20px -20px;">
+            <button type="button" class="btn btn-outline" onclick="closeNewIntakeModal()">Cancel</button>
+            <button type="submit" class="btn btn-primary"><i class="ph ph-cloud-arrow-up"></i> Submit & Ingest into Pipeline</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Workflow Diagram Modal -->
+  <div class="modal-overlay" id="diagramModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <h3><i class="ph ph-flow-arrow"></i> Submission-to-Quote Underwriting Flow Diagram (Eraser Visualizer)</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeFlowchartModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="diagram-interactive-canvas">
+          <!-- Phase 1 Box -->
+          <div class="dia-phase-box phase-1">
+            <div class="dia-phase-title"><i class="ph ph-file-arrow-down"></i> Phase 1 — Ingestion & Data Normalization</div>
+            <div class="dia-nodes-row">
+              <div class="dia-node" onclick="navFromDiagram('screen-1')">
+                <div class="dia-node-icon"><i class="ph ph-envelope"></i></div>
+                <div class="dia-node-title">Broker Intake</div>
+                <div class="dia-node-sub">Email / Portal / API</div>
+              </div>
+              <div class="dia-node" onclick="navFromDiagram('screen-1')">
+                <div class="dia-node-icon"><i class="ph ph-user"></i></div>
+                <div class="dia-node-title">Direct Customer Portal</div>
+                <div class="dia-node-sub">Self-Service Intake</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-1')">
+                <div class="dia-node-icon"><i class="ph ph-folder-open"></i></div>
+                <div class="dia-node-title">Submission Docs</div>
+                <div class="dia-node-sub">ACORD 125/137/140 • SOV</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-2')">
+                <div class="dia-node-icon"><i class="ph ph-gears"></i></div>
+                <div class="dia-node-title">Doc Ingestion Pipeline</div>
+                <div class="dia-node-sub">S3 / OCR + AI</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-2')">
+                <div class="dia-node-icon"><i class="ph ph-database"></i></div>
+                <div class="dia-node-title">Canonical Record</div>
+                <div class="dia-node-sub">Normalized Schema</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Phase 2 Box -->
+          <div class="dia-phase-box phase-2 mt-3">
+            <div class="dia-phase-title"><i class="ph ph-funnel"></i> Phase 2 — Clearance, Appetite & Triage</div>
+            <div class="dia-nodes-row">
+              <div class="dia-node dia-decision" onclick="navFromDiagram('screen-3')">
+                <div class="dia-node-title">FEIN Duplicate Check?</div>
+                <div class="dia-node-sub">Unique vs Duplicate</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node dia-decision" onclick="navFromDiagram('screen-3')">
+                <div class="dia-node-title">Appetite Rules Knockouts?</div>
+                <div class="dia-node-sub">Passes vs Fails</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-4')">
+                <div class="dia-node-icon"><i class="ph ph-tree-structure"></i></div>
+                <div class="dia-node-title">Data Enrichment</div>
+                <div class="dia-node-sub">FMCSA • HazardHub • ISO</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-4')">
+                <div class="dia-node-icon"><i class="ph ph-signpost"></i></div>
+                <div class="dia-node-title">Smart Routing</div>
+                <div class="dia-node-sub">Auto-Assignment</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Phase 3 Box -->
+          <div class="dia-phase-box phase-3 mt-3">
+            <div class="dia-phase-title"><i class="ph ph-user-shield"></i> Phase 3 — Underwriter Review & Risk Assessment</div>
+            <div class="dia-nodes-row">
+              <div class="dia-node" onclick="navFromDiagram('screen-5')">
+                <div class="dia-node-icon"><i class="ph ph-laptop"></i></div>
+                <div class="dia-node-title">Underwriting Workbench</div>
+                <div class="dia-node-sub">Doc viewer • Loss analysis</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node dia-decision" onclick="navFromDiagram('screen-6')">
+                <div class="dia-node-title">Exposure > UW Authority?</div>
+                <div class="dia-node-sub">Within vs Exceeds</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-6')">
+                <div class="dia-node-icon"><i class="ph ph-user-tie"></i></div>
+                <div class="dia-node-title">Senior UW Referral</div>
+                <div class="dia-node-sub">Sign-off / Request Revision</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-7')">
+                <div class="dia-node-icon"><i class="ph ph-checks"></i></div>
+                <div class="dia-node-title">Ready for Pricing</div>
+                <div class="dia-node-sub">Carry Subjectivities</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Phase 4 Box -->
+          <div class="dia-phase-box phase-4 mt-3">
+            <div class="dia-phase-title"><i class="ph ph-calculator"></i> Phase 4 — Rating Engine & Quote Generation</div>
+            <div class="dia-nodes-row">
+              <div class="dia-node" onclick="navFromDiagram('screen-7')">
+                <div class="dia-node-icon"><i class="ph ph-calculator"></i></div>
+                <div class="dia-node-title">LOB Rating Engine</div>
+                <div class="dia-node-sub">TIV • Units • Revenue</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-7')">
+                <div class="dia-node-icon"><i class="ph ph-receipt"></i></div>
+                <div class="dia-node-title">Premium Calculation</div>
+                <div class="dia-node-sub">Debits • Deductibles • Taxes</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-8')">
+                <div class="dia-node-icon"><i class="ph ph-file-text"></i></div>
+                <div class="dia-node-title">Formal Quote PDF</div>
+                <div class="dia-node-sub">Issued to Broker</div>
+              </div>
+              <div class="dia-arrow">➔</div>
+              <div class="dia-node" onclick="navFromDiagram('screen-8')">
+                <div class="dia-node-icon"><i class="ph ph-lock"></i></div>
+                <div class="dia-node-title">Bind or Expire</div>
+                <div class="dia-node-sub">30-Day Policy Window</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span class="text-muted"><i class="ph ph-hand-pointing"></i> Click on any node above to immediately navigate to that screen.</span>
+        <button class="btn btn-primary" onclick="closeFlowchartModal()">Close Visualizer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RFI Broker Communication Modal -->
+  <div class="modal-overlay" id="rfiModal" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3><i class="ph ph-envelope-open"></i> Request for Information (RFI) to Submitter</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeRFIModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Recipient Email:</label>
+          <input type="text" class="form-control" id="rfiRecipientEmail" value="submissions@marshbrokerage.com" readonly>
+        </div>
+        <div class="form-group mt-2">
+          <label>Subject / Reference:</label>
+          <input type="text" class="form-control" id="rfiSubject" value="URGENT: RFI on Submission #SUB-48213 - Apex Freight LLC">
+        </div>
+        <div class="form-group mt-2">
+          <label>Missing Items / Questions for Broker / Insured:</label>
+          <textarea class="form-control" rows="5" id="rfiMessageText">Dear Submitter,
+During our underwriting review of this file, we identified missing information needed before we can clear the risk for pricing:
+
+1. Complete 17-digit VIN numbers and garaging zip codes for all scheduled items.
+2. Official 3-year prior carrier signed loss runs with valuation date within 30 days.
+
+Underwriting review is temporarily paused pending receipt of these items.</textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeRFIModal()">Cancel</button>
+        <button class="btn btn-warning" onclick="sendRFIAction()"><i class="ph ph-paper-plane-tilt"></i> Dispatch RFI to Submitter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: View Case Details & Pre-Normalization Inspection -->
+  <div class="modal-overlay" id="viewCaseModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <div>
+          <h3><i class="ph ph-folder-open text-primary"></i> Active Selected Case: <span id="modalDetailInsuredTitle">Apex Freight LLC (SUB-48213-TX)</span></h3>
+          <span class="badge badge-info mt-1" id="modalDetailChannelBadge">Broker Intake: Marsh & McLennan (Email)</span>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeViewCaseModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="two-col-grid">
+          <!-- Left: Metadata -->
+          <div class="intake-detail-box">
+            <h4><i class="ph ph-identification-card"></i> Submission Envelope Metadata</h4>
+            <div class="meta-grid mt-2">
+              <div><span class="lbl">Legal Entity:</span> <strong id="modalDetailInsuredName">Apex Freight LLC</strong></div>
+              <div><span class="lbl">FEIN / Tax ID:</span> <strong class="font-mono" id="modalDetailFEIN">81-440000TX</strong></div>
+              <div><span class="lbl">Submission Origin:</span> <strong id="modalDetailOriginType">Broker Submission (Marsh & McLennan Commercial Brokerage)</strong></div>
+              <div><span class="lbl">Submitter Email:</span> <strong id="modalDetailSubmitterEmail">submissions@marshbrokerage.com</strong></div>
+              <div><span class="lbl">Line of Business:</span> <strong id="modalDetailLOBName">Commercial Auto / Trucking</strong></div>
+              <div><span class="lbl">Target Effective Date:</span> <strong id="modalDetailEffectiveDate">2026-09-01 (12 Months)</strong></div>
+              <div><span class="lbl">Priority & SLA:</span> <strong class="text-danger" id="modalDetailPriority">P1 - Highest (4h SLA)</strong></div>
+            </div>
+          </div>
+
+          <!-- Right: Attached Core Documents -->
+          <div class="intake-detail-box">
+            <h4><i class="ph ph-paperclip"></i> Uploaded Submission Documents (ACORD, SOV, Loss Runs)</h4>
+            <div class="doc-upload-list mt-2" id="modalDetailDocList">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <span class="text-muted text-sm"><i class="ph ph-check-circle text-success"></i> All core documents normalized and ready for OCR text extraction pipeline.</span>
+        <div class="u-row-gap8">
+          <button class="btn btn-outline" onclick="closeViewCaseModal()">Close</button>
+          <button class="btn btn-primary" onclick="resumeActiveCaseFlow()">
+            <i class="ph ph-sign-in"></i> Resume Case at Current Step <i class="ph ph-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Document Live Preview & PDF Viewer -->
+  <div class="modal-overlay" id="docPreviewModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xl">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <div class="doc-icon pdf" id="docModalIcon" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: #fee2e2; color: #dc2626; font-size: 18px;">
+            <i class="ph ph-file-pdf"></i>
+          </div>
+          <div>
+            <h3 class="u-m0" id="docModalTitle">ACORD 137 Commercial Auto Application.pdf</h3>
+            <span class="text-secondary text-sm" id="docModalMeta">Document Size: 1.4 MB • 4 Pages • Status: Ingested & Normalized</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="btn btn-xs btn-outline" onclick="printDocPreview()" title="Print Document"><i class="ph ph-printer"></i> Print</button>
+          <button class="btn btn-xs btn-outline" onclick="downloadCurrentPreviewDoc()" title="Download File"><i class="ph ph-download-simple"></i> Download</button>
+          <button class="btn-close" aria-label="Close" onclick="closeDocPreviewModal()"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+
+      <!-- Tab bar to switch between attached documents of this case -->
+      <div class="modal-doc-tab-bar" id="modalDocTabBar">
+        <!-- Dynamically rendered tabs for each attached document -->
+      </div>
+
+      <div class="modal-body" style="background: #f8fafc; padding: 20px; max-height: 70vh; overflow-y: auto;" id="docModalBody">
+        <!-- Dynamically rendered realistic document content -->
+      </div>
+      <div class="modal-footer u-row-between">
+        <span class="text-muted text-sm" id="docModalFooterNote"><i class="ph ph-check-circle text-success"></i> Document verified against schema standards. 100% Normalized.</span>
+        <div class="u-row-gap8">
+          <button class="btn btn-outline" onclick="closeDocPreviewModal()">Close Preview</button>
+          <button class="btn btn-primary" onclick="proceedToNormalizationFromDocModal()">
+            Proceed to Step 2 (OCR Pipeline) <i class="ph ph-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Case Attached Documents & Multi-PDF Viewer Hub -->
+  <div class="modal-overlay" id="caseDocsModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-xxl" style="max-width: 1200px; width: 95vw; height: 88vh; display: flex; flex-direction: column; padding: 0; overflow: hidden;">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="flex-shrink: 0; padding: 14px 24px; border-bottom: 1px solid #cbd5e1; background: #ffffff; display: flex; justify-content: space-between; align-items: center;">
+        <div class="u-row-gap12">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 18px;">
+            <i class="ph ph-folder-open"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 800;" id="caseDocsModalTitle">Case Documents & Attachments</h3>
+            <span class="text-secondary text-xs" id="caseDocsModalSubtitle">Submission Attachments • Normalized & OCR-Ready</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="btn btn-xs btn-outline" onclick="printDocPreview()" title="Print Current Document"><i class="ph ph-printer"></i> Print</button>
+          <button class="btn btn-xs btn-outline" onclick="downloadCurrentPreviewDoc()" title="Download Current Document"><i class="ph ph-download-simple"></i> Download</button>
+          <button class="btn-close" aria-label="Close" onclick="closeCaseDocsModal()"><i class="ph ph-x"></i></button>
+        </div>
+      </div>
+
+      <!-- Modal Body (Two-Pane: Left Document List + Right Live Preview Viewer) -->
+      <div class="modal-body doc-hub-body" style="flex: 1; display: grid; grid-template-columns: 360px 1fr; gap: 0; padding: 0; overflow: hidden; background: #f8fafc;">
+        
+        <!-- Left Column: Document Cards List -->
+        <div class="doc-hub-sidebar" style="border-right: 1px solid #cbd5e1; background: #ffffff; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; display: flex; justify-content: space-between;">
+            <span>Attached Files (<span id="caseDocsCount">3</span>)</span>
+            <span class="text-success"><i class="ph ph-check-circle"></i> All Normalized</span>
+          </div>
+          
+          <div id="caseDocsListContainer" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Populated dynamically with document cards -->
+          </div>
+        </div>
+
+        <!-- Right Column: Live Document Sheet Viewer -->
+        <div class="doc-hub-viewer" style="overflow-y: auto; padding: 20px; background: #f1f5f9; display: flex; flex-direction: column; gap: 12px;">
+          <div class="doc-viewer-meta-bar" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.04);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="badge badge-primary" id="hubActiveDocBadge">ACORD APPLICATION</span>
+              <strong style="font-size: 13px;" id="hubActiveDocTitle">ACORD 137 Commercial Auto Application.pdf</strong>
+            </div>
+            <span class="text-xs text-muted" id="hubActiveDocMeta">4 Pages • 1.4 MB • Status: Normalized</span>
+          </div>
+
+          <div id="hubDocViewerContainer">
+            <!-- Rendered active PDF or SOV preview sheet -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer" style="flex-shrink: 0; padding: 12px 24px; border-top: 1px solid #cbd5e1; background: #ffffff; display: flex; justify-content: space-between; align-items: center;">
+        <span class="text-muted text-xs"><i class="ph ph-check-circle text-success"></i> Documents verified against ACORD/ISO schema standard. Ready for underwriting processing.</span>
+        <div class="u-row-gap8">
+          <button class="btn btn-outline" onclick="closeCaseDocsModal()">Close</button>
+          <button class="btn btn-primary" onclick="proceedToCaseFromDocsModal()">
+            <i class="ph ph-folder-open"></i> Open Case & Proceed to Flow <i class="ph ph-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Fixed Bottom Workflow Navigation Footer -->
+  <footer class="bottom-workflow-footer u-hidden" id="workflowBottomFooter">
+    <div class="footer-left-info">
+      <div class="footer-step-status">
+        <span class="footer-step-dot"></span>
+        <span id="footerStepLabel"><strong>Step 1 of 7</strong></span>
+      </div>
+      <button class="btn btn-xs btn-outline footer-docs-btn" id="btnFooterDocs" onclick="openAllDocsModal()" title="View All Attached Documents & PDF Previews">
+        <i class="ph ph-folder-open text-primary"></i> Attached Docs (<span id="footerDocCount">3</span>)
+      </button>
+    </div>
+    
+    <div class="footer-right-actions">
+      <button class="btn btn-outline footer-btn" id="btnPrevStep" onclick="goToPrevStep()">
+        <i class="ph ph-arrow-left"></i> Previous Step
+      </button>
+      <button class="btn btn-primary footer-btn" id="btnNextStep" onclick="goToNextStep()">
+        Next Step <i class="ph ph-arrow-right"></i>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="js/data-config.js"></script>
+  <script src="js/shell-navigation.js"></script>
+  <script src="js/archive-decline-team.js"></script>
+  <script src="js/audit-intelligence-admin.js"></script>
+  <script src="js/intake-dashboard-assignment.js"></script>
+  <script src="js/case-documents-downstream.js"></script>
+  <script src="js/quote-bind-pas.js"></script>
+  <script src="js/actions-versions.js"></script>
+  <script src="js/bindings-ingestion.js"></script>
+  <script src="js/email-intake-ingestion.js"></script>
+  <script src="js/risk-score.js"></script>
+  <script src="js/generate-final-json.js"></script>
+  <script src="js/issue-quote-email.js"></script>
+  <script src="js/golden-path-data.js"></script>
+</body>
+</html>
