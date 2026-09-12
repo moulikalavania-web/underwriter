@@ -580,17 +580,10 @@ function buildProductAppetiteRules(schemaObj, sub) {
     });
   });
 
-  if (rules.length === 0) {
-    const fallbackState = subState && subState !== "—" ? subState : "AL";
-    const fallbackVal = maxVehicleVal > 0 ? `$${maxVehicleVal.toLocaleString()}` : "$190,000";
-    rules.push(
-      { code: "ELG-001", name: "Min Driver Age", desc: "Min Driver Age", val: `${subDrivers.length || 3} Driver(s) Submitted`, threshold: "Driver must be at least 21 years old with active CDL. [Age >= 21]", ruleType: "Eligibility", category: "Product Eligibility", cover: "All Covers", pass: true },
-      { code: "ELG-002", name: "Max Vehicle Age", desc: "Max Vehicle Age", val: `Fleet Age: ${maxVehicleAge} Yrs`, threshold: "Commercial power units cannot exceed 15 years of age. [Vehicle_Age <= 15]", ruleType: "Eligibility", category: "Product Eligibility", cover: "All Covers", pass: true },
-      { code: "ELG-003", name: "Jurisdiction Check", desc: "Jurisdiction Check", val: `${fallbackState} (Admitted)`, threshold: "Must be domiciled in an admitted state.", ruleType: "Eligibility", category: "Product Eligibility", cover: "All Covers", pass: true },
-      { code: "UW-DCL-001", name: "Multiple Serious Convictions", desc: "Multiple Serious Convictions", val: "0 Violations", threshold: "Decline if driver has > 1 major violation in 36 months.", ruleType: "Knockout", category: "Automated Knockout", cover: "Mandatory Gate", pass: true },
-      { code: "UW-DCL-002", name: "Vehicle Salvage Status", desc: "Vehicle Salvage Status", val: "0 Salvage Units", threshold: "Decline branded, reconstructed or salvage title certificates.", ruleType: "Knockout", category: "Automated Knockout", cover: "Mandatory Gate", pass: true }
-    );
-  }
+  // No fallback/generic rules are fabricated when the ingested product
+  // defines no eligibility/underwriting arrays of its own — the Appetite
+  // Rules table simply stays empty until a product that actually declares
+  // rules is ingested.
 
   // Normalize field names to what renderAppetiteRules() / the MGA override
   // controls (toggleAppetiteRuleOverride, validateMgaOverrideInput,
@@ -1127,474 +1120,12 @@ function downloadQuoteDoc() {
   showToast("📄 Downloading official bindable quote proposal PDF...", "info");
 }
 
-function generateDynamicSubmissions(productSchema) {
-  if (!productSchema) return [];
-  var pInfo = productSchema.product || productSchema.identity || {};
-  var pId = productSchema.productId || pInfo.id || "PRD-021";
-  var pName = pInfo.name || "Commercial Product";
-  var pLob = pInfo.lineOfBusiness || pInfo.segment || "Auto Liability";
-  var pVer = productSchema.version || pInfo.version || "2026.10";
-  var jurisdictions = pInfo.jurisdictions || ["AL", "AZ", "OR"];
-
-  var sub1Exposure = 1850000;
-  var sub2Exposure = 850000;
-  var sub3Exposure = 600000;
-
-  var sub1Covers = buildProductCoverageRows(productSchema, sub1Exposure, 0);
-  var sub2Covers = buildProductCoverageRows(productSchema, sub2Exposure, 1);
-  var sub3Covers = buildProductCoverageRows(productSchema, sub3Exposure, 2);
-
-  var sub1Docs = buildProductDocs(productSchema, 0, jurisdictions);
-  var sub2Docs = buildProductDocs(productSchema, 1, jurisdictions);
-  var sub3Docs = buildProductDocs(productSchema, 2, jurisdictions);
-
-  var submissions = [
-    {
-      id: "SUB-" + pId + "-" + (jurisdictions[0] || "AL") + "-01",
-      quoteNo: "QT-" + pId + "-2026-001",
-      quote_id: "QT-" + pId + "-2026-001",
-      lobKey: pId,
-      lobName: pId + ": " + pName + " (" + pLob + " v" + pVer + ")",
-      channelType: "broker",
-      channelName: "Broker Intake: Marsh & McLennan (Email)",
-      priority: "P1",
-      priorityScore: 98,
-      slaText: "4h Fast-Track SLA",
-      slaCountdown: "3h 45m remaining",
-      priorityReason: pId + " Product Studio Ingested • " + (jurisdictions[0] || "AL") + " Admitted Risk",
-      accountName: "Apex Logistics Holdings",
-      insured: "Apex Logistics Fleet LLC",
-      fein: "74-8921043",
-      dot: "3829101",
-      mcNumber: "MC-" + (pId.replace(/[^0-9]/g, "") || "881924") + "1",
-      mcs90Filed: true,
-      minStatutoryLimit: 750000,
-      address: "2400 Government Blvd, Mobile, " + (jurisdictions[0] || "AL") + " 36606",
-      broker: "Marsh & McLennan Commercial Transportation",
-      email: "trucking.submissions@marshbrokerage.com",
-      desk: "Commercial Auto Fleet UW Team",
-      underwriter: (pInfo.owner || "Anika Sharma") + " (Product Lead UW)",
-      exposure: "$" + Number(sub1Exposure).toLocaleString(),
-      exposureVal: sub1Exposure,
-      authorityLimit: 2000000,
-      receivedAt: "2026-09-01 09:15 AM",
-      receivedTimestamp: 1787658840000,
-      assignedTo: null,
-      assignedBy: null,
-      assignedAt: null,
-      statusText: "Intake Ingested",
-      statusBadge: "badge-primary",
-      currentStep: 1,
-      completedSteps: [],
-      insured_id: 748921043,
-      endorsement_number: 0,
-      broker_fee: { amount: 1500, default: 1 },
-      coverageRows: sub1Covers,
-      docs: sub1Docs,
-      ocrFields: [
-        { key: "Product ID", val: pId + " (" + pName + ")", conf: "99.9%" },
-        { key: "Carrier", val: pInfo.carrier || "—", conf: "99.9%" },
-        { key: "Covers Configured", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", conf: "99.8%" },
-        { key: "Jurisdictions", val: (jurisdictions || []).join(", "), conf: "99.9%" },
-        { key: "Eligibility Rules", val: (productSchema.studios && productSchema.studios.eligibility ? productSchema.studios.eligibility.length : 0) + " Rules Loaded", conf: "99.9%" }
-      ],
-      canonicalJson: {
-        submission_id: "SUB-" + pId + "-" + (jurisdictions[0] || "IL") + "-01",
-        source_channel: "Direct Web Portal (" + pId + " Studio)",
-        product_id: pId,
-        product_version: pVer,
-        product_name: pName,
-        line_of_business: pLob,
-        coverages_requested: sub1Covers.map(function(c) { return c.line + " (" + c.limit + ")"; }),
-        applicant: {
-          legal_name: "Apex Logistics Fleet LLC",
-          fein: "74-8921043",
-          dot_number: "3829101",
-          fleet_size: 14,
-          operating_radius_miles: 450,
-          garaged_state: jurisdictions[0] || "IL",
-          garaged_city: "Chicago"
-        },
-        loss_history: { total_incurred: 4200, claims_3yr: 1, loss_ratio: "9.2%" },
-        enrichment: { fmcsa_safety_percentile: 96, iss_score: "Pass", driver_mvr_clean_rate: "100.0%" }
-      },
-      appetiteRules: [],
-      enrichmentCards: [
-        { title: "Product Rules", icon: "ph-shield-check", val: (productSchema.studios && productSchema.studios.eligibility ? productSchema.studios.eligibility.length : 0) + " Eligibility", label: (productSchema.studios && productSchema.studios.underwriting ? productSchema.studios.underwriting.length : 0) + " UW Rules Loaded", tag: "badge-success" },
-        { title: "Covers Loaded", icon: "ph-stack", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", label: "From " + pId + " Studio", tag: "badge-success" }
-      ],
-      subjectivities: (productSchema.studios && productSchema.studios.documents || []).slice(0, 3).map(function(d) {
-        return "Receipt of " + d.name + " (" + d.code + ").";
-      }).concat(["Confirmation of all eligibility criteria prior to bind."]),
-      losses: [
-        { year: "2024 - 2025", desc: "Minor low-speed bumper scuff during staging", status: "Closed", incurred: "$4,200" }
-      ],
-      genInfo: {
-        quotetype: pId + " " + pName,
-        application_type_id: 483,
-        company: 210,
-        lob: pId,
-        policytype: "New Business",
-        billtype: "Agency Bill",
-        effective_date: "09/01/2026",
-        expiration_date: "09/01/2027",
-        lock_rate_effective_date: "08/31/2026",
-        business_yrs_exp: "7",
-        binding: "pending",
-        al_check: true,
-        pd_check: true
-      },
-      insuredInfo: {
-        entity_type: "LLC",
-        insured_name: "Apex Logistics Fleet LLC",
-        fein: "74-8921043",
-        dot_number: "3829101",
-        address: "2400 Government Blvd, Mobile, " + (jurisdictions[0] || "AL") + " 36606",
-        insured_garaging_city: "Mobile",
-        insured_garaging_state: jurisdictions[0] || "AL",
-        insured_garaging_county: "Mobile County",
-        years_of_experience: 7,
-        dot_yes_no: "Yes",
-        icc_filings_yes_no: "No",
-        description_of_operation: "Commercial freight transportation & interstate logistics."
-      },
-      coveragesInfo: {
-        rating_type: pId + " Actuarial Matrix",
-        liability: 1000000,
-        al_deductions: 0,
-        pd: "Yes",
-        cargo: "Yes",
-        cargo_limit: 250000,
-        pd_high_deductible: "2000",
-        pd_deductible_amount: 300,
-        naics_code: 484110,
-        rating_class: 5,
-        dashcam: "Yes",
-        al_check: true,
-        pd_check: true,
-        towing: "10000"
-      },
-      filingInfo: {
-        safer_factor: "1.0",
-        FMCSA_alert: "0",
-        uw_credit_debit_factor: "0.95"
-      },
-      radiusOfOperationsInfo: {
-        radius: 450,
-        Intrastate_interstate: "Interstate"
-      },
-      uwReviewInfo: {
-        driver_factor: 1,
-        og_driver_count: 14,
-        cr_driver_count: 14,
-        al_pollution: "Low",
-        min_earn_factor: 25,
-        broker_fee_amount: 1500
-      },
-      vehicles: [],
-      drivers: []
-    },
-    {
-      id: "SUB-" + pId + "-" + (jurisdictions[1] || "AZ") + "-02",
-      quoteNo: "QT-" + pId + "-2026-002",
-      quote_id: "QT-" + pId + "-2026-002",
-      lobKey: pId,
-      lobName: pId + ": " + pName + " (" + pLob + " v" + pVer + ")",
-      channelType: "broker",
-      channelName: "Broker Intake: Aon Risk Solutions (Portal)",
-      priority: "P1",
-      priorityScore: 94,
-      slaText: "4h Fast-Track SLA",
-      slaCountdown: "2h 10m remaining",
-      priorityReason: pId + " Product Studio Ingested • " + (jurisdictions[1] || "AZ") + " Admitted Risk",
-      accountName: "Sonora Freightlines Group",
-      insured: "Sonora Hauling & Freightways Inc",
-      fein: "86-4920194",
-      dot: "4102941",
-      mcNumber: "MC-" + (pId.replace(/[^0-9]/g, "") || "881924") + "2",
-      mcs90Filed: true,
-      minStatutoryLimit: 750000,
-      address: "3830 W Buckeye Rd, Phoenix, " + (jurisdictions[1] || "AZ") + " 85009",
-      broker: "Aon Commercial Transportation Brokerage",
-      email: "submissions.transport@aon.com",
-      desk: "Commercial Auto Fleet UW Team",
-      underwriter: (pInfo.owner || "Anika Sharma"),
-      exposure: "$" + Number(sub2Exposure).toLocaleString(),
-      exposureVal: sub2Exposure,
-      authorityLimit: 2000000,
-      receivedAt: "2026-09-01 10:30 AM",
-      receivedTimestamp: 1787663400000,
-      assignedTo: null,
-      assignedBy: null,
-      assignedAt: null,
-      statusText: "Intake Ingested",
-      statusBadge: "badge-primary",
-      currentStep: 1,
-      completedSteps: [],
-      insured_id: 864920194,
-      endorsement_number: 0,
-      broker_fee: { amount: 1200, default: 1 },
-      coverageRows: sub2Covers,
-      docs: sub2Docs,
-      ocrFields: [
-        { key: "Product ID", val: pId + " (" + pName + ")", conf: "99.9%" },
-        { key: "Carrier", val: pInfo.carrier || "—", conf: "99.9%" },
-        { key: "Covers Configured", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", conf: "99.8%" },
-        { key: "Jurisdictions", val: (jurisdictions || []).join(", "), conf: "99.9%" }
-      ],
-      canonicalJson: {
-        submission_id: "SUB-" + pId + "-" + (jurisdictions[1] || "IN") + "-02",
-        source_channel: "Direct Web Portal (" + pId + " Studio)",
-        product_id: pId,
-        product_version: pVer,
-        product_name: pName,
-        line_of_business: pLob,
-        coverages_requested: sub2Covers.map(function(c) { return c.line + " (" + c.limit + ")"; }),
-        applicant: {
-          legal_name: "Sonora Hauling & Freightways Inc",
-          fein: "86-4920194",
-          dot_number: "4102941",
-          fleet_size: 8,
-          operating_radius_miles: 180,
-          garaged_state: jurisdictions[1] || "IN",
-          garaged_city: "Indianapolis"
-        },
-        loss_history: { total_incurred: 0, claims_3yr: 0, loss_ratio: "0.0%" },
-        enrichment: { fmcsa_safety_percentile: 98, iss_score: "Pass", driver_mvr_clean_rate: "100.0%" }
-      },
-      appetiteRules: [],
-      enrichmentCards: [
-        { title: "Product Rules", icon: "ph-shield-check", val: (productSchema.studios && productSchema.studios.eligibility ? productSchema.studios.eligibility.length : 0) + " Eligibility", label: (productSchema.studios && productSchema.studios.underwriting ? productSchema.studios.underwriting.length : 0) + " UW Rules Loaded", tag: "badge-success" },
-        { title: "Covers Loaded", icon: "ph-stack", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", label: "From " + pId + " Studio", tag: "badge-success" }
-      ],
-      subjectivities: (productSchema.studios && productSchema.studios.documents || []).slice(0, 2).map(function(d) {
-        return "Receipt of " + d.name + " (" + d.code + ").";
-      }).concat(["Confirmation of all eligibility criteria prior to bind."]),
-      losses: [],
-      genInfo: {
-        quotetype: pId + " " + pName,
-        application_type_id: 483,
-        company: 210,
-        lob: pId,
-        policytype: "New Business",
-        billtype: "Agency Bill",
-        effective_date: "09/01/2026",
-        expiration_date: "09/01/2027",
-        lock_rate_effective_date: "08/31/2026",
-        business_yrs_exp: "5",
-        binding: "pending",
-        al_check: true,
-        pd_check: true
-      },
-      insuredInfo: {
-        entity_type: "Corporation",
-        insured_name: "Sonora Hauling & Freightways Inc",
-        fein: "86-4920194",
-        dot_number: "4102941",
-        address: "3830 W Buckeye Rd, Phoenix, " + (jurisdictions[1] || "AZ") + " 85009",
-        insured_garaging_city: "Phoenix",
-        insured_garaging_state: jurisdictions[1] || "AZ",
-        insured_garaging_county: "Maricopa County",
-        years_of_experience: 5,
-        dot_yes_no: "Yes",
-        icc_filings_yes_no: "No",
-        description_of_operation: "Commercial hauling & regional logistics under " + pName + "."
-      },
-      coveragesInfo: {
-        rating_type: pId + " Actuarial Matrix",
-        liability: 1000000,
-        al_deductions: 0,
-        pd: "Yes",
-        cargo: "Yes",
-        cargo_limit: 150000,
-        pd_high_deductible: "1000",
-        pd_deductible_amount: 300,
-        naics_code: 484110,
-        rating_class: 4,
-        dashcam: "Yes",
-        al_check: true,
-        pd_check: true,
-        towing: "5000"
-      },
-      filingInfo: {
-        safer_factor: "1.0",
-        FMCSA_alert: "0",
-        uw_credit_debit_factor: "1.00"
-      },
-      radiusOfOperationsInfo: {
-        radius: 180,
-        Intrastate_interstate: "Interstate"
-      },
-      uwReviewInfo: {
-        driver_factor: 1,
-        og_driver_count: 8,
-        cr_driver_count: 8,
-        al_pollution: "Low",
-        min_earn_factor: 25,
-        broker_fee_amount: 1200
-      },
-      vehicles: [],
-      drivers: []
-    },
-    {
-      id: "SUB-" + pId + "-" + (jurisdictions[2] || "OR") + "-03",
-      quoteNo: "QT-" + pId + "-2026-003",
-      quote_id: "QT-" + pId + "-2026-003",
-      lobKey: pId,
-      lobName: pId + ": " + pName + " (" + pLob + " v" + pVer + ")",
-      channelType: "direct",
-      channelName: "Direct Customer Self-Service Portal (" + pId + ")",
-      priority: "P2",
-      priorityScore: 88,
-      slaText: "8h Standard SLA",
-      slaCountdown: "6h 40m remaining",
-      priorityReason: pId + " Direct Portal Intake • " + (jurisdictions[2] || "OR") + " Admitted Risk",
-      accountName: "Cascade Freight Enterprises",
-      insured: "Cascade Timber Haulers LLC",
-      fein: "93-2810482",
-      dot: "3291048",
-      mcNumber: null, // deliberately unfiled — demonstrates the Step 6→7 compliance gate for newly ingested products
-      mcs90Filed: false,
-      minStatutoryLimit: 750000,
-      address: "1550 Prairie Rd, Eugene, " + (jurisdictions[2] || "OR") + " 97402",
-      broker: "Direct Customer Intake",
-      email: "fleet@cascadetimber.com",
-      desk: "Commercial Auto Fleet UW Team",
-      underwriter: (pInfo.owner || "Anika Sharma"),
-      exposure: "$" + Number(sub3Exposure).toLocaleString(),
-      exposureVal: sub3Exposure,
-      authorityLimit: 2000000,
-      receivedAt: "2026-09-01 11:45 AM",
-      receivedTimestamp: 1787667900000,
-      assignedTo: null,
-      assignedBy: null,
-      assignedAt: null,
-      statusText: "Intake Ingested",
-      statusBadge: "badge-primary",
-      currentStep: 1,
-      completedSteps: [],
-      insured_id: 932810482,
-      endorsement_number: 0,
-      broker_fee: { amount: 0, default: 0 },
-      coverageRows: sub3Covers,
-      docs: sub3Docs,
-      ocrFields: [
-        { key: "DOT / MC Number", val: "USDOT 3291048", conf: "99.6%" },
-        { key: "Total Power Units", val: "6 Fleet Haulers", conf: "99.4%" },
-        { key: "Product ID", val: pId + " (" + pName + ")", conf: "99.9%" },
-        { key: "Carrier", val: pInfo.carrier || "—", conf: "99.9%" },
-        { key: "Covers Configured", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", conf: "99.8%" },
-        { key: "Jurisdictions", val: (jurisdictions || []).join(", "), conf: "99.9%" }
-      ],
-      canonicalJson: {
-        submission_id: "SUB-" + pId + "-" + (jurisdictions[2] || "TN") + "-03",
-        source_channel: "Direct Web Portal (" + pId + " Studio)",
-        product_id: pId,
-        product_version: pVer,
-        product_name: pName,
-        line_of_business: pLob,
-        coverages_requested: sub3Covers.map(function(c) { return c.line + " (" + c.limit + ")"; }),
-        applicant: {
-          legal_name: "Cascade Timber Haulers LLC",
-          fein: "93-2810482",
-          dot_number: "3291048",
-          fleet_size: 6,
-          operating_radius_miles: 120,
-          garaged_state: jurisdictions[2] || "TN",
-          garaged_city: "Nashville"
-        },
-        loss_history: { total_incurred: 1800, claims_3yr: 1, loss_ratio: "6.5%" },
-        enrichment: { fmcsa_safety_percentile: 92, iss_score: "Pass", driver_mvr_clean_rate: "100.0%" }
-      },
-      appetiteRules: [],
-      enrichmentCards: [
-        { title: "Product Rules", icon: "ph-shield-check", val: (productSchema.studios && productSchema.studios.eligibility ? productSchema.studios.eligibility.length : 0) + " Eligibility", label: (productSchema.studios && productSchema.studios.underwriting ? productSchema.studios.underwriting.length : 0) + " UW Rules Loaded", tag: "badge-success" },
-        { title: "Covers Loaded", icon: "ph-stack", val: (productSchema.studios && productSchema.studios.coverage ? productSchema.studios.coverage.length : 0) + " Coverage Lines", label: "From " + pId + " Studio", tag: "badge-success" }
-      ],
-      subjectivities: (productSchema.studios && productSchema.studios.documents || []).slice(0, 1).map(function(d) {
-        return "Receipt of " + d.name + " (" + d.code + ").";
-      }).concat(["Confirmation of all eligibility criteria prior to bind."]),
-      losses: [
-        { year: "2024 - 2025", desc: "Minor mirror bracket repair", status: "Closed", incurred: "$1,800" }
-      ],
-      genInfo: {
-        quotetype: pId + " " + pName,
-        application_type_id: 483,
-        company: 210,
-        lob: pId,
-        policytype: "New Business",
-        billtype: "Direct Bill",
-        effective_date: "09/01/2026",
-        expiration_date: "09/01/2027",
-        lock_rate_effective_date: "08/31/2026",
-        business_yrs_exp: "6",
-        binding: "pending",
-        al_check: true,
-        pd_check: true
-      },
-      insuredInfo: {
-        entity_type: "LLC",
-        insured_name: "Cascade Timber Haulers LLC",
-        fein: "93-2810482",
-        dot_number: "3291048",
-        address: "1550 Prairie Rd, Eugene, " + (jurisdictions[2] || "OR") + " 97402",
-        insured_garaging_city: "Eugene",
-        insured_garaging_state: jurisdictions[2] || "OR",
-        insured_garaging_county: "Lane County",
-        years_of_experience: 6,
-        dot_yes_no: "Yes",
-        icc_filings_yes_no: "No",
-        description_of_operation: "Dedicated commercial fleet haulers under " + pName + "."
-      },
-      coveragesInfo: {
-        rating_type: pId + " Actuarial Matrix",
-        liability: 1000000,
-        al_deductions: 0,
-        pd: "Yes",
-        cargo: "Yes",
-        cargo_limit: 100000,
-        pd_high_deductible: "1500",
-        pd_deductible_amount: 300,
-        naics_code: 484110,
-        rating_class: 4,
-        dashcam: "No",
-        al_check: true,
-        pd_check: true,
-        towing: "5000"
-      },
-      filingInfo: {
-        safer_factor: "1.0",
-        FMCSA_alert: "0",
-        uw_credit_debit_factor: "1.00"
-      },
-      radiusOfOperationsInfo: {
-        radius: 120,
-        Intrastate_interstate: "Intrastate"
-      },
-      uwReviewInfo: {
-        driver_factor: 1,
-        og_driver_count: 6,
-        cr_driver_count: 6,
-        al_pollution: "Low",
-        min_earn_factor: 25,
-        broker_fee_amount: 0
-      },
-      vehicles: [],
-      drivers: []
-    }
-  ];
-
-  // Dynamically populate Appetite Rules directly from the Product Schema (Eligibility & Knockouts)
-  submissions.forEach(function(sub) {
-    sub.appetiteRules = buildProductAppetiteRules(productSchema, sub);
-    // Flag as real data ingested through the Integrating API, as opposed to
-    // hardcoded seed/demo data — sidebar counters only tally apiSourced
-    // records so they never show sample numbers when no JSON was ingested.
-    sub.apiSourced = true;
-  });
-
-  return submissions;
-}
+// generateDynamicSubmissions() was removed: uploading a Product JSON must
+// only configure the product (eligibility/underwriting rules, coverages,
+// LOB catalog) — it must never fabricate submissions (fake company name,
+// FEIN, broker, exposure, etc). Real submissions come only from Email
+// Intake (createRawSubmissionFromEmail / applyNormalizedDataToSubmission),
+// which applies this product's rules via buildProductAppetiteRules().
 
 /* ===== Merged: Product Studio JSON Ingestion — page, dropzone, ingest, studios ===== */
 function showIntegratingApiPage(tab) {
@@ -1666,25 +1197,13 @@ function ingestProductSchema(schemaObj) {
     ALL_LOB_KEYS.push(pId);
   }
 
-  // 1. Populate submissions dataset with 3 dynamic, step-ready cases for this uploaded product
-  SUBMISSIONS_DATASET = generateDynamicSubmissions(schemaObj);
-  window.SUBMISSIONS_DATASET = SUBMISSIONS_DATASET;
-  activeSubmissionId = SUBMISSIONS_DATASET[0] ? SUBMISSIONS_DATASET[0].id : null;
-  currentLOBFilter = pId;
-  // Reset the rating-import globals to this new active submission's own
-  // (fresh) state, rather than leaving behind whatever was imported for
-  // whatever submission was active before this product was ingested.
-  isQuoteImported = false;
-  currentImportedRatingData = null;
-
-  // 1b. Clear demo/seed quote-version history & decline log so nothing from a
-  // previously ingested (or the original hardcoded demo) product lingers —
-  // both datasets self-populate again from this point on as the user works
-  // through quoting/declining the newly ingested product's submissions.
-  QUOTE_VERSIONS_DATASET = [];
-  window.QUOTE_VERSIONS_DATASET = QUOTE_VERSIONS_DATASET;
-  DECLINE_LOG = [];
-  window.DECLINE_LOG = DECLINE_LOG;
+  // Ingesting a Product JSON configures the product only — its eligibility/
+  // underwriting rules (via buildProductAppetiteRules), coverages, and LOB
+  // catalog entry. It does NOT fabricate any submissions: no fake company,
+  // FEIN, broker or exposure data is created here. The only source of real
+  // submissions is the Email Intake module — a submission is created there,
+  // and the rules configured by this product apply to it once "Run AI
+  // Document Ingestion" runs.
 
   // 1c. Discretionary pricing caps — read from the ingested schema's pricing
   // block when provided, otherwise keep the platform defaults.
@@ -1696,51 +1215,21 @@ function ingestProductSchema(schemaObj) {
   window.DISCRETIONARY_MAX_DEBIT_PCT = DISCRETIONARY_MAX_DEBIT_PCT;
   window.DISCRETIONARY_TAX_RATE_PCT = DISCRETIONARY_TAX_RATE_PCT;
 
-  // Initialize rating engine state for step 7 quote & binding — leave
-  // isQuoteImported/currentImportedRatingData untouched here. Forcing these
-  // true on ingestion was skipping straight past the "Actuarial Rating
-  // Engine Integration" dropzone (Step 7) to a fake quote built from the
-  // generic DEFAULT_IMPORTED_RATING_JSON, unrelated to the product just
-  // ingested — so the JSON drop/upload UI never had a chance to show or run
-  // for these new submissions. Each newly ingested submission should still
-  // require its own rating JSON to be imported through that dropzone,
-  // exactly like the pre-existing hardcoded demo submissions did.
-
   // 2. Update LOB dropdown
   var lobSelect = document.getElementById("lobSelect");
   if (lobSelect) {
     lobSelect.innerHTML = '<option value="' + pId + '" selected>🚛 ' + pId + ': ' + pName + ' (' + pLob + ' v' + pVer + ')</option>';
   }
 
-
-  // 4. Render product studio
+  // 3. Render product studio (Eligibility & Underwriting rules, coverages)
   renderActiveInsuranceProduct();
 
-  // 5. Pre-render downstream screens with active submission data
-  if (SUBMISSIONS_DATASET[0]) {
-    renderAllDownstreamScreens(SUBMISSIONS_DATASET[0]);
-  }
+  // No submissions are created or touched here — re-render whatever is
+  // already in the queue (real Email Intake submissions, if any) so the
+  // table reflects the newly registered LOB immediately.
+  if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
 
-  // 6. Navigate directly to Submission Intake Queue so user immediately sees the 3 active submissions
-  showIntakePage();
-
-  // Reset any stale table filter/search/sort left over from before ingestion —
-  // otherwise the newly ingested submissions can be silently filtered out
-  // (e.g. a leftover search term or "Senior Referrals" tab selection that
-  // doesn't match the new data), making it look like ingestion did nothing.
-  currentQueueSort = "priority";
-  currentSearchTerm = "";
-  const searchInput = document.getElementById("tableSearchInput");
-  if (searchInput) searchInput.value = "";
-  const sortSelect = document.getElementById("queueSortSelect");
-  if (sortSelect) sortSelect.value = "priority";
-  filterSubmissionsTable("all"); // also resets currentTableFilter, tab active-states, currentSearchTerm, and re-renders
-
-  if (activeSubmissionId) {
-    selectSubmission(activeSubmissionId, false);
-  }
-
-  showToast("🎉 Successfully uploaded & ingested product \"" + pId + " (" + pName + ")\"! 3 Submissions created and ready for all workflow steps.", "success");
+  showToast("✅ Product \"" + pId + " (" + pName + ")\" ingested — its eligibility & underwriting rules are now active. Add a submission via Email Intake to apply them.", "success");
   persistAppState();
 }
 

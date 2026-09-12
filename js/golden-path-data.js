@@ -30,7 +30,15 @@
  * ============================================================================
  */
 
-var GOLDEN_PATH_MODE = true;
+// Disabled: the app must start fully blank and only ever show data ingested
+// for real through the Integrating API module (Product JSON or Email).
+// When this was true, it did more than auto-load a demo submission — it
+// also overrode ingestProductSchema() so that even a REAL uploaded product
+// JSON was discarded and replaced with the hardcoded GOLDEN_PATH_SUBMISSION
+// (see the `if (GOLDEN_PATH_MODE && typeof ingestProductSchema...)` block
+// below), bypassing generateDynamicSubmissions() and the apiSourced:true
+// tagging every other module depends on. Keep this false.
+var GOLDEN_PATH_MODE = false;
 
 // ----------------------------------------------------------------------------
 // 0. Cast — the ONLY names allowed to appear anywhere in Golden Path Mode.
@@ -93,15 +101,14 @@ var GOLDEN_PATH_INBOX_MESSAGE = {
     DEMO_INBOX_MESSAGES.push(GOLDEN_PATH_INBOX_MESSAGE);
   }
 
-  // 2d. Trim static UI once the DOM is ready, then auto-load the one
-  // golden-path submission so the demo opens ready to walk through.
+  // 2d. Trim static UI once the DOM is ready. The auto-load of the
+  // golden-path submission has been removed: the app must start fully
+  // blank and only ever show data ingested for real through the
+  // Integrating API module (Product JSON or Email) — no demo/sample data
+  // loads automatically, or at all.
   document.addEventListener("DOMContentLoaded", function () {
     trimLobSelectorsToGoldenPath(false);
     trimNewIntakeModalToGoldenPath();
-
-    if (typeof loadSeedDemoData === "function") {
-      loadSeedDemoData();
-    }
   });
 })();
 

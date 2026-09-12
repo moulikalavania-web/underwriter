@@ -18,11 +18,7 @@ function renderRoleDashboard() {
 
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
 
-  if (currentUserRole === "auditor") {
-    if (titleEl) titleEl.textContent = "Compliance & Audit Snapshot";
-    if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title} • Read-only`;
-    container.innerHTML = renderAuditorDashboardHtml();
-  } else if (canManageAssignments()) {
+  if (canManageAssignments()) {
     if (titleEl) titleEl.textContent = "Assignment Dashboard";
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = renderManagerDashboardHtml();
@@ -37,14 +33,18 @@ function renderManagerDashboardHtml() {
   // Only real submissions (Integrating API / Email Intake, apiSourced: true)
   // — the hardcoded seed/golden-path demo dataset never appears here.
   const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+  // Workload overview covers every team member, not just the "Assignable
+  // User" roster — Admin can assign a submission to ANY team member, so
+  // their workload summary must be able to show anyone's caseload too.
+  const allRoles = Object.keys(USER_ROLES_CONFIG);
   const byAssignee = {};
-  ASSIGNABLE_WORKER_ROLES.forEach(rk => { byAssignee[rk] = liveSubmissions.filter(s => s.assignedTo === rk); });
+  allRoles.forEach(rk => { byAssignee[rk] = liveSubmissions.filter(s => s.assignedTo === rk); });
 
   // "Needs Assignment" (with its own inline dropdown) has been removed —
   // assignment now happens from the "Assigned To" column of the main
   // submissions table via the Assign Submission modal, so this duplicate
   // pending-assignment widget is redundant.
-  const workloadCards = ASSIGNABLE_WORKER_ROLES.map(rk => {
+  const workloadCards = allRoles.map(rk => {
     const r = USER_ROLES_CONFIG[rk];
     const subs = byAssignee[rk];
     const active = subs.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length).length;
@@ -103,39 +103,6 @@ function renderWorkerDashboardHtml() {
   `;
 }
 
-function renderAuditorDashboardHtml() {
-  const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
-  const liveDeclines = DECLINE_LOG.filter(d => d.apiSourced);
-  const total = liveSubmissions.length;
-  const bound = liveSubmissions.filter(s => s.pasSync && s.pasSync.status === "success").length;
-  const declined = liveDeclines.length;
-  const inFlight = total - bound;
-
-  const recentDeclines = liveDeclines.slice(0, 5).map(d => `
-    <tr>
-      <td><code class="font-mono">${d.subId}</code></td>
-      <td>${d.insured}</td>
-      <td><span class="badge badge-danger">${d.triggerPoint}</span></td>
-      <td class="text-xs text-muted">${d.at}</td>
-    </tr>`).join("");
-
-  return `
-    <div class="metrics-summary-bar mb-2">
-      <div class="metric-box"><span class="lbl"><i class="ph ph-tray"></i> Total Submissions</span><strong class="val">${total}</strong></div>
-      <div class="metric-box"><span class="lbl"><i class="ph ph-check-circle text-success"></i> Bound Policies</span><strong class="val text-success">${bound}</strong></div>
-      <div class="metric-box"><span class="lbl"><i class="ph ph-x-circle text-danger"></i> Declined</span><strong class="val text-danger">${declined}</strong></div>
-      <div class="metric-box"><span class="lbl"><i class="ph ph-hourglass-medium text-warning"></i> In Flight</span><strong class="val text-warning">${inFlight}</strong></div>
-    </div>
-    <div class="card">
-      <div class="card-header"><h3><i class="ph ph-clock-counter-clockwise"></i> Recent Decline Activity</h3></div>
-      <div class="card-body p-0">
-        ${declined === 0
-          ? `<div class="text-muted text-sm" style="padding:16px;">No declines logged yet.</div>`
-          : `<table class="data-table"><thead><tr><th>Submission</th><th>Insured</th><th>Trigger</th><th>At</th></tr></thead><tbody>${recentDeclines}</tbody></table>`}
-      </div>
-    </div>
-  `;
-}
 window.renderRoleDashboard = renderRoleDashboard;
 
 function renderSubmissionsTable() {
@@ -155,10 +122,10 @@ function renderSubmissionsTable() {
   });
 
   // 1b. Assignment-based visibility — "No Assignment → No Underwriting."
-  // Manager-tier personas (Senior UW, CUO, Head of Binding Ops, Admin) see
-  // everything, including Unassigned work awaiting their action. Worker-tier
-  // personas only see submissions assigned to them; unassigned work is
-  // invisible to a worker until a manager hands it to them.
+  // Manager-tier personas (Senior UW, CUO, Admin) see everything, including
+  // Unassigned work awaiting their action. Worker-tier personas only see
+  // submissions assigned to them; unassigned work is invisible to a worker
+  // until a manager hands it to them.
   const isManagerView = canManageAssignments();
   const filteredByLOB = isManagerView
     ? filteredByLOB0
@@ -391,6 +358,7 @@ window.assignSubmissionToUser = assignSubmissionToUser;
 // ============================================================================
 let assignSubmissionModalSubId = null;
 let assignSubmissionModalSelectedRole = null;
+let assignSubmissionModalActiveTab = "unassigned"; // "assigned" | "unassigned"
 
 function openAssignSubmissionModal(subId) {
   if (!canManageAssignments()) {
@@ -402,6 +370,14 @@ function openAssignSubmissionModal(subId) {
 
   assignSubmissionModalSubId = subId;
   assignSubmissionModalSelectedRole = sub.assignedTo || null;
+  // Land on whichever tab the current assignee (if any) actually belongs
+  // to, so opening the modal on an already-assigned submission doesn't
+  // hide who it's assigned to behind the wrong tab.
+  assignSubmissionModalActiveTab = "unassigned";
+  if (assignSubmissionModalSelectedRole) {
+    const { assignedRoles } = getAssignSubmissionModalRoleGroups();
+    assignSubmissionModalActiveTab = assignedRoles.includes(assignSubmissionModalSelectedRole) ? "assigned" : "unassigned";
+  }
 
   const titleEl = document.getElementById("assignSubmissionModalTitle");
   if (titleEl) titleEl.textContent = `Assign — ${sub.insured} (${sub.id})`;
@@ -421,32 +397,96 @@ function closeAssignSubmissionModal() {
 }
 window.closeAssignSubmissionModal = closeAssignSubmissionModal;
 
-function renderAssignSubmissionModalOptions() {
-  const list = document.getElementById("assignSubmissionModalList");
-  if (!list) return;
+function switchAssignSubmissionModalTab(tab) {
+  assignSubmissionModalActiveTab = tab;
+  renderAssignSubmissionModalOptions();
+}
+window.switchAssignSubmissionModalTab = switchAssignSubmissionModalTab;
 
-  const unassignedRow = `
+function renderAssignSubmissionModalUnassignRow() {
+  const row = document.getElementById("assignSubmissionModalUnassignRow");
+  if (!row) return;
+  row.innerHTML = `
     <div class="assign-modal-option ${assignSubmissionModalSelectedRole === null ? 'selected' : ''}" onclick="selectAssignSubmissionOption(null)">
       <i class="ph ph-user-minus"></i>
       <span>Unassigned</span>
       ${assignSubmissionModalSelectedRole === null ? '<i class="ph ph-check-circle assign-modal-check"></i>' : ''}
     </div>`;
+}
 
-  const roleRows = ASSIGNABLE_WORKER_ROLES.map(rk => {
+// Splits every candidate team member into two non-overlapping groups —
+// those with at least one active submission on their plate right now
+// ("Assigned Submission") and those with none ("No Assigned Submission")
+// — computed live off real (apiSourced) submissions, counting every
+// submission currently assigned to that role (including the one open in
+// this modal). This is what makes both tabs reflect the true, current
+// assignment status the instant it changes: the moment a submission is
+// (re)assigned to someone, they're counted here and move to "Assigned";
+// the moment nothing is left assigned to them, they move to "No Assigned".
+//
+// The "Assignable User" / "Non-Assignable User" restriction (ASSIGNABLE_
+// WORKER_ROLES) has no connection to System Admin assignment — the System
+// Administrator can assign a submission to ANY team member. That
+// restriction only applies to other manager-tier personas (Senior UW,
+// CUO) doing the assigning.
+function getAssignSubmissionModalRoleGroups() {
+  const candidateRoles = currentUserRole === "admin"
+    ? Object.keys(USER_ROLES_CONFIG)
+    : ASSIGNABLE_WORKER_ROLES;
+
+  const liveSubmissions = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+  const workloadByRole = {};
+  candidateRoles.forEach(rk => { workloadByRole[rk] = liveSubmissions.filter(s => s.assignedTo === rk).length; });
+
+  const assignedRoles = candidateRoles.filter(rk => workloadByRole[rk] > 0);
+  const unassignedRoles = candidateRoles.filter(rk => workloadByRole[rk] === 0);
+  return { workloadByRole, assignedRoles, unassignedRoles };
+}
+
+function renderAssignSubmissionModalTabCounts() {
+  const { assignedRoles, unassignedRoles } = getAssignSubmissionModalRoleGroups();
+  const tabAssigned = document.getElementById("assignModalTabAssigned");
+  const tabUnassigned = document.getElementById("assignModalTabUnassigned");
+  if (tabAssigned) tabAssigned.innerHTML = `<i class="ph ph-user-circle"></i> Assigned Submission (${assignedRoles.length})`;
+  if (tabUnassigned) tabUnassigned.innerHTML = `<i class="ph ph-user-focus"></i> No Assigned Submission (${unassignedRoles.length})`;
+}
+
+function renderAssignSubmissionModalOptions() {
+  const list = document.getElementById("assignSubmissionModalList");
+  if (!list) return;
+
+  renderAssignSubmissionModalUnassignRow();
+  renderAssignSubmissionModalTabCounts();
+
+  const tabAssigned = document.getElementById("assignModalTabAssigned");
+  const tabUnassigned = document.getElementById("assignModalTabUnassigned");
+  if (tabAssigned) tabAssigned.classList.toggle("active", assignSubmissionModalActiveTab === "assigned");
+  if (tabUnassigned) tabUnassigned.classList.toggle("active", assignSubmissionModalActiveTab === "unassigned");
+
+  const { workloadByRole, assignedRoles, unassignedRoles } = getAssignSubmissionModalRoleGroups();
+  const rolesForTab = assignSubmissionModalActiveTab === "assigned" ? assignedRoles : unassignedRoles;
+
+  if (rolesForTab.length === 0) {
+    list.innerHTML = assignSubmissionModalActiveTab === "assigned"
+      ? `<div class="text-muted text-sm" style="padding:12px;">No team member currently has an active submission assigned.</div>`
+      : `<div class="text-muted text-sm" style="padding:12px;">No team members are currently free — everyone already has at least one submission assigned.</div>`;
+    return;
+  }
+
+  list.innerHTML = rolesForTab.map(rk => {
     const r = USER_ROLES_CONFIG[rk];
     const isSelected = assignSubmissionModalSelectedRole === rk;
+    const count = workloadByRole[rk];
     return `
       <div class="assign-modal-option ${isSelected ? 'selected' : ''}" onclick="selectAssignSubmissionOption('${rk}')">
         <span class="assign-modal-avatar">${r.icon}</span>
         <span>
           <strong>${r.name}</strong>
-          <div class="text-xs text-muted">${r.title}</div>
+          <div class="text-xs text-muted">${r.title} • ${count} Assigned</div>
         </span>
         ${isSelected ? '<i class="ph ph-check-circle assign-modal-check"></i>' : ''}
       </div>`;
   }).join("");
-
-  list.innerHTML = unassignedRow + roleRows;
 }
 
 function selectAssignSubmissionOption(roleKey) {
@@ -457,8 +497,21 @@ window.selectAssignSubmissionOption = selectAssignSubmissionOption;
 
 function confirmAssignSubmissionModal() {
   if (!assignSubmissionModalSubId) return;
+
+  // Save immediately — assignSubmissionToUser() persists the change and
+  // refreshes the submissions table / role dashboards behind the modal.
   assignSubmissionToUser(assignSubmissionModalSubId, assignSubmissionModalSelectedRole || "");
-  closeAssignSubmissionModal();
+
+  // Re-render in place instead of closing, so both tabs visibly reflect
+  // the new assignment status right away — no page refresh, no reopening
+  // the popup required. Land on whichever tab the chosen assignee now
+  // actually falls into (e.g. picking someone previously free jumps the
+  // view to "Assigned Submission" since they now have this one).
+  if (assignSubmissionModalSelectedRole) {
+    const { assignedRoles } = getAssignSubmissionModalRoleGroups();
+    assignSubmissionModalActiveTab = assignedRoles.includes(assignSubmissionModalSelectedRole) ? "assigned" : "unassigned";
+  }
+  renderAssignSubmissionModalOptions();
 }
 window.confirmAssignSubmissionModal = confirmAssignSubmissionModal;
 

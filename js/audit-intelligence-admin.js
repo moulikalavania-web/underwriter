@@ -465,16 +465,13 @@ function showUserMasterPage() {
 // ============================================================================
 // Default jurisdiction/LOB/coverage authority seeded per role archetype,
 // reflecting the desks visible in the submissions dataset (e.g. Sarah
-// Jenkins/David Chen on trucking, David Chen also on property, Elena
-// Rostova on MPL). CUO, Binding Ops, Audit and Admin are cross-line/
-// national since their function spans every desk.
+// Jenkins/David Chen on trucking, David Chen also on property). CUO and
+// Admin are cross-line/national since their function spans every desk.
 const DEFAULT_ROLE_AUTHORITY = {
   assistant: { states: ALL_STATE_CODES.slice(), lobs: ALL_LOB_KEYS.slice(), coverages: [] },
   junior: { states: ["TX", "LA", "OK"], lobs: ["trucking"], coverages: getCoveragesForLOBs(["trucking"]) },
   senior_uw: { states: ["TX", "LA", "OK", "NM"], lobs: ["trucking", "property"], coverages: getCoveragesForLOBs(["trucking", "property"]) },
   senior: { states: ALL_STATE_CODES.slice(), lobs: ALL_LOB_KEYS.slice(), coverages: getCoveragesForLOBs(ALL_LOB_KEYS) },
-  binder: { states: ALL_STATE_CODES.slice(), lobs: ALL_LOB_KEYS.slice(), coverages: getCoveragesForLOBs(ALL_LOB_KEYS) },
-  auditor: { states: ALL_STATE_CODES.slice(), lobs: ALL_LOB_KEYS.slice(), coverages: getCoveragesForLOBs(ALL_LOB_KEYS) },
   admin: { states: ALL_STATE_CODES.slice(), lobs: ALL_LOB_KEYS.slice(), coverages: getCoveragesForLOBs(ALL_LOB_KEYS) }
 };
 

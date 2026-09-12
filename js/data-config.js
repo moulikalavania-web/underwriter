@@ -2175,12 +2175,13 @@ var SEED_SUBMISSIONS_DATASET = [
 // or Admin) must assign it to a working underwriter before that underwriter
 // can see it in their queue or open its workflow.
 // ----------------------------------------------------------------------------
-const ASSIGNMENT_MANAGER_ROLES = ["senior_uw", "senior", "binder", "admin"];
+const ASSIGNMENT_MANAGER_ROLES = ["senior_uw", "senior", "admin"];
 const ASSIGNABLE_WORKER_ROLES = ["assistant", "junior", "senior_uw"];
 
 function canManageAssignments() {
   return ASSIGNMENT_MANAGER_ROLES.includes(currentUserRole);
 }
+
 
 // Seed data starts pre-assigned round-robin across the two primary
 // underwriter desks so the queue-filtering/assignment demo has realistic
@@ -2247,14 +2248,14 @@ let currentQueueSort = "priority"; // 'priority' | 'fifo' | 'exposure'
 let currentSearchTerm = "";
 let exposureScenario = "within"; // 'within' | 'exceeds'
 let currentScreenId = "screen-1";
-let currentUserRole = "junior"; // 'assistant' | 'junior' | 'senior_uw' | 'senior' | 'binder' | 'auditor'
+let currentUserRole = "assistant"; // 'assistant' | 'junior' | 'senior_uw' | 'senior' | 'admin'
 let modalCurrentInspectingStep = 1;
 let modalActiveTab = "stepView"; // 'stepView' | 'envelope'
 
 const USER_ROLES_CONFIG = {
   assistant: {
     name: "Emily Watson",
-    title: "Intake & Clearance Assistant (UA)",
+    title: "Intern",
     limit: 0,
     limitText: "$0 Authority (Clearance & Triage Only)",
     icon: "📋",
@@ -2283,22 +2284,6 @@ const USER_ROLES_CONFIG = {
     limitText: "$25,000,000 Executive CUO Limit",
     icon: "👔",
     description: "Executive referrals, treaty exceptions and sign-off authority."
-  },
-  binder: {
-    name: "Elena Rostova",
-    title: "Head of Binding & Policy Operations",
-    limit: 50000000,
-    limitText: "$50,000,000 Enterprise Binding Limit",
-    icon: "⚡",
-    description: "Formal binder approval, policy issuance and operational execution."
-  },
-  auditor: {
-    name: "Jonathan Reed",
-    title: "Risk & Compliance Auditor",
-    limit: 999999999,
-    limitText: "Read-Only Audit & Compliance Authority",
-    icon: "🛡️",
-    description: "Sanctions checking, loss run audits and regulatory compliance inspection."
   },
   admin: {
     name: "Priya Nair",
@@ -2378,30 +2363,6 @@ function defaultPermissionsMatrix() {
       reviewRules: all(true, true, false, false, false),
       appetiteRules: all(true, false, false, true, false),
       premiumAdjustment: all(true, true, true, true, false),
-      teamActivity: all(false, false, false, false, false),
-      unifiedAccount: all(true, false, false, false, false),
-      auditLog: all(true, false, false, false, false)
-    },
-    binder: {
-      documents: all(true, true, true, true, true),
-      submissionData: all(true, true, true, true, true),
-      workflow: all(true, true, true, true, false),
-      archival: all(true, true, true, true, true),
-      reviewRules: all(true, true, false, false, false),
-      appetiteRules: all(true, false, false, true, false),
-      premiumAdjustment: all(true, true, true, true, false),
-      teamActivity: all(false, false, false, false, false),
-      unifiedAccount: all(true, false, false, false, false),
-      auditLog: all(true, false, false, false, false)
-    },
-    auditor: {
-      documents: all(true, false, false, false, false),
-      submissionData: all(true, false, false, false, false),
-      workflow: all(true, false, false, false, false),
-      archival: all(true, false, false, false, false),
-      reviewRules: all(true, false, false, false, false),
-      appetiteRules: all(true, false, false, false, false),
-      premiumAdjustment: all(true, false, false, false, false),
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(true, false, false, false, false),
       auditLog: all(true, false, false, false, false)

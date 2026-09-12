@@ -1597,7 +1597,7 @@ function renderAuthorityScreen(sub) {
   }
 
   // Toggle Junior vs Senior Decision Panels
-  if (currentUserRole === "senior" || currentUserRole === "binder") {
+  if (currentUserRole === "senior") {
     if (juniorPanel) juniorPanel.style.display = "none";
     if (seniorPanel) seniorPanel.style.display = "block";
     if (noteText) {

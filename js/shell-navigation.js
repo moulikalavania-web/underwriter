@@ -1,10 +1,11 @@
 // 2. INITIALIZATION & SETUP
 // ============================================================================
 // ============================================================================
-// PERSISTENCE — save/restore working state to localStorage so a page reload
-// doesn't wipe out an in-progress ingestion/underwriting session. Only the
-// data that actually changes during a session is persisted; static
-// platform config (RBAC, team users, workflow steps, etc.) stays as-authored.
+// PERSISTENCE — persistAppState() still writes a snapshot to localStorage
+// after most actions (harmless), but it is never read back: the
+// DOMContentLoaded handler below wipes this key on every page load. A
+// refresh must always come back fully blank, never resurrect a previous
+// session's ingested data.
 // ============================================================================
 const VERIDEX_STORAGE_KEY = "veridex_app_state_v1";
 
@@ -29,53 +30,19 @@ function persistAppState() {
   }
 }
 
-function restoreAppStateFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem(VERIDEX_STORAGE_KEY);
-    if (!raw) return false;
-    const state = JSON.parse(raw);
-    if (!state || !Array.isArray(state.SUBMISSIONS_DATASET) || state.SUBMISSIONS_DATASET.length === 0) return false;
-
-    SUBMISSIONS_DATASET = state.SUBMISSIONS_DATASET;
-    window.SUBMISSIONS_DATASET = SUBMISSIONS_DATASET;
-    if (Array.isArray(state.QUOTE_VERSIONS_DATASET)) { QUOTE_VERSIONS_DATASET = state.QUOTE_VERSIONS_DATASET; window.QUOTE_VERSIONS_DATASET = QUOTE_VERSIONS_DATASET; }
-    if (Array.isArray(state.DECLINE_LOG)) { DECLINE_LOG = state.DECLINE_LOG; window.DECLINE_LOG = DECLINE_LOG; }
-    if (Array.isArray(state.LOB_CATALOG) && state.LOB_CATALOG.length) {
-      LOB_CATALOG.length = 0;
-      state.LOB_CATALOG.forEach(l => LOB_CATALOG.push(l));
-    }
-    if (Array.isArray(state.ALL_LOB_KEYS) && state.ALL_LOB_KEYS.length) {
-      ALL_LOB_KEYS.length = 0;
-      state.ALL_LOB_KEYS.forEach(k => ALL_LOB_KEYS.push(k));
-    }
-    if (state.ACTIVE_INSURANCE_PRODUCT) {
-      window.ACTIVE_INSURANCE_PRODUCT = state.ACTIVE_INSURANCE_PRODUCT;
-      ACTIVE_INSURANCE_PRODUCT = state.ACTIVE_INSURANCE_PRODUCT;
-    }
-    if (state.activeSubmissionId) activeSubmissionId = state.activeSubmissionId;
-    if (typeof state.DISCRETIONARY_MAX_CREDIT_PCT === "number") DISCRETIONARY_MAX_CREDIT_PCT = state.DISCRETIONARY_MAX_CREDIT_PCT;
-    if (typeof state.DISCRETIONARY_MAX_DEBIT_PCT === "number") DISCRETIONARY_MAX_DEBIT_PCT = state.DISCRETIONARY_MAX_DEBIT_PCT;
-    if (typeof state.DISCRETIONARY_TAX_RATE_PCT === "number") DISCRETIONARY_TAX_RATE_PCT = state.DISCRETIONARY_TAX_RATE_PCT;
-
-    if (!SUBMISSIONS_DATASET.some(s => s.id === activeSubmissionId)) {
-      activeSubmissionId = SUBMISSIONS_DATASET[0].id;
-    }
-    return true;
-  } catch (e) {
-    console.warn("Failed to restore app state from localStorage:", e);
-    return false;
-  }
-}
-
 function resetPrototypeData() {
   try { localStorage.removeItem(VERIDEX_STORAGE_KEY); } catch (e) {}
-  showToast("🔄 Saved session cleared. Reloading with fresh demo data...", "info");
+  showToast("🔄 Saved session cleared. Reloading blank...", "info");
   setTimeout(() => window.location.reload(), 600);
 }
 window.resetPrototypeData = resetPrototypeData;
 
 document.addEventListener("DOMContentLoaded", () => {
-  const restored = restoreAppStateFromLocalStorage();
+  // A page refresh must start fully blank — saved state is never restored
+  // across a reload, it's wiped instead, so the app always comes back to
+  // "nothing ingested yet" rather than resurrecting the last session's data.
+  try { localStorage.removeItem(VERIDEX_STORAGE_KEY); } catch (e) { /* localStorage unavailable — ignore */ }
+
   setupNavigationEvents();
   restoreSidebarCollapsedState();
   setupLOBSelector();
@@ -83,7 +50,6 @@ document.addEventListener("DOMContentLoaded", () => {
   renderSubmissionsTable();
   selectSubmission(activeSubmissionId, false);
   showIntakePage();
-  if (restored) showToast("📂 Restored your last saved session.", "info");
 });
 
 function setupNavigationEvents() {

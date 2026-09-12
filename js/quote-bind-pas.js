@@ -1142,7 +1142,7 @@ function simulatePASBindSync(subId) {
         policyNumber,
         pasRecordId,
         effectiveDate,
-        syncedBy: `${roleConfig.name} (${roleConfig.title})`,
+        syncedBy: `${roleConfig.name} (${roleConfig.title.split(' (')[0]})`,
         syncedAt
       };
 

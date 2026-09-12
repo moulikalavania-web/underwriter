@@ -236,6 +236,48 @@ async function connectRealInboxStub() {
 //    section" step: raw data & documents are added to a new submission
 //    exactly as received.
 // ----------------------------------------------------------------------------
+// A genuinely blank submission skeleton — every structural field a
+// downstream screen (Underwriting Workbench, Appetite Rules, Vehicles/
+// Drivers Schedule, etc.) expects to exist, but with no fabricated values:
+// empty arrays/objects only. This replaces cloning a previously-ingested
+// submission as a "template" — there is no fake company data anywhere in
+// this app anymore for a raw email capture to inherit.
+function getBlankSubmissionSkeleton() {
+  return {
+    vehicles: [],
+    drivers: [],
+    coverageRows: [],
+    enrichmentCards: [],
+    subjectivities: [],
+    losses: [],
+    appetiteRules: [],
+    genInfo: {},
+    insuredInfo: {},
+    coveragesInfo: {},
+    filingInfo: {},
+    radiusOfOperationsInfo: {},
+    serviceInspectionInfo: {},
+    commoditiesSelected: [],
+    commoditiesInfo: {},
+    uwReviewInfo: {},
+    decisionLog: [],
+    broker_fee: { amount: 0, default: 0 },
+    mcs90Filed: false,
+    minStatutoryLimit: null,
+    desk: null,
+    underwriter: null,
+    authorityLimit: 2000000,
+    insured_id: null,
+    endorsement_number: 0,
+    quoteNo: null,
+    quote_id: null,
+    canonicalJson: {},
+    isReferral: false,
+    lifecycleStatus: null,
+    pasSync: null
+  };
+}
+
 async function createRawSubmissionFromEmail() {
   const textarea = document.getElementById("emailDigestRawText");
   const lobSelect = document.getElementById("emailDigestLobSelect");
@@ -262,23 +304,17 @@ async function createRawSubmissionFromEmail() {
       rawAttachments.push({ name: file.name, type: file.type, size: file.size, base64 });
     }
 
-    if (typeof SUBMISSIONS_DATASET === "undefined" || !SUBMISSIONS_DATASET.length) {
-      showToast("⚠️ Load demo data first (or ingest one product) so a schema template exists for this LOB.", "warning");
-      return;
-    }
-
-    const template = SUBMISSIONS_DATASET.find(s => s.lobKey === lobKey) || SUBMISSIONS_DATASET[0];
-    const newSub = JSON.parse(JSON.stringify(template));
+    const newSub = getBlankSubmissionSkeleton();
     const newId = `SUB-EM${Math.floor(10000 + Math.random() * 90000)}`;
 
     newSub.id = newId;
     newSub.lobKey = lobKey;
+    const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === lobKey) : null;
+    newSub.lobName = lobCatalogEntry ? lobCatalogEntry.name : lobKey;
 
     // Real data captured from an actual inbound email — flagged the same as
     // Integrating API ingestions so dashboards that must reflect only real
-    // ingested data (e.g. Team Activity) count this submission, and never
-    // the hardcoded seed/golden-path demo dataset it borrowed its schema
-    // shape from.
+    // ingested data (e.g. Team Activity) count this submission.
     newSub.apiSourced = true;
 
     // --- Placeholder / pending display fields. These are NOT extracted from
@@ -337,7 +373,8 @@ async function createRawSubmissionFromEmail() {
     closeEmailDigestModal();
     resetEmailCaptureForm();
 
-    if (typeof selectSubmission === "function") selectSubmission(newId, true); // auto-navigates to Document Ingestion
+    if (typeof selectSubmission === "function") selectSubmission(newId, false);
+    if (typeof showIntakePage === "function") showIntakePage(); // redirect to the Submission Intake dashboard
     if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
     if (typeof persistAppState === "function") persistAppState();
 
@@ -890,8 +927,8 @@ function applyNormalizedDataToSubmission(subId) {
 
   // --- Standard / structured fields — these are what get overwritten. ---
   sub.lobKey = lobKey;
-  const matchingLobTemplate = SUBMISSIONS_DATASET.find(s => s.lobKey === lobKey && s.id !== subId);
-  if (matchingLobTemplate) sub.lobName = matchingLobTemplate.lobName;
+  const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === lobKey) : null;
+  if (lobCatalogEntry) sub.lobName = lobCatalogEntry.name;
   sub.insured = insured;
   sub.fein = fein;
   if (dot) sub.dot = dot;
@@ -1023,6 +1060,17 @@ function applyNormalizedDataToSubmission(subId) {
     });
   }
 
+  // --- Appetite Rules (Step 7) are built from whichever product was last
+  // ingested via the Integrating API, now that this submission's real
+  // drivers/vehicles exist — this is what actually applies the ingested
+  // product's eligibility/underwriting rules (e.g. Minimum Driver Age, one
+  // row per driver) to this email-sourced submission. Never fabricated:
+  // if no product has been ingested yet, this stays empty. ---
+  const activeProduct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
+  if (activeProduct && typeof buildProductAppetiteRules === "function") {
+    sub.appetiteRules = buildProductAppetiteRules(activeProduct, sub);
+  }
+
   // --- Bookkeeping — rawEmailText / rawAttachments are intentionally NOT
   // referenced or modified anywhere above. ---
   sub.normalizationStatus = needsReview ? "needs_review" : "normalized";
@@ -1030,7 +1078,27 @@ function applyNormalizedDataToSubmission(subId) {
 
   delete emailIngestionDraftBySubId[subId];
 
+  // The LOB switcher must reflect this submission's now-known LOB the
+  // moment Document Ingestion completes — not just when the table's LOB
+  // filter happens to already be set to something other than "All". If a
+  // Product JSON ingestion has since replaced the dropdown's option list
+  // with just that product, this submission's LOB option may no longer
+  // exist there — add it back rather than silently failing to select it.
+  const lobSelectEl = document.getElementById("lobSelect");
+  if (lobSelectEl && activeSubmissionId === subId) {
+    const hasOption = Array.from(lobSelectEl.options).some(o => o.value === sub.lobKey);
+    if (!hasOption) {
+      const catalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === sub.lobKey) : null;
+      const opt = document.createElement("option");
+      opt.value = sub.lobKey;
+      opt.textContent = catalogEntry ? catalogEntry.name : (sub.lobName || sub.lobKey);
+      lobSelectEl.appendChild(opt);
+    }
+    lobSelectEl.value = sub.lobKey;
+  }
+
   if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
+  if (typeof renderRoleDashboard === "function") renderRoleDashboard();
   if (typeof selectSubmission === "function" && activeSubmissionId === subId) selectSubmission(subId, false);
   if (typeof persistAppState === "function") persistAppState();
 

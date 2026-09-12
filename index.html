@@ -50,12 +50,10 @@ run<!--
       <div class="user-role-selector-group">
         <label for="userRoleSelect"><i class="ph ph-user-shield"></i> UW Role:</label>
         <select id="userRoleSelect" class="role-dropdown" onchange="changeUserRole(this.value)">
-          <option value="assistant">📋 Intake & Clearance Assistant (Emily Watson - $0 Limit)</option>
-          <option value="junior" selected>👨‍💼 Junior UW (Sarah Jenkins - $2M Limit)</option>
+          <option value="assistant" selected>📋 Intern (Emily Watson - $0 Limit)</option>
+          <option value="junior">👨‍💼 Junior UW (Sarah Jenkins - $2M Limit)</option>
           <option value="senior_uw">👩‍💼 Senior Underwriter (David Chen - $10M Limit)</option>
           <option value="senior">👔 Chief Underwriting Officer / CUO (Marcus Vance - $25M Limit)</option>
-          <option value="binder">⚡ Binding & Operations Lead (Elena Rostova - $50M Limit)</option>
-          <option value="auditor">🛡️ Risk & Compliance Auditor (Jonathan Reed - Read-Only)</option>
           <option value="admin">🛠️ System Administrator (Priya Nair - Full Access)</option>
         </select>
       </div>
@@ -204,7 +202,7 @@ run<!--
             <strong id="sidebarUserName">Sarah Jenkins</strong>
             <span id="sidebarUserRoleTitle">Junior UW ($2M Limit)</span>
           </div>
-          <button type="button" class="btn-icon" title="Clear saved session & reset demo data" aria-label="Reset demo data" onclick="if(confirm('Clear your saved session and reload with fresh demo data? This cannot be undone.')) resetPrototypeData();" style="margin-left:auto; background:transparent; border:none; color:#94a3b8; cursor:pointer; padding:4px;">
+          <button type="button" class="btn-icon" title="Clear saved session" aria-label="Clear saved session" onclick="if(confirm('Clear your saved session? All ingested data will be lost and the app will reload blank. This cannot be undone.')) resetPrototypeData();" style="margin-left:auto; background:transparent; border:none; color:#94a3b8; cursor:pointer; padding:4px;">
             <i class="ph ph-arrow-counter-clockwise"></i>
           </button>
         </div>
@@ -1597,6 +1595,15 @@ run<!--
         <button class="btn-close" aria-label="Close" onclick="closeAssignSubmissionModal()"><i class="ph ph-x"></i></button>
       </div>
       <div class="modal-body">
+        <div id="assignSubmissionModalUnassignRow"><!-- rendered dynamically: the "Unassigned" option --></div>
+        <div class="assign-modal-tabs">
+          <button type="button" class="assign-modal-tab" id="assignModalTabAssigned" onclick="switchAssignSubmissionModalTab('assigned')">
+            <i class="ph ph-user-circle"></i> Assigned Submission
+          </button>
+          <button type="button" class="assign-modal-tab" id="assignModalTabUnassigned" onclick="switchAssignSubmissionModalTab('unassigned')">
+            <i class="ph ph-user-focus"></i> No Assigned Submission
+          </button>
+        </div>
         <div id="assignSubmissionModalList"><!-- rendered dynamically --></div>
       </div>
       <div class="modal-footer u-row-between">
@@ -2113,7 +2120,7 @@ run<!--
       <div class="modal-header">
         <h3><i class="ph ph-envelope-simple-open text-primary"></i> Quote Email Sent to Broker</h3>
         <button class="btn-close" aria-label="Close" onclick="closeIssueQuoteEmailModal()" style="font-size:20px; line-height:1; font-weight:700;">
-          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+          <i class="ph ph-x"></i>
         </button>
       </div>
       <div class="modal-body">
@@ -2138,7 +2145,7 @@ run<!--
       <div class="modal-header">
         <h3><i class="ph ph-file-code text-primary"></i> Final Underwriting JSON — <span id="finalJsonModalSubId" class="font-mono"></span></h3>
         <button class="btn-close" aria-label="Close" onclick="closeGenerateFinalJsonModal()" style="font-size:20px; line-height:1; font-weight:700;">
-          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+          <i class="ph ph-x"></i>
         </button>
       </div>
       <div class="modal-body">
@@ -2165,7 +2172,7 @@ run<!--
       <div class="modal-header">
         <h3><i class="ph ph-envelope-open text-primary"></i> Copy Raw Email into a New Submission</h3>
         <button class="btn-close" aria-label="Close" onclick="closeEmailDigestModal()" style="font-size:20px; line-height:1; font-weight:700;">
-          <i class="ph ph-x"></i><span aria-hidden="true">&times;</span>
+          <i class="ph ph-x"></i>
         </button>
       </div>
       <div class="modal-body">

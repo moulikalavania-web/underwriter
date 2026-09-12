@@ -423,18 +423,14 @@ const DECLINE_TRIGGER_BADGE = {
   "Other": "badge-warning"
 };
 
-// Seeded with the 3 original historical demo entries; new declines are
-// unshifted onto the front (newest first) as they happen live.
-let DECLINE_LOG = [
-  { subId: "SUB-48199-OH", insured: "Midwest Hazmat Haulers LLC", lob: "Trucking", triggerPoint: "Appetite Knockout", reason: "Class 1 Explosives transport exceeds carrier filing guidelines", at: "2026-08-25 14:10" },
-  { subId: "SUB-48182-PX", insured: "Meridian Distribution Group", lob: "Commercial Property", triggerPoint: "Duplicate FEIN", reason: "Conflicting submission already locked by Aon Risk Services", at: "2026-08-25 11:35" },
-  { subId: "SUB-48110-CA", insured: "Pacific Chemical Solutions", lob: "GL Casualty", triggerPoint: "Senior UW Decline", reason: "Prior 3-year loss ratio exceeds 140% with open environmental claim", at: "2026-08-24 16:50" }
-];
+// Starts empty — populated only by real decline actions taken against real
+// (apiSourced) submissions. No hardcoded/demo entries.
+let DECLINE_LOG = [];
 
 // Roles authorized to fix a duplicate-FEIN decline: Senior Underwriter and
 // above (Senior UW, CUO, Binding Ops, Admin) — Junior/Assistant/Auditor
 // cannot resolve this.
-const FEIN_FIX_AUTHORIZED_ROLES = ["senior_uw", "senior", "binder", "admin"];
+const FEIN_FIX_AUTHORIZED_ROLES = ["senior_uw", "senior", "admin"];
 
 /**
  * Generates a new unique FEIN for a submission using the platform's
