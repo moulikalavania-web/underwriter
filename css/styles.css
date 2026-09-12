@@ -6842,6 +6842,36 @@ body.has-bottom-footer .app-layout {
   text-shadow: none;
 }
 
+/* Product coverage schedule table shown inside a dark .ip-card when the
+   submission hasn't provided its own coverage selections yet — needs its
+   own light-on-dark styling instead of the default light-theme .data-table. */
+.ip-card table.ip-coverage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.ip-card table.ip-coverage-table th {
+  text-align: left;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: #94a3b8;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+.ip-card table.ip-coverage-table td {
+  padding: 8px;
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.ip-card table.ip-coverage-table tr:last-child td {
+  border-bottom: none;
+}
+.ip-card table.ip-coverage-table td.font-mono {
+  color: #5EEAD4;
+}
+
 /* Drivers Schedule — fully separate per-driver cards (never merged) */
 .driver-sections-grid {
   display: grid;

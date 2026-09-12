@@ -1111,7 +1111,25 @@ function renderUnderwritingWorkbench(sub) {
 
   // 1. Account Overview Panel — same Instrument Panel style as Coverages /
   // Operational Profile below, for visual consistency across the Workbench.
+  //
+  // Billing Plan and Broker Fee Amount fall back to the ingested product's
+  // own configuration when the submission hasn't stated its own — genuinely
+  // product-level defaults (billingType/brokerFee, when a product declares
+  // them), never a fabricated customer answer. Entity Type, Policy
+  // Effective Dates and Lock Rate Date are deliberately NOT backfilled from
+  // the product: those are this specific customer's own facts (their legal
+  // structure, their policy term) that no product configuration can supply
+  // — they stay "Not Provided" until the submission itself provides them.
   if (overviewContainer) {
+    const activeProductForAcct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
+    const acctPInfo = activeProductForAcct ? (activeProductForAcct.product || activeProductForAcct.identity || {}) : {};
+    const acctPricing = (activeProductForAcct && activeProductForAcct.pricing) || {};
+
+    const billingPlanVal = gen.billtype || acctPInfo.billingType || acctPInfo.billType || null;
+    const billingPlanIsProductDefault = !gen.billtype && !!billingPlanVal;
+    const brokerFeeVal = bFee !== undefined ? bFee : (acctPInfo.brokerFee || acctPricing.brokerFee);
+    const brokerFeeIsProductDefault = bFee === undefined && brokerFeeVal !== undefined;
+
     const acctTiles = [
       { label: "Named Insured", value: wbFmt(ins.insured_name || sub.insured), wide: true },
       { label: "FEIN / Tax ID", value: wbFmt(ins.fein) },
@@ -1119,14 +1137,21 @@ function renderUnderwritingWorkbench(sub) {
       { label: "Entity Type", value: wbFmt(ins.entity_type) },
       { label: "Policy Effective Dates", value: (gen.effective_date || sub.effectiveDate) ? `${gen.effective_date || sub.effectiveDate} – ${gen.expiration_date || sub.expirationDate || NP}` : null, wide: true },
       { label: "Lock Rate Date", value: wbFmt(gen.lock_rate_effective_date) },
-      { label: "Billing Plan", value: wbFmt(gen.billtype) },
-      { label: "Broker Fee Amount", value: bFee !== undefined ? `$${Number(bFee).toLocaleString()}` : null }
+      { label: "Billing Plan", value: billingPlanVal, caption: billingPlanIsProductDefault ? "Product Default" : "" },
+      { label: "Broker Fee Amount", value: brokerFeeVal !== undefined ? `$${Number(brokerFeeVal).toLocaleString()}` : null, caption: brokerFeeIsProductDefault ? "Product Default" : "" }
     ];
     const renderAcctTile = (t) => `
       <div class="ip-tile ${t.wide ? 'wide' : ''}">
         <div class="ip-tile-label">${t.label}</div>
         <div class="ip-tile-value">${t.value !== null && t.value !== undefined ? t.value : '<span class="ip-tile-empty">—</span>'}</div>
+        ${t.caption ? `<div class="ip-tile-caption">${t.caption}</div>` : ''}
       </div>`;
+
+    // Description of Operations is the customer's own answer; Underwriting
+    // Appetite is the product's own description — shown together, each
+    // labeled, rather than one silently standing in for the other.
+    const opsDescription = ins.description_of_operation;
+    const appetiteDescription = acctPInfo.description || null;
 
     overviewContainer.innerHTML = `
       <div class="ip-card ip-text-compact">
@@ -1142,8 +1167,12 @@ function renderUnderwritingWorkbench(sub) {
           ${acctTiles.map(renderAcctTile).join('')}
         </div>
         <div class="ip-tile wide" style="margin-top:10px;">
-          <div class="ip-tile-label">Description of Operations & Underwriting Appetite</div>
-          <div class="ip-tile-caption" style="color:#cbd5e1; font-size:12px; margin-top:4px;">${wbFmt(ins.description_of_operation)}</div>
+          <div class="ip-tile-label">Description of Operations (Customer)</div>
+          <div class="ip-tile-caption" style="color:#cbd5e1; font-size:12px; margin-top:4px;">${wbFmt(opsDescription)}</div>
+        </div>
+        <div class="ip-tile wide" style="margin-top:10px;">
+          <div class="ip-tile-label">Underwriting Appetite (Product)</div>
+          <div class="ip-tile-caption" style="color:#cbd5e1; font-size:12px; margin-top:4px;">${wbFmt(appetiteDescription)}</div>
         </div>
       </div>
     `;
@@ -1255,6 +1284,30 @@ function renderUnderwritingWorkbench(sub) {
 
   // 2. Coverages & Operational Profile — "Instrument Panel" redesign (unique
   // dark readout-tile style, distinct from every other card style in the app)
+  //
+  // Two distinct data sources, never blurred together:
+  //  - The customer's OWN coverage selections/operational answers (cov/rad/
+  //    fil/uwRev below) come only from the ingested submission (Email /
+  //    Submission JSON) — exactly what they actually told us.
+  //  - When the submission hasn't provided a given value yet, these panels
+  //    fall back to the ingested PRODUCT's own configuration (what
+  //    coverages/limits it offers, its discretionary pricing rules) —
+  //    labeled as the product's definition, never presented as if it were
+  //    the customer's answer.
+  const activeProductForWorkbench = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
+  const hasSubCoverageData = Object.keys(cov).length > 0;
+  const productDeclaredCovers = activeProductForWorkbench
+    ? ((activeProductForWorkbench.studios && activeProductForWorkbench.studios.coverage) || activeProductForWorkbench.coverages || activeProductForWorkbench.coverage || [])
+    : [];
+  // Only ever the product's OWN declared coverage list — buildProductCoverageRows()
+  // falls back to generic hardcoded rows when a product declares none, which
+  // would be fabricated data here, so that path is deliberately never used.
+  const productCoverageRows = (!hasSubCoverageData && productDeclaredCovers.length > 0 && typeof buildProductCoverageRows === "function")
+    ? buildProductCoverageRows(activeProductForWorkbench, sub.exposureVal || 0, 0)
+    : null;
+  const hasSubRatingData = Object.keys(fil).length > 0 || Object.keys(uwRev).length > 0;
+  const productPricing = (activeProductForWorkbench && activeProductForWorkbench.pricing) || null;
+
   if (coveragesContainer) {
     const covTiles = [
       { label: "Auto Liability Limit (CSL)", value: cov.liability !== undefined ? `$${Number(cov.liability).toLocaleString()}` : null, caption: "Combined Single Limit", wide: true },
@@ -1278,28 +1331,58 @@ function renderUnderwritingWorkbench(sub) {
         ${t.caption ? `<div class="ip-tile-caption">${t.caption}</div>` : ''}
       </div>`;
 
+    // Left panel body: the customer's own coverage selections if the
+    // submission provided any; otherwise the ingested product's own
+    // coverage schedule (clearly labeled as the product's, not a customer
+    // answer), so the panel isn't just empty tiles when nothing has been
+    // captured yet.
+    const coveragesLeftBody = hasSubCoverageData
+      ? `<div class="ip-grid">${covTiles.map(renderIpTile).join('')}</div>`
+      : (productCoverageRows
+        ? `<table class="ip-coverage-table"><thead><tr><th>Coverage Line</th><th>Limit</th><th>Deductible</th><th>Availability</th></tr></thead><tbody>
+            ${productCoverageRows.map(r => `<tr><td>${r.line}</td><td class="font-mono">${r.limit}</td><td class="font-mono">${r.ded}</td><td>${r.availability}</td></tr>`).join('')}
+          </tbody></table>`
+        : `<div class="ip-grid">${covTiles.map(renderIpTile).join('')}</div>`);
+    const coveragesLeftBadge = hasSubCoverageData
+      ? wbFmt(cov.rating_type)
+      : (productCoverageRows ? `<span title="From the ingested product's own coverage schedule — not yet the customer's selection">Product Schedule</span>` : wbFmt(cov.rating_type));
+
+    // Right panel body: the customer's own operational answers if provided;
+    // otherwise the ingested product's discretionary pricing configuration
+    // (max credit/debit, tax rate) — product-level rating configuration,
+    // never a fabricated customer-specific factor.
+    const productPricingTiles = productPricing ? [
+      { label: "Max Discretionary Credit", value: productPricing.maxCreditPct !== undefined ? `${productPricing.maxCreditPct}%` : null, caption: "Product Rating Configuration" },
+      { label: "Max Discretionary Debit", value: productPricing.maxDebitPct !== undefined ? `${productPricing.maxDebitPct}%` : null, caption: "Product Rating Configuration" },
+      { label: "Tax Rate", value: productPricing.taxRatePct !== undefined ? `${productPricing.taxRatePct}%` : null, caption: "Product Rating Configuration", wide: true }
+    ] : [];
+    const opRightBody = hasSubRatingData
+      ? `<div class="ip-grid">${opTiles.map(renderIpTile).join('')}</div>`
+      : (productPricingTiles.length
+        ? `<div class="ip-grid">${productPricingTiles.map(renderIpTile).join('')}</div>`
+        : `<div class="ip-grid">${opTiles.map(renderIpTile).join('')}</div>`);
+    const opRightBadge = hasSubRatingData
+      ? `UW ${wbFmt(fil.uw_credit_debit_factor)}`
+      : (productPricingTiles.length ? `<span title="From the ingested product's own rating configuration">Product Config</span>` : `UW ${wbFmt(fil.uw_credit_debit_factor)}`);
+
     coveragesContainer.innerHTML = `
       <div class="two-col-grid">
         <!-- Left: Coverages & Limits (instrument panel) -->
         <div class="ip-card">
           <div class="ip-header">
             <span class="ip-title"><i class="ph ph-shield-check"></i> Coverages, Limits & Deductibles</span>
-            <span class="ip-badge">${wbFmt(cov.rating_type)}</span>
+            <span class="ip-badge">${coveragesLeftBadge}</span>
           </div>
-          <div class="ip-grid">
-            ${covTiles.map(renderIpTile).join('')}
-          </div>
+          ${coveragesLeftBody}
         </div>
 
         <!-- Right: Operational Profile & Rating Factors (instrument panel) -->
         <div class="ip-card">
           <div class="ip-header">
             <span class="ip-title"><i class="ph ph-sliders"></i> Operational Profile & Rating Factors</span>
-            <span class="ip-badge">UW ${wbFmt(fil.uw_credit_debit_factor)}</span>
+            <span class="ip-badge">${opRightBadge}</span>
           </div>
-          <div class="ip-grid">
-            ${opTiles.map(renderIpTile).join('')}
-          </div>
+          ${opRightBody}
         </div>
       </div>
     `;
