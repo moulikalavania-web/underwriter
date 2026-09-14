@@ -25,7 +25,7 @@ run<!--
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='48' fill='%231A1D23'/%3E%3Cpath fill='%232563eb' d='M128 32l72 28v56c0 56-31 92-72 108-41-16-72-52-72-108V60z'/%3E%3Cpath fill='%23fff' d='M111 158l-30-30 15-15 15 15 45-45 15 15z'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -70,6 +70,11 @@ run<!--
           <option value="all">🌐 All Lines of Business (Show All)</option>
         </select>
       </div>
+
+      <button type="button" class="btn btn-sm btn-outline" id="demoModeToggleBtn" onclick="toggleDemoMode()"
+        title="Temporarily show sample values for blank fields — for presentations only. Never writes or saves any data.">
+        <i class="ph ph-eye-slash"></i> Demo Fill: OFF
+      </button>
     </div>
   </header>
 
@@ -81,6 +86,12 @@ run<!--
       <li class="breadcrumb-item breadcrumb-current" id="breadcrumbCurrent" aria-current="page">Submission Intake</li>
     </ol>
   </nav>
+
+  <!-- Demo Mode Banner — only visible while Demo Fill is ON -->
+  <div id="demoModeBanner" style="display:none;" class="demo-mode-banner">
+    <i class="ph ph-warning-circle"></i>
+    <span>Demo Fill is ON — blank fields below are showing sample values for presentation, tagged "(Demo)". Nothing is saved; turn it off to see only real ingested data.</span>
+  </div>
 
   <!-- Main Application Body with Left Sidebar Layout -->
   <div class="app-layout" id="appLayout">
@@ -319,38 +330,6 @@ run<!--
       <!-- ==================================================================== -->
       <div class="page-view u-hidden" id="workflowPageView">
         
-        <!-- Workflow Top Active Case Header Bar -->
-        <div class="workflow-case-header-bar" id="workflowCaseHeader">
-          <div class="wf-header-left">
-            <button class="btn btn-sm btn-outline back-to-intake-btn" onclick="showIntakePage()" title="Return to Submission Intake Queue">
-              <i class="ph ph-arrow-left"></i> <span>Intake Queue</span>
-            </button>
-            <div class="wf-case-title-box">
-              <div class="wf-title-row">
-                <h3 id="wfHeaderInsured">Apex Freight LLC</h3>
-                <span class="badge badge-light font-mono" id="wfHeaderSubId">SUB-48213-TX</span>
-                <span class="badge badge-primary" id="wfHeaderLob">Trucking</span>
-              </div>
-              <div class="wf-sub-row">
-                <span>FEIN: <strong id="wfHeaderFEIN">81-440000TX</strong></span>
-                <span>• Submitter: <strong id="wfHeaderChannel">Marsh & McLennan</strong></span>
-                <span>• Desk: <strong id="wfHeaderDesk">Specialty Fleet UW</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <div class="wf-header-right">
-            <div class="wf-metric-pill">
-              <span class="lbl">Priority & SLA</span>
-              <span class="val badge badge-danger" id="wfHeaderPriority">P1 • 4h Fast-Track</span>
-            </div>
-            <div class="wf-metric-pill">
-              <span class="lbl">Exposure / TIV</span>
-              <span class="val font-mono" id="wfHeaderExposure">$1,850,000</span>
-            </div>
-          </div>
-        </div>
-
         <!-- Visual phase grouping above the 7-step stepper (purely informational,
              does not change step navigation/click behavior below) -->
         <div class="stepper-phase-groups" aria-hidden="true">
@@ -737,6 +716,9 @@ run<!--
           </div>
 
         </div>
+
+        <!-- Vehicle Data Enrichment: NHTSA / FMCSA / State DMV -->
+        <div id="screen4VehicleEnrichmentContainer"></div>
       </section>
 
       <!-- Screen 5: Underwriting Workbench -->
@@ -752,21 +734,30 @@ run<!--
           </div>
         </div>
 
+        <!-- UW Summary Header Strip (Quote ID / Applicant / LOB / State / Effective Date / Status / Assigned Underwriter) -->
+        <div id="wbSummaryStripContainer" class="mb-3"></div>
+
+        <!-- Risk Overview (gauge) + Applicant & Policy Information -->
+        <div id="wbRiskOverviewGridContainer" class="mb-3"></div>
+
         <!-- Dynamic Underwriting Workbench Data Containers -->
-        <div id="wbAccountOverviewContainer" class="mb-3"></div>
         <div id="wbAttachedDocsContainer" class="mb-3"></div>
         <div id="wbQuestionnaireContainer" class="mb-3"></div>
         <div id="wbCoveragesGridContainer" class="mb-3"></div>
         <div id="wbVehiclesScheduleContainer" class="card mb-3"></div>
         <div id="wbDriversScheduleContainer" class="card mb-3"></div>
 
+        <!-- Loss Runs (light table) -->
+        <div id="wbLossRunsUwpContainer" class="mb-3"></div>
+
+        <!-- UW Factors breakdown (light table) -->
+        <div id="wbUwFactorsContainer" class="mb-3"></div>
+
         <!-- Risk Score (Add-On) — auto-calculated from all workbench data
              above (coverages, loss runs, exposure, drivers, appetite rule
              failures). Underwriter can edit before moving to Authority
              Desk. -->
         <div id="wbRiskScoreContainer" class="mb-3"></div>
-
-
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -789,6 +780,13 @@ run<!--
             </button>
           </div>
         </div>
+
+        <!-- Motor-Carrier Regulatory Compliance (USDOT / MC / MCS-90 / Statutory
+             Minimum) — gates entry to Step 7 Rating & Quote for trucking risks.
+             Populated from Email/JSON when stated; MCS-90 filing status can
+             also be manually confirmed here by the underwriter after
+             verifying it (a real action, not fabricated data). -->
+        <div id="complianceGateContainer" class="mb-3"></div>
 
         <div class="two-col-grid">
           <!-- Authority Limits Evaluation -->
@@ -2670,6 +2668,8 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/bindings-ingestion.js"></script>
   <script src="js/email-intake-ingestion.js"></script>
   <script src="js/risk-score.js"></script>
+  <script src="js/vehicle-enrichment.js"></script>
+  <script src="js/demo-mode.js"></script>
   <script src="js/generate-final-json.js"></script>
   <script src="js/issue-quote-email.js"></script>
   <script src="js/golden-path-data.js"></script>

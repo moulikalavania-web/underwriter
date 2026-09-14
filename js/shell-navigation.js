@@ -116,11 +116,16 @@ function changeUserRole(role) {
   // all are permission-gated (appetiteRules override, base rate override, authority sign-off)
   // and must reflect the newly active persona immediately, even if the
   // user is already sitting on that screen when they switch roles.
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  let sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (sub) {
+    if (typeof DEMO_MODE_ENABLED !== "undefined" && DEMO_MODE_ENABLED && typeof getDemoDisplaySubmission === "function") {
+      sub = getDemoDisplaySubmission(sub);
+    }
     renderAuthorityScreen(sub);
     renderAppetiteRules(sub.appetiteRules);
     renderUnderwritingWorkbench(sub);
+    if (typeof renderVehicleEnrichment === "function") renderVehicleEnrichment(sub);
+    if (typeof renderComplianceGate === "function") renderComplianceGate(sub);
   }
 }
 

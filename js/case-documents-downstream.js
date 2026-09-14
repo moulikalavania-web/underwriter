@@ -369,6 +369,13 @@ function handleCreateNewIntake(e) {
 // 6. RENDERING ALL DOWNSTREAM SCREENS (SCREENS 2 TO 9)
 // ============================================================================
 function renderAllDownstreamScreens(sub) {
+  // Demo Mode (OFF by default): renders a throwaway sample-filled clone
+  // instead of the real submission for this pass only — never touches
+  // SUBMISSIONS_DATASET, never persisted. See js/demo-mode.js.
+  if (typeof DEMO_MODE_ENABLED !== "undefined" && DEMO_MODE_ENABLED && typeof getDemoDisplaySubmission === "function") {
+    sub = getDemoDisplaySubmission(sub);
+  }
+
   // Screen 2: OCR Fields & Canonical Record
   renderOCRFields(sub.ocrFields, sub.docs);
   if (typeof renderRawEmailCapturePanel === "function") renderRawEmailCapturePanel(sub);
@@ -394,6 +401,8 @@ function renderAllDownstreamScreens(sub) {
 
   // Screen 4: Third-Party Data Enrichment & Manual Assignment (Optional)
   renderEnrichmentCards(sub.enrichmentCards);
+  if (typeof renderVehicleEnrichment === "function") renderVehicleEnrichment(sub);
+  if (typeof renderComplianceGate === "function") renderComplianceGate(sub);
   const deskSelect = document.getElementById("manualDeskSelect");
   const uwSelect = document.getElementById("manualUnderwriterSelect");
   const callout = document.getElementById("assignmentVisibilityCallout");
@@ -1081,7 +1090,6 @@ window.updateDriverAgeGuardrail = updateDriverAgeGuardrail;
 function renderUnderwritingWorkbench(sub) {
   if (!sub) return;
 
-  const overviewContainer = document.getElementById("wbAccountOverviewContainer");
   const docsContainer = document.getElementById("wbAttachedDocsContainer");
   const coveragesContainer = document.getElementById("wbCoveragesGridContainer");
   const vehiclesContainer = document.getElementById("wbVehiclesScheduleContainer");
@@ -1094,89 +1102,14 @@ function renderUnderwritingWorkbench(sub) {
   const wbFmt = (val, formatter) => (val === undefined || val === null || val === "") ? NP : (formatter ? formatter(val) : val);
   const wbFmtCurrency = (val) => wbFmt(val, v => `$${Number(v).toLocaleString()}`);
 
-  const gen = sub.genInfo || {};
-  // FEIN always comes from sub.fein (the single authoritative source that
-  // gets updated by Decline Center "Fix" actions etc.) — never from a
-  // potentially stale copy baked into insuredInfo, to prevent the header
-  // and this panel from ever showing two different FEIN values.
-  const ins = Object.assign({}, sub.insuredInfo || {}, { fein: sub.fein });
   const cov = sub.coveragesInfo || {};
   const fil = sub.filingInfo || {};
   const rad = sub.radiusOfOperationsInfo || {};
   const uwRev = sub.uwReviewInfo || {};
-  const bFee = (sub.broker_fee && sub.broker_fee.amount) || uwRev.broker_fee_amount;
 
   const vehicles = sub.vehicles || [];
   const drivers = sub.drivers || [];
 
-  // 1. Account Overview Panel — same Instrument Panel style as Coverages /
-  // Operational Profile below, for visual consistency across the Workbench.
-  //
-  // Billing Plan and Broker Fee Amount fall back to the ingested product's
-  // own configuration when the submission hasn't stated its own — genuinely
-  // product-level defaults (billingType/brokerFee, when a product declares
-  // them), never a fabricated customer answer. Entity Type, Policy
-  // Effective Dates and Lock Rate Date are deliberately NOT backfilled from
-  // the product: those are this specific customer's own facts (their legal
-  // structure, their policy term) that no product configuration can supply
-  // — they stay "Not Provided" until the submission itself provides them.
-  if (overviewContainer) {
-    const activeProductForAcct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
-    const acctPInfo = activeProductForAcct ? (activeProductForAcct.product || activeProductForAcct.identity || {}) : {};
-    const acctPricing = (activeProductForAcct && activeProductForAcct.pricing) || {};
-
-    const billingPlanVal = gen.billtype || acctPInfo.billingType || acctPInfo.billType || null;
-    const billingPlanIsProductDefault = !gen.billtype && !!billingPlanVal;
-    const brokerFeeVal = bFee !== undefined ? bFee : (acctPInfo.brokerFee || acctPricing.brokerFee);
-    const brokerFeeIsProductDefault = bFee === undefined && brokerFeeVal !== undefined;
-
-    const acctTiles = [
-      { label: "Named Insured", value: wbFmt(ins.insured_name || sub.insured), wide: true },
-      { label: "FEIN / Tax ID", value: wbFmt(ins.fein) },
-      { label: "USDOT Number", value: wbFmt(ins.dot_number || sub.dot) },
-      { label: "Entity Type", value: wbFmt(ins.entity_type) },
-      { label: "Policy Effective Dates", value: (gen.effective_date || sub.effectiveDate) ? `${gen.effective_date || sub.effectiveDate} – ${gen.expiration_date || sub.expirationDate || NP}` : null, wide: true },
-      { label: "Lock Rate Date", value: wbFmt(gen.lock_rate_effective_date) },
-      { label: "Billing Plan", value: billingPlanVal, caption: billingPlanIsProductDefault ? "Product Default" : "" },
-      { label: "Broker Fee Amount", value: brokerFeeVal !== undefined ? `$${Number(brokerFeeVal).toLocaleString()}` : null, caption: brokerFeeIsProductDefault ? "Product Default" : "" }
-    ];
-    const renderAcctTile = (t) => `
-      <div class="ip-tile ${t.wide ? 'wide' : ''}">
-        <div class="ip-tile-label">${t.label}</div>
-        <div class="ip-tile-value">${t.value !== null && t.value !== undefined ? t.value : '<span class="ip-tile-empty">—</span>'}</div>
-        ${t.caption ? `<div class="ip-tile-caption">${t.caption}</div>` : ''}
-      </div>`;
-
-    // Description of Operations is the customer's own answer; Underwriting
-    // Appetite is the product's own description — shown together, each
-    // labeled, rather than one silently standing in for the other.
-    const opsDescription = ins.description_of_operation;
-    const appetiteDescription = acctPInfo.description || null;
-
-    overviewContainer.innerHTML = `
-      <div class="ip-card ip-text-compact">
-        <div class="ip-header">
-          <span class="ip-title"><i class="ph ph-receipt"></i> General Information & Insured Account Profile</span>
-          <div style="display:flex; gap:6px; align-items:center;">
-            <span class="ip-badge">${wbFmt(sub.quote_id || sub.quoteNo)}</span>
-            <span class="ip-badge">${wbFmt(gen.policytype)}</span>
-            <span class="ip-badge">${gen.binding ? gen.binding.toUpperCase() : NP}</span>
-          </div>
-        </div>
-        <div class="ip-grid">
-          ${acctTiles.map(renderAcctTile).join('')}
-        </div>
-        <div class="ip-tile wide" style="margin-top:10px;">
-          <div class="ip-tile-label">Description of Operations (Customer)</div>
-          <div class="ip-tile-caption" style="color:#cbd5e1; font-size:12px; margin-top:4px;">${wbFmt(opsDescription)}</div>
-        </div>
-        <div class="ip-tile wide" style="margin-top:10px;">
-          <div class="ip-tile-label">Underwriting Appetite (Product)</div>
-          <div class="ip-tile-caption" style="color:#cbd5e1; font-size:12px; margin-top:4px;">${wbFmt(appetiteDescription)}</div>
-        </div>
-      </div>
-    `;
-  }
   // 1.5. Attached Underwriting Documents Panel
   if (docsContainer) {
     const docsList = sub.docs || [];
@@ -1305,7 +1238,10 @@ function renderUnderwritingWorkbench(sub) {
   const productCoverageRows = (!hasSubCoverageData && productDeclaredCovers.length > 0 && typeof buildProductCoverageRows === "function")
     ? buildProductCoverageRows(activeProductForWorkbench, sub.exposureVal || 0, 0)
     : null;
-  const hasSubRatingData = Object.keys(fil).length > 0 || Object.keys(uwRev).length > 0;
+  const hasSubRatingData = Object.keys(fil).length > 0 || Object.keys(uwRev).length > 0
+    || Object.keys(sub.operationsProfile || {}).length > 0
+    || Object.keys(sub.commoditiesInfo || {}).length > 0
+    || vehicles.length > 0 || drivers.length > 0 || (sub.losses || []).length > 0;
   const productPricing = (activeProductForWorkbench && activeProductForWorkbench.pricing) || null;
 
   if (coveragesContainer) {
@@ -1316,12 +1252,29 @@ function renderUnderwritingWorkbench(sub) {
       { label: "Towing & Storage", value: cov.towing !== undefined ? `$${Number(cov.towing).toLocaleString()}` : null, caption: "Per Occurrence Limit" },
       { label: "NAICS / Rating Class", value: cov.naics_code !== undefined ? `${cov.naics_code}` : null, caption: cov.rating_class !== undefined ? `Rating Class ${cov.rating_class}` : "" }
     ];
+    // Driver Violations: only summed from drivers that actually carry a
+    // violations count on the ingested submission — never assumed 0 when
+    // we simply don't know.
+    const driversWithViolationData = drivers.filter(d => d.violations !== undefined);
+    const totalDriverViolations = driversWithViolationData.reduce((s, d) => s + (Number(d.violations) || 0), 0);
+    const uniqueVehicleTypes = [...new Set(vehicles.map(v => v.vehicle_type).filter(Boolean))];
+    const opsForTiles = sub.operationsProfile || {};
+    const commodities = sub.commoditiesInfo || {};
+
     const opTiles = [
       { label: "Operating Radius", value: rad.radius !== undefined ? `${rad.radius} mi` : null, caption: rad.Intrastate_interstate || "" },
       { label: "SAFER Safety Factor", value: fil.safer_factor !== undefined ? `${fil.safer_factor}` : null, caption: fil.FMCSA_alert !== undefined ? `${fil.FMCSA_alert} Alerts` : "" },
       { label: "Driver Pool", value: uwRev.og_driver_count !== undefined ? `${uwRev.og_driver_count}` : null, caption: uwRev.cr_driver_count !== undefined ? `${uwRev.cr_driver_count} Active Verified` : "" },
       { label: "Pollution Risk", value: uwRev.al_pollution !== undefined ? `${uwRev.al_pollution}` : null, caption: uwRev.min_earn_factor !== undefined ? `Min Earned ${uwRev.min_earn_factor}%` : "" },
-      { label: "UW Discretionary Factor", value: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? '-' + Math.round((1 - Number(fil.uw_credit_debit_factor)) * 100) + '%' : '+' + Math.round((Number(fil.uw_credit_debit_factor) - 1) * 100) + '%') : null, caption: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? 'Discretionary Credit' : 'Debit Applied') : "", wide: true }
+      { label: "UW Discretionary Factor", value: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? '-' + Math.round((1 - Number(fil.uw_credit_debit_factor)) * 100) + '%' : '+' + Math.round((Number(fil.uw_credit_debit_factor) - 1) * 100) + '%') : null, caption: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? 'Discretionary Credit' : 'Debit Applied') : "", wide: true },
+      { label: "Vehicle Type", value: uniqueVehicleTypes.length ? uniqueVehicleTypes.join(", ") : null },
+      { label: "Business Type", value: opsForTiles.business_type || null },
+      { label: "Primary Commodity / Cargo Type", value: commodities.secondary_class || null },
+      { label: "Operating Territory", value: rad.Intrastate_interstate || opsForTiles.interstate_intrastate || null },
+      { label: "Annual Mileage", value: (opsForTiles.annual_mileage !== undefined && opsForTiles.annual_mileage !== null) ? `${Number(opsForTiles.annual_mileage).toLocaleString()} mi/yr` : null },
+      { label: "Vehicle Count", value: vehicles.length || null },
+      { label: "Driver Violations", value: driversWithViolationData.length ? `${totalDriverViolations}` : null },
+      { label: "Loss History", value: (sub.losses && sub.losses.length) ? `${sub.losses.length} Claim${sub.losses.length === 1 ? '' : 's'}` : null, caption: (sub.losses && sub.losses.length) ? `$${sub.losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0).toLocaleString()} Total Incurred` : "" }
     ];
 
     const renderIpTile = (t) => `
@@ -1361,9 +1314,15 @@ function renderUnderwritingWorkbench(sub) {
       : (productPricingTiles.length
         ? `<div class="ip-grid">${productPricingTiles.map(renderIpTile).join('')}</div>`
         : `<div class="ip-grid">${opTiles.map(renderIpTile).join('')}</div>`);
-    const opRightBadge = hasSubRatingData
-      ? `UW ${wbFmt(fil.uw_credit_debit_factor)}`
-      : (productPricingTiles.length ? `<span title="From the ingested product's own rating configuration">Product Config</span>` : `UW ${wbFmt(fil.uw_credit_debit_factor)}`);
+    // "UW Tag" — the assigned underwriter's name (set on Screen 4's manual
+    // assignment dropdown, sub.underwriter). Falls back to the discretionary
+    // rating factor / product config badge only when no underwriter has
+    // actually been assigned yet — never a fabricated name.
+    const opRightBadge = sub.underwriter
+      ? `<i class="ph ph-user-circle"></i> ${sub.underwriter}`
+      : (hasSubRatingData
+        ? `UW ${wbFmt(fil.uw_credit_debit_factor)}`
+        : (productPricingTiles.length ? `<span title="From the ingested product's own rating configuration">Product Config</span>` : `UW ${wbFmt(fil.uw_credit_debit_factor)}`));
 
     coveragesContainer.innerHTML = `
       <div class="two-col-grid">
@@ -1454,12 +1413,23 @@ function renderUnderwritingWorkbench(sub) {
                   <td>
                     <strong style="color: #0f172a;">${v.year || NP} ${v.make || ''} ${v.model || ''}</strong>
                     <div class="text-xs text-muted">${v.weight || NP} • ${v.ownership || NP}</div>
+                    ${v.enrichmentApplied ? `
+                      <div class="text-xs font-mono mt-1" title="VIN"><i class="ph ph-identification-card text-primary"></i> ${v.vin || NP}</div>
+                      <div class="text-xs mt-1">
+                        <span class="badge badge-success" style="font-size:10px;"><i class="ph ph-check-circle"></i> Verified: NHTSA / FMCSA / DMV</span>
+                      </div>
+                      <div class="text-xs mt-1">
+                        ${v.fmcsaOOS !== undefined ? `<span class="badge ${v.fmcsaOOS ? 'badge-danger' : 'badge-success'}" style="font-size:10px;"><i class="ph ph-shield-warning"></i> FMCSA OOS: ${v.fmcsaOOS ? 'Yes' : 'No'}</span>` : ''}
+                        ${v.registrationStatus ? `<span class="badge ${v.registrationStatus === 'Active' ? 'badge-success' : 'badge-warning'}" style="font-size:10px;"><i class="ph ph-file-text"></i> DMV: ${v.registrationStatus}</span>` : ''}
+                      </div>
+                    ` : (v.vin ? `<div class="text-xs font-mono mt-1" title="VIN"><i class="ph ph-identification-card text-muted"></i> ${v.vin}</div>` : '')}
                   </td>
                   <td>
                     <div class="font-mono text-xs font-bold" style="color: #2563eb;"><i class="ph ph-hash"></i> ${modelNo}</div>
                     <div class="text-xs text-secondary mt-1" style="display: flex; align-items: center; gap: 4px;">
                       <i class="ph ph-user text-primary"></i> <strong>${driverName}</strong>
                     </div>
+                    ${(v.bodyClass || v.vehicle_type) ? `<div class="text-xs text-muted mt-1"><i class="ph ph-truck"></i> ${v.bodyClass || v.vehicle_type}</div>` : ''}
                   </td>
                   <td>
                     ${radiusVal !== undefined ? `<span class="badge badge-info" style="font-weight: 700; font-size: 11px;"><i class="ph ph-navigation-arrow"></i> ${radiusVal} Miles Radius</span>` : NP}
@@ -1589,6 +1559,7 @@ function renderUnderwritingWorkbench(sub) {
                   <div class="driver-field-row"><span>DL Number</span><strong class="font-mono">${wbFmt(d.licenseNumber)}</strong></div>
                   <div class="driver-field-row"><span>License State & Class</span><strong>${d.licensestate ? `${d.licensestate} • ${d.licenseclasstype || NP}` : NP}</strong></div>
                   <div class="driver-field-row"><span>CDL Experience</span><strong>${wbFmt(d.experience)}</strong></div>
+                  <div class="driver-field-row"><span>Violations</span><strong>${d.violations !== undefined ? d.violations : NP}</strong></div>
                   <div class="driver-field-row"><span>Tenure</span><strong>${d.tenure !== undefined ? `${d.tenure} Years` : NP}</strong></div>
                   <div class="driver-field-row"><span>Status</span><strong>${d.status ? `<span class="badge badge-success"><i class="ph ph-check-circle"></i> ${d.status}</span>` : NP}</strong></div>
                   <div class="driver-field-row"><span>Driver Factor</span><strong class="font-mono">${wbFmt(d.driver_factor)}</strong></div>
@@ -1625,7 +1596,208 @@ function renderUnderwritingWorkbench(sub) {
       `;
     }
   }
+
+  renderWbSummaryStrip(sub);
+  renderWbRiskOverviewGrid(sub);
+  renderWbLossRunsUwp(sub);
+  renderWbUwFactorsUwp(sub);
 }
+
+// ============================================================================
+// UWP REDESIGN — Summary Strip, Risk Overview gauge, Applicant & Policy
+// card, and Underwriting Decision panel. Every value below comes from data
+// already established elsewhere on the Workbench (sub.* fields, or the
+// existing calculateRiskScore()/riskBand() from risk-score.js) — nothing
+// new is fabricated; a value neither the product nor the customer provided
+// still renders "Not Provided"/"—".
+// ============================================================================
+function renderWbSummaryStrip(sub) {
+  const box = document.getElementById("wbSummaryStripContainer");
+  if (!box) return;
+  const NP = '<span class="uwp-empty-inline">—</span>';
+  const val = (v) => (v === undefined || v === null || v === "") ? NP : v;
+  // The named underwriter (Screen 4 manual assignment) takes priority when
+  // set; falls back to the assigned role's persona name — the same
+  // priority used for the UW Tag in Operational Profile & Rating Factors,
+  // so this fact reads consistently everywhere on the page.
+  const assignee = sub.underwriter || (sub.assignedTo ? (USER_ROLES_CONFIG[sub.assignedTo] || {}).name : null);
+  const gen = sub.genInfo || {};
+  const ops = sub.operationsProfile || {};
+  const stateVal = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state)
+    || ops.primary_garaging_state
+    || ((sub.drivers && sub.drivers[0]) ? sub.drivers[0].licensestate : null);
+
+  box.innerHTML = `
+    <div class="uwp-strip">
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">Quote ID</span>
+        <span class="uwp-strip-value font-mono">${val(sub.quote_id || sub.quoteNo || sub.id)}</span>
+      </div>
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">Applicant</span>
+        <span class="uwp-strip-value">${val(sub.insured)}</span>
+      </div>
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">LOB</span>
+        <span class="uwp-strip-value">${val(sub.lobName)}</span>
+      </div>
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">State</span>
+        <span class="uwp-strip-value">${val(stateVal)}</span>
+      </div>
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">Effective Date</span>
+        <span class="uwp-strip-value">${val(gen.effective_date || sub.effectiveDate)}</span>
+      </div>
+      <div class="uwp-strip-item uwp-strip-grow">
+        <span class="uwp-strip-label">Status</span>
+        <span class="uwp-strip-status-badge">${val(sub.statusText)}</span>
+      </div>
+      <div class="uwp-strip-item">
+        <span class="uwp-strip-label">Assigned Underwriter</span>
+        <span class="uwp-strip-value">${val(assignee)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// Two separate cards — Applicant Information and Policy Information — side
+// by side, matching the reference layout. Every value still comes only
+// from the ingested submission (Email/Submission JSON); fields with no
+// data source anywhere in the app yet (Industry, Prior Policy Period,
+// Driver Count as a labeled field, Program) render "Not Provided" rather
+// than being invented.
+function renderWbRiskOverviewGrid(sub) {
+  const box = document.getElementById("wbRiskOverviewGridContainer");
+  if (!box) return;
+  const NP = '<span class="uwp-field-value uwp-empty">Not Provided</span>';
+  const fieldVal = (v) => (v === undefined || v === null || v === "") ? null : v;
+
+  const vehicles = sub.vehicles || [];
+  const drivers = sub.drivers || [];
+  const ops = sub.operationsProfile || {};
+  const rad = sub.radiusOfOperationsInfo || {};
+  const gen = sub.genInfo || {};
+
+  const applicantFields = [
+    { label: "Business / Named Insured", value: fieldVal(sub.insured) },
+    { label: "Business Address", value: fieldVal(sub.address) },
+    { label: "FEIN / Tax ID", value: fieldVal(sub.fein) },
+    { label: "DOT Number", value: fieldVal(sub.dot) },
+    { label: "MC Number", value: fieldVal(sub.mcNumber) },
+    { label: "Years in Business", value: fieldVal(ops.years_in_business) },
+    { label: "Operating Radius", value: fieldVal(rad.radius !== undefined ? `${rad.radius} Miles` : ops.operating_radius) },
+    { label: "Industry", value: fieldVal(ops.business_type) }
+  ];
+
+  const policyFields = [
+    { label: "Effective Date", value: fieldVal(gen.effective_date || sub.effectiveDate) },
+    { label: "Expiration Date", value: fieldVal(gen.expiration_date || sub.expirationDate) },
+    { label: "Prior Policy Period", value: fieldVal(sub.priorPolicyPeriod) },
+    { label: "Requested Limit / TIV", value: fieldVal(sub.exposure) },
+    { label: "Vehicle Count", value: vehicles.length || null },
+    { label: "Driver Count", value: drivers.length || null },
+    { label: "Policy Type", value: fieldVal(gen.policytype) },
+    { label: "Program", value: fieldVal(sub.program) }
+  ];
+
+  const renderCard = (title, icon, fields) => `
+    <div class="uwp-card">
+      <div class="uwp-card-title"><i class="ph ${icon}"></i> ${title}</div>
+      <div class="uwp-field-grid">
+        ${fields.map(f => `
+          <div class="uwp-field">
+            <span class="uwp-field-label">${f.label}</span>
+            ${f.value !== null && f.value !== undefined ? `<span class="uwp-field-value">${f.value}</span>` : NP}
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+
+  box.innerHTML = `
+    <div class="uwp-grid-2col-even">
+      ${renderCard("Applicant Information", "ph-identification-card", applicantFields)}
+      ${renderCard("Policy Information", "ph-file-text", policyFields)}
+    </div>
+  `;
+}
+
+// Loss Runs — straight from sub.losses (Email/Submission JSON extracted).
+// Paid Amount has no source anywhere in the app yet, so it's honestly "—"
+// rather than assumed equal to incurred.
+function renderWbLossRunsUwp(sub) {
+  const box = document.getElementById("wbLossRunsUwpContainer");
+  if (!box) return;
+
+  const losses = sub.losses || [];
+  const totalIncurred = losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0);
+
+  const bodyHtml = losses.length ? losses.map(l => {
+    const statusCls = l.status === "Clean" ? "uwp-status-clean" : (l.status === "Closed" ? "uwp-status-closed" : "uwp-status-open");
+    return `<tr>
+      <td>${l.year}</td>
+      <td>${l.desc}</td>
+      <td class="font-mono">${l.incurred}</td>
+      <td class="font-mono ${l.paid === undefined ? 'uwp-empty-inline' : ''}">${l.paid !== undefined ? (typeof l.paid === 'number' ? `$${l.paid.toLocaleString()}` : l.paid) : '—'}</td>
+      <td><span class="uwp-status-pill ${statusCls}">${l.status}</span></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="5"><div class="empty-state"><i class="ph ph-file-text empty-state-icon"></i><div class="empty-state-body">No loss history was provided with this submission.</div></div></td></tr>`;
+
+  box.innerHTML = `
+    <div class="uwp-card">
+      <div class="uwp-card-title"><i class="ph ph-file-text"></i> Loss Runs (${losses.length} Claim${losses.length === 1 ? '' : 's'})</div>
+      <div class="table-responsive">
+        <table class="uwp-table">
+          <thead><tr><th>Claim Date</th><th>Claim Type</th><th>Incurred Amount</th><th>Paid Amount</th><th>Status</th></tr></thead>
+          <tbody>${bodyHtml}</tbody>
+          ${losses.length ? `<tfoot><tr><td>Total Claims: ${losses.length}</td><td></td><td class="font-mono">Total Incurred: $${totalIncurred.toLocaleString()}</td><td></td><td></td></tr></tfoot>` : ''}
+        </table>
+      </div>
+    </div>`;
+}
+
+// UW Factors — the exact breakdown calculateRiskScore() already computes
+// (risk-score.js), just presented as a table. Impact tiers and "Source"
+// panel names are a display classification of that same real data — not
+// new fabricated values.
+function renderWbUwFactorsUwp(sub) {
+  const box = document.getElementById("wbUwFactorsContainer");
+  if (!box || typeof calculateRiskScore !== "function") return;
+
+  const factors = calculateRiskScore(sub).factors || [];
+  const classify = (pts) => pts >= 15 ? { cls: "uwp-impact-high", label: "High" } : pts >= 5 ? { cls: "uwp-impact-medium", label: "Medium" } : { cls: "uwp-impact-low", label: "Low" };
+  const sourceFor = (label) => {
+    const l = label.toLowerCase();
+    if (l.indexOf("driver") !== -1) return "Driver Schedule";
+    if (l.indexOf("loss") !== -1) return "Loss Runs";
+    if (l.indexOf("exposure") !== -1) return "Quote Data";
+    if (l.indexOf("appetite") !== -1) return "Appetite Rules";
+    if (l.indexOf("vehicle") !== -1) return "Vehicle Schedule";
+    return "Base Configuration";
+  };
+
+  const rows = factors.map(f => {
+    const impact = classify(f.points);
+    return `<tr>
+      <td>${f.label}</td>
+      <td class="font-mono">${f.points > 0 ? '+' : ''}${f.points}</td>
+      <td><span class="uwp-status-pill ${impact.cls}">${impact.label}</span></td>
+      <td class="text-muted">${sourceFor(f.label)}</td>
+    </tr>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="uwp-card">
+      <div class="uwp-card-title"><i class="ph ph-list-checks"></i> UW Factors</div>
+      <div class="table-responsive">
+        <table class="uwp-table">
+          <thead><tr><th>Factor</th><th>Value</th><th>Impact</th><th>Source</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 
 // Helper: Authority Screen in Screen 6
 // Helper: Authority Screen in Screen 6

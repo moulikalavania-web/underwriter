@@ -10,28 +10,28 @@
      platform-authoritative tokens. New canonical --color-* / --status-*
      names are also defined for any future rules. */
 
-  /* Brand */
-  --color-brand:            #F97316;
-  --color-brand-dark:       #EA6A08;
-  --color-brand-amber:      #F59E0B;
+  /* Brand — VeriDex Enterprise UI/UX Framework primitives */
+  --color-brand:            #F86407;
+  --color-brand-dark:       #D95606;
+  --color-brand-amber:      #FA8033;
   --color-brand-light:      #FFF7ED;
-  --color-link:             #C2410C;
-  --color-focus:            #C2410C;
-  --color-control-border:   #6B7280;
-  --color-on-brand:         #0D1117;
-  --color-brand-gradient:   linear-gradient(135deg, #F97316, #F59E0B);
+  --color-link:             #24334A;
+  --color-focus:            #F86407;
+  --color-control-border:   #8D94A3;
+  --color-on-brand:         #FFFFFF;
+  --color-brand-gradient:   linear-gradient(135deg, #F86407, #FA8033);
 
   /* Shell */
-  --color-shell:            #1A1D23;
-  --color-shell-accent:     #22262E;
-  --color-border-dark:      #2E333D;
+  --color-shell:            #1B2635;
+  --color-shell-accent:     #24334A;
+  --color-border-dark:      #2E3E56;
 
   /* Surfaces */
-  --color-ink:              #0D1117;
-  --color-ink-secondary:    #374151;
-  --color-surface:          #F7F8FA;
+  --color-ink:              #1B2635;
+  --color-ink-secondary:    #565C6B;
+  --color-surface:          #F5F6F8;
   --color-panel:            #FFFFFF;
-  --color-border:           #E2E5EA;
+  --color-border:           #8D94A3;
 
   /* Legacy aliases -> VeriDex tokens (brand) */
   --primary: var(--color-link);
@@ -60,7 +60,8 @@
 
   --text-main: var(--color-ink);
   --text-secondary: var(--color-ink-secondary);
-  --text-muted: #6B7280;
+  --text-muted: #565C6B;
+  --text-tertiary: #8D94A3; /* large text (>=18px / 14px bold) only — 3.14:1, not for body copy */
 
   /* Status — foreground / background (canonical) */
   --status-draft:           #475569;
@@ -77,13 +78,13 @@
   --status-retired-bg:      #F3F4F6;
 
   /* Functional (legacy names kept, values now VeriDex tokens) */
-  --success: #15803D;
+  --success: #166534;
   --success-bg: #F0FDF4;
   --warning: #B45309;
   --warning-bg: #FFFBEB;
-  --danger: #DC2626;
+  --danger: #B91C1C;
   --danger-bg: #FEF2F2;
-  --info: #0369A1;
+  --info: #3B82F6;
   --info-bg: #EFF6FF;
   /* Framework-canonical aliases (README_UI_FRAMEWORK_FINAL.md §3) — several
      call sites reference var(--color-success)/var(--color-warning)/
@@ -98,7 +99,7 @@
   --color-danger-bg: var(--danger-bg);
   --color-info: var(--info);
   --color-info-bg: var(--info-bg);
-  --color-muted: #6B7280;
+  --color-muted: #565C6B;
   --color-disabled: #D1D5DB;
 
   /* Outcome decisions (decisioning modules) */
@@ -114,11 +115,13 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
 
-  /* Radius: VeriDex uses 6px for primary CTAs, 4px for everything else,
-     8px for cards/panels. Legacy sm/md/lg aliased accordingly. */
+  /* Radius scale — VeriDex Enterprise UI/UX Framework (FND-001) */
+  --radius-none: 0px;
   --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
 
   /* Spacing scale (§7) */
   --space-1: 4px;
@@ -155,7 +158,7 @@
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-focus);
+  outline: 3px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -489,8 +492,8 @@ body {
 
 .role-dropdown:focus,
 .lob-dropdown:focus {
-  border-color: var(--primary-light);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px rgba(248, 100, 7, 0.15);
 }
 
 /* Mini Floating Toggle Button on Left Edge (Active when Sidebar is closed) */
@@ -633,27 +636,28 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
   white-space: nowrap;
 }
 
-/* Active Stepper Node */
+/* Active Stepper Node (NAV-004) — brand orange, consistent with the active
+   state used everywhere else (sidebar nav, tabs, primary buttons). */
 .h-stepper-item.active {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+  background: var(--color-brand-light);
+  border-color: var(--color-brand-amber);
+  box-shadow: 0 1px 3px rgba(248, 100, 7, 0.1);
 }
 
 .h-stepper-item.active .h-stepper-node {
-  background: #2563eb;
+  background: var(--color-brand);
   color: #ffffff;
-  border-color: #1d4ed8;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  border-color: var(--color-brand-dark);
+  box-shadow: 0 0 0 3px rgba(248, 100, 7, 0.2);
 }
 
 .h-stepper-item.active .h-stepper-title {
-  color: #1d4ed8;
+  color: var(--color-brand-dark);
   font-weight: 800;
 }
 
 .h-stepper-item.active .h-stepper-desc {
-  color: #3b82f6;
+  color: var(--color-brand);
   font-weight: 600;
 }
 
@@ -1745,12 +1749,14 @@ tr.rbac-role-highlight {
 .phase-4-pill { background: var(--phase4-bg); color: var(--phase4-color); }
 .phase-exit-pill { background: var(--phase-exit-bg); color: var(--phase-exit-color); }
 
+/* Status Chip (INS-003 pattern) — pill-shaped, icon + label, never
+   color-only. */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px var(--space-2);
-  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1784,6 +1790,7 @@ tr.rbac-role-highlight {
 .u-text-danger { color: var(--color-danger); }
 .field-error-text { display: block; color: var(--color-danger); font-size: 11.5px; font-weight: 600; margin-top: 5px; }
 .form-control.is-invalid { border-color: var(--color-danger); }
+.form-control.is-invalid:focus { box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.15); }
 .u-fs-12 { font-size: 12px; }
 .u-icon-16 { width: 16px; height: 16px; }
 .u-text-right { text-align: right; }
@@ -1926,16 +1933,23 @@ tr.rbac-role-highlight {
   transition: width 0.3s ease;
 }
 
+/* Card (UI-007) — white bg, 1px border, radius md (8px), xs shadow,
+   24px padding (16px mobile — see media query below). */
 .card {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
+.card.selected {
+  border: 2px solid var(--color-brand);
+  background: rgba(248, 100, 7, 0.04);
+}
+
 .card-header {
-  padding: var(--space-3) 18px;
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -1953,7 +1967,11 @@ tr.rbac-role-highlight {
 }
 
 .card-body {
-  padding: 18px;
+  padding: var(--space-6);
+}
+
+@media (max-width: 767px) {
+  .card-header, .card-body { padding: var(--space-4); }
 }
 
 .card-body.p-0 {
@@ -1984,19 +2002,22 @@ tr.rbac-role-highlight {
 /* ==========================================================================
    Buttons & Inputs
    ========================================================================== */
+/* Button (UI-001) — medium (default) 40px height, 16px H padding, radius
+   md (8px). Sizes: sm (32px/12px H), lg (48px/20px H). */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: 7px 14px;
-  font-size: 12px;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  font-size: 14px;
   font-weight: 600;
+  font-family: inherit;
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
+  transition: all var(--vdx-duration-fast, 100ms) ease;
 }
 
 .btn:disabled {
@@ -2007,49 +2028,75 @@ tr.rbac-role-highlight {
   opacity: 1;
 }
 
+/* Primary — orange bg, white text */
 .btn-primary {
   background: var(--color-brand);
   color: var(--color-on-brand);
-  border-color: var(--color-link);
-  border-radius: var(--radius-md); /* 6px per §10.3 */
+  border-color: var(--color-brand);
 }
 .btn-primary:hover {
   background: var(--color-brand-dark);
+  border-color: var(--color-brand-dark);
   box-shadow: var(--shadow-md);
 }
 
+/* Secondary — navy-900 solid */
 .btn-secondary {
-  background: #ffffff;
-  color: var(--text-main);
-  border-color: var(--border-color);
-  border-radius: var(--radius-sm); /* 4px per §10.3 */
+  background: var(--color-shell);
+  color: #ffffff;
+  border-color: var(--color-shell);
 }
 .btn-secondary:hover {
-  background: var(--bg-subtle);
+  background: var(--color-shell-accent);
+  border-color: var(--color-shell-accent);
 }
 
+/* Outline — transparent, navy border (framework UI-001); this app's
+   existing usage skews informational/blue, kept as a distinct look from
+   Secondary while still following the token system. */
 .btn-outline {
-  background: #EFF6FF;
-  border: 1.5px solid #1D4ED8;
-  color: #1E40AF;
-  border-radius: var(--radius-sm);
+  background: #ffffff;
+  border: 1.5px solid var(--color-link);
+  color: var(--color-link);
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .btn-outline:hover {
-  background: #DBEAFE;
-  border-color: #1E40AF;
-  color: #1E40AF;
-  box-shadow: 0 1px 3px rgba(29, 78, 216, 0.15);
+  background: var(--bg-subtle);
+  border-color: var(--color-shell);
+  color: var(--color-shell);
+  box-shadow: 0 1px 3px rgba(27, 38, 53, 0.15);
+}
+
+/* Ghost — transparent, no border */
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-link);
+}
+.btn-ghost:hover {
+  background: var(--bg-subtle);
+}
+
+/* Destructive — red bg, white text (UI-001) */
+.btn-danger {
+  background: var(--danger);
+  color: #ffffff;
+  border-color: var(--danger);
+}
+.btn-danger:hover {
+  background: #991b1b;
+  border-color: #991b1b;
+  box-shadow: var(--shadow-md);
 }
 
 .btn-outline-danger {
   background: #fff;
   border-color: #fca5a5;
-  color: #dc2626;
+  color: var(--danger);
 }
 .btn-outline-danger:hover {
-  background: #fef2f2;
+  background: var(--danger-bg);
 }
 
 .btn-outline-warning {
@@ -2062,24 +2109,24 @@ tr.rbac-role-highlight {
 }
 
 .btn-success {
-  background: #15803d;
+  background: var(--success);
   color: #ffffff;
 }
 .btn-success:hover {
-  background: #166534;
+  background: #14532d;
 }
 
 .btn-warning {
-  background: #d97706;
+  background: var(--warning);
   color: #ffffff;
 }
 .btn-warning:hover {
-  background: #b45309;
+  background: #92400e;
 }
 
-.btn-sm { padding: 5px 10px; font-size: 11px; }
-.btn-xs { padding: var(--space-1) var(--space-2); font-size: 11px; }
-.btn-lg { padding: 10px var(--space-5); font-size: 14px; }
+.btn-sm { min-height: 32px; padding: 0 var(--space-3); font-size: 12px; }
+.btn-xs { min-height: 26px; padding: 0 var(--space-2); font-size: 11px; }
+.btn-lg { min-height: 48px; padding: 0 var(--space-5); font-size: 16px; }
 .btn-block { width: 100%; }
 
 .btn-icon {
@@ -2106,12 +2153,16 @@ tr.rbac-role-highlight {
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: 0.2s;
+  transition: 0.15s;
+}
+.tab-btn:hover {
+  color: var(--text-main);
+  border-color: var(--color-brand);
 }
 .tab-btn.active {
-  background: var(--primary-subtle);
-  border-color: #93c5fd;
-  color: var(--primary);
+  background: var(--color-brand-light);
+  border-color: var(--color-brand);
+  color: var(--color-brand-dark);
 }
 
 .form-grid {
@@ -2132,21 +2183,24 @@ tr.rbac-role-highlight {
   color: var(--text-secondary);
 }
 
+/* Text Input (FRM-002) — 40px height, 8px H padding, radius md (8px),
+   neutral-400 border, orange focus border + glow. */
 .form-control {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-  font-size: 12px;
+  min-height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px var(--space-3);
+  font-size: 14px;
   color: var(--text-main);
   background: #ffffff;
   outline: none;
-  transition: 0.2s;
+  transition: border-color .1s ease, box-shadow .1s ease;
   font-family: inherit;
 }
 
 .form-control:focus {
-  border-color: var(--primary-light);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px rgba(248, 100, 7, 0.15);
 }
 
 .form-control[readonly] {
@@ -2196,6 +2250,8 @@ tr.rbac-role-highlight {
   color: var(--text-secondary);
 }
 
+/* Data Grid/Table (DAT-001) — comfortable density (~40px rows), sticky-
+   ready header, row hover, tokenized colors. */
 .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -2204,7 +2260,7 @@ tr.rbac-role-highlight {
 
 .data-table th {
   background: var(--color-surface);
-  padding: 9px var(--space-3);
+  padding: 11px var(--space-3);
   text-align: left;
   font-weight: 600;
   font-size: 12px;
@@ -2216,9 +2272,16 @@ tr.rbac-role-highlight {
 }
 
 .data-table td {
-  padding: 10px var(--space-3);
+  padding: 11px var(--space-3);
   border-bottom: 1px solid var(--border-color);
   color: var(--text-main);
+}
+
+.data-table tbody tr {
+  transition: background-color .1s ease;
+}
+.data-table tbody tr:hover {
+  background: var(--bg-subtle);
 }
 
 .data-table tr:last-child td {
@@ -2633,6 +2696,95 @@ tr.rbac-role-highlight {
   line-height: 1.4;
 }
 
+/* Demo Fill mode */
+#demoModeToggleBtn.active {
+  background: #fef3c7;
+  border-color: #d97706;
+  color: #92400e;
+}
+.demo-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: #fef3c7;
+  border-bottom: 1px solid #d97706;
+  color: #92400e;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 20px;
+}
+
+/* Vehicle Data Enrichment (NHTSA / FMCSA / DMV) */
+.enrich-source-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-3);
+}
+
+.enrich-source-card {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #cbd5e1);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.enrich-detail-panel {
+  background: #f8fafc;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin: var(--space-2) 0;
+}
+
+.enrich-loading-box {
+  padding: var(--space-3);
+}
+
+.enrich-confidence-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.enrich-confidence-num {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.enrich-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+}
+
+.enrich-conflict-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.enrich-restricted-box {
+  background: #f1f5f9;
+  border: 1px dashed #94a3b8;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  font-size: 12.5px;
+  color: #475569;
+}
+
+@media (max-width: 900px) {
+  .enrich-source-status-grid,
+  .enrich-kv-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .enrichment-details-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2684,21 +2836,22 @@ tr.rbac-role-highlight {
 }
 
 .form-control-sm {
+  min-height: 32px;
   padding: var(--space-2) var(--space-3);
-  border-radius: 6px;
-  border: 1px solid #cbd5e1;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
   background: #ffffff;
   font-size: 12.5px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-main);
   outline: none;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.1s ease;
 }
 
 .form-control-sm:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 2px rgba(248, 100, 7, 0.15);
 }
 
 .assignment-visibility-callout {
@@ -3402,17 +3555,18 @@ tr.rbac-role-highlight {
   display: flex;
 }
 
+/* Modal/Dialog (UI-013) */
 .modal-content {
   background: #ffffff;
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   max-width: 580px;
   width: 100%;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: modalPop 0.2s ease;
+  animation: modalPop 0.15s ease;
 }
 
 .modal-content.modal-xl {
@@ -3434,7 +3588,7 @@ tr.rbac-role-highlight {
 }
 
 .modal-header {
-  padding: 14px 18px;
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -3442,28 +3596,40 @@ tr.rbac-role-highlight {
 }
 
 .modal-header h3 {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  color: var(--text-main);
 }
 
 .btn-close {
   background: transparent;
   border: none;
+  border-radius: var(--radius-sm);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 16px;
   color: var(--text-secondary);
   cursor: pointer;
+  transition: background-color .1s ease, color .1s ease;
+}
+.btn-close:hover {
+  background: var(--bg-subtle);
+  color: var(--text-main);
 }
 
 .modal-body {
-  padding: 18px;
+  padding: var(--space-6);
   overflow-y: auto;
 }
 
 .modal-footer {
-  padding: var(--space-3) 18px;
+  padding: var(--space-4) var(--space-6);
   border-top: 1px solid var(--border-color);
   display: flex;
   align-items: center;
@@ -6960,4 +7126,363 @@ body.has-bottom-footer .app-layout {
   color: #64748b;
   margin-top: 4px;
   font-family: var(--font-mono);
+}
+
+/* ============================================================================
+   UNDERWRITING WORKBENCH — "UWP" (InsurePro-style) redesign
+   Summary strip, Risk Overview gauge, Applicant & Policy card, Decision
+   panel. Scoped with a uwp- prefix, using existing --status-approved
+   (blue) as its accent so it stays inside the app's token system rather
+   than inventing new arbitrary colors.
+   ============================================================================ */
+.uwp-strip {
+  background: var(--color-panel);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--status-approved);
+  border-radius: 12px;
+  padding: 14px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+  box-shadow: 0 2px 6px rgba(15,23,42,0.05);
+}
+.uwp-strip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 22px;
+  border-right: 1px solid var(--border-color);
+}
+.uwp-strip-item:last-child { border-right: none; padding-right: 0; }
+.uwp-strip-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+}
+.uwp-strip-value {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--color-ink);
+}
+.uwp-strip-item.uwp-strip-grow { flex: 1; border-right: none; }
+.uwp-strip-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--status-review-bg);
+  color: var(--status-review);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.uwp-strip-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.uwp-grid-2col {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .uwp-grid-2col { grid-template-columns: 1fr; }
+}
+
+.uwp-card {
+  background: var(--color-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 6px 16px rgba(15,23,42,0.05);
+  transition: box-shadow .15s ease;
+}
+.uwp-card:hover {
+  box-shadow: 0 1px 2px rgba(15,23,42,0.05), 0 10px 24px rgba(15,23,42,0.08);
+}
+.uwp-card-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--color-ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+  letter-spacing: -.01em;
+}
+.uwp-card-title i {
+  color: var(--status-approved);
+  background: var(--status-approved-bg);
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+/* Risk Overview gauge */
+.uwp-gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+.uwp-gauge {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.uwp-gauge-inner {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.uwp-gauge-score {
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+  font-family: var(--font-mono);
+}
+.uwp-gauge-outof {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.uwp-gauge-band {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-top: 2px;
+}
+
+.uwp-stat-list { display: flex; flex-direction: column; gap: 0; }
+.uwp-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12.5px;
+}
+.uwp-stat-row:last-child { border-bottom: none; }
+.uwp-stat-label { color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.uwp-stat-value { font-weight: 700; color: var(--color-ink); display: flex; align-items: center; gap: 6px; }
+.uwp-stat-value .ph-warning-circle { color: var(--warning); }
+
+.uwp-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 24px;
+}
+.uwp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 8px;
+  margin: -6px -8px;
+  border-radius: 8px;
+  transition: background-color .12s ease;
+}
+.uwp-field:hover { background: var(--bg-subtle); }
+.uwp-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+.uwp-field-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+.uwp-field-value.uwp-empty { color: #94a3b8; font-style: italic; font-weight: 400; }
+
+/* Decision panel */
+.uwp-decision-grid {
+  display: grid;
+  grid-template-columns: 140px 160px 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .uwp-decision-grid { grid-template-columns: 1fr 1fr; }
+}
+.uwp-decision-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.uwp-decision-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--color-panel);
+  color: var(--text-muted);
+  transition: all .12s ease;
+}
+.uwp-decision-pill input { accent-color: var(--status-approved); }
+.uwp-decision-pill.selected-approve { border-color: var(--success); color: var(--success); background: var(--success-bg); }
+.uwp-decision-pill.selected-refer { border-color: var(--status-approved); color: var(--status-approved); background: var(--status-approved-bg); }
+.uwp-decision-pill.selected-decline { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.uwp-decision-pill.selected-high_exposure { border-color: var(--warning); color: var(--warning); background: var(--warning-bg); }
+.uwp-decision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+.uwp-empty-inline { color: #94a3b8; font-style: italic; font-weight: 400; }
+
+
+/* uwp light-theme data table (Loss Runs / UW Factors / Endorsements) */
+.uwp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.uwp-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-subtle);
+}
+.uwp-table th:first-child { border-top-left-radius: 8px; }
+.uwp-table th:last-child { border-top-right-radius: 8px; }
+.uwp-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--color-ink);
+}
+.uwp-table tbody tr { transition: background-color .1s ease; }
+.uwp-table tbody tr:hover { background: var(--bg-subtle); }
+.uwp-table tr:last-child td { border-bottom: none; }
+.uwp-table tfoot td {
+  font-weight: 700;
+  background: var(--bg-subtle);
+  border-top: 2px solid var(--border-color);
+  border-bottom: none;
+}
+.uwp-status-pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.uwp-status-selected { background: var(--success-bg); color: var(--success); }
+.uwp-status-notselected { background: #f1f5f9; color: #64748b; }
+.uwp-status-closed { background: var(--status-approved-bg); color: var(--status-approved); }
+.uwp-status-open { background: var(--warning-bg); color: var(--warning); }
+.uwp-status-clean { background: var(--success-bg); color: var(--success); }
+.uwp-status-active { background: var(--success-bg); color: var(--success); }
+.uwp-status-pending { background: var(--warning-bg); color: var(--warning); }
+.uwp-impact-high { background: var(--danger-bg); color: var(--danger); }
+.uwp-impact-medium { background: var(--warning-bg); color: var(--warning); }
+.uwp-impact-low { background: var(--success-bg); color: var(--success); }
+
+.uwp-subsection-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: 16px 0 8px;
+  padding-left: 8px;
+  border-left: 3px solid var(--status-approved);
+}
+.uwp-subsection-title:first-child { margin-top: 0; }
+
+.uwp-grid-2col-even {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: stretch;
+}
+@media (max-width: 900px) {
+  .uwp-grid-2col-even { grid-template-columns: 1fr; }
+}
+
+/* ============================================================================
+   Empty State (UI-021) — icon + title + body + optional action(s), reusable
+   everywhere a list/table/panel has nothing to show yet.
+   ============================================================================ */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: var(--space-8) var(--space-4);
+  color: var(--text-muted);
+}
+.empty-state-icon {
+  font-size: 28px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+.empty-state-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.empty-state-body {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  max-width: 420px;
+}
+.empty-state-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Loading spinner (UI loading state) — consistent size/color wherever a
+   ph-circle-notch.ph-spin icon is used for an in-progress action. */
+.ph-spin {
+  animation: vdxSpin 0.8s linear infinite;
+}
+@keyframes vdxSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

@@ -1533,32 +1533,6 @@ function updateActiveCaseHeaders(sub) {
   if (sideCardProgressText) sideCardProgressText.textContent = `${pct}%`;
   if (sideCardProgressBar) sideCardProgressBar.style.width = `${pct}%`;
 
-  // Workflow Top Header Bar
-  const wfInsured = document.getElementById("wfHeaderInsured");
-  const wfSubId = document.getElementById("wfHeaderSubId");
-  const wfLob = document.getElementById("wfHeaderLob");
-  const wfFEIN = document.getElementById("wfHeaderFEIN");
-  const wfChannel = document.getElementById("wfHeaderChannel");
-  const wfDesk = document.getElementById("wfHeaderDesk");
-  const wfPriority = document.getElementById("wfHeaderPriority");
-  const wfExposure = document.getElementById("wfHeaderExposure");
-  const wfStatus = document.getElementById("wfHeaderStatus");
-
-  if (wfInsured) wfInsured.textContent = sub.insured;
-  if (wfSubId) wfSubId.textContent = sub.id;
-  if (wfLob) wfLob.textContent = sub.lobName;
-  if (wfFEIN) wfFEIN.textContent = sub.fein;
-  if (wfChannel) wfChannel.textContent = sub.channelType === 'broker' ? sub.broker : 'Direct Customer Portal';
-  if (wfDesk) wfDesk.textContent = sub.desk || 'Specialty Underwriting Desk';
-  if (wfPriority) {
-    wfPriority.textContent = `${sub.priority} • ${sub.slaText}`;
-    wfPriority.className = `val badge ${sub.priority === 'P1' ? 'badge-danger' : (sub.priority === 'P2' ? 'badge-warning' : 'badge-info')}`;
-  }
-  if (wfExposure) wfExposure.textContent = sub.exposure;
-  if (wfStatus) {
-    wfStatus.textContent = sub.statusText;
-    wfStatus.className = `val badge ${sub.statusBadge || 'badge-primary'}`;
-  }
 }
 
 /**
@@ -1762,9 +1736,6 @@ function getComplianceGapsForRating(sub) {
   if (!sub.mcNumber) {
     gaps.push("MC Number (Motor Carrier Operating Authority) is not on file");
   }
-  if (!sub.mcs90Filed) {
-    gaps.push("MCS-90 financial-responsibility endorsement has not been filed");
-  }
   const minLimit = sub.minStatutoryLimit || 750000;
   const requestedLimit = sub.authorityLimit || sub.exposureVal || 0;
   if (requestedLimit < minLimit) {
@@ -1772,6 +1743,48 @@ function getComplianceGapsForRating(sub) {
   }
   return gaps;
 }
+
+// Renders into #complianceGateContainer (Screen 6, Authority Desk) — shows
+// exactly which regulatory items are missing (if any) before Step 7 Rating
+// & Quote can be entered. USDOT/MC number and statutory minimum come only
+// from the ingested Email/JSON.
+function renderComplianceGate(sub) {
+  const box = document.getElementById("complianceGateContainer");
+  if (!box) return;
+  if (!sub || !requiresMotorCarrierCompliance(sub)) { box.innerHTML = ""; return; }
+
+  const gaps = getComplianceGapsForRating(sub);
+
+  box.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3><i class="ph ph-scales"></i> Motor Carrier Regulatory Compliance</h3>
+        <span class="badge ${gaps.length ? 'badge-danger' : 'badge-success'}">
+          <i class="ph ${gaps.length ? 'ph-x-circle' : 'ph-check-circle'}"></i> ${gaps.length ? `${gaps.length} Gap${gaps.length === 1 ? '' : 's'}` : 'All Requirements Met'}
+        </span>
+      </div>
+      <div class="card-body">
+        <div class="clean-meta-list">
+          <div class="clean-meta-row">
+            <span class="meta-label"><i class="ph ph-identification-card text-muted"></i> USDOT Number</span>
+            <span class="meta-value">${sub.dot ? `<span class="badge badge-success text-xs">${sub.dot}</span>` : '<span class="badge badge-danger text-xs">Missing</span>'}</span>
+          </div>
+          <div class="clean-meta-row">
+            <span class="meta-label"><i class="ph ph-identification-card text-muted"></i> MC Number (Operating Authority)</span>
+            <span class="meta-value">${sub.mcNumber ? `<span class="badge badge-success text-xs">${sub.mcNumber}</span>` : '<span class="badge badge-danger text-xs">Missing</span>'}</span>
+          </div>
+          <div class="clean-meta-row">
+            <span class="meta-label"><i class="ph ph-currency-dollar text-muted"></i> Statutory Minimum Limit</span>
+            <span class="meta-value">${(sub.authorityLimit || sub.exposureVal || 0) >= (sub.minStatutoryLimit || 750000)
+              ? `<span class="badge badge-success text-xs">Met ($${Number(sub.minStatutoryLimit || 750000).toLocaleString()} min)</span>`
+              : `<span class="badge badge-danger text-xs">Below $${Number(sub.minStatutoryLimit || 750000).toLocaleString()} min</span>`}</span>
+          </div>
+        </div>
+        ${gaps.length ? `<div class="alert alert-warning mt-2 text-xs"><i class="ph ph-warning"></i> ${gaps.join(" • ")}</div>` : ""}
+      </div>
+    </div>`;
+}
+window.renderComplianceGate = renderComplianceGate;
 
 function stepRequiresHumanDecision(stepNum) {
   return MAJOR_DECISION_STEPS.includes(stepNum);

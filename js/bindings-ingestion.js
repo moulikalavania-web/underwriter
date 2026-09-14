@@ -554,15 +554,31 @@ function buildProductAppetiteRules(schemaObj, sub) {
     const desc = uw.desc || uw.description || "";
     const n = (uw.name || "").toLowerCase();
 
+    // Real submission data these knockouts can actually be evaluated
+    // against (driver violations captured from the email/JSON, and prior
+    // loss/claim count) — the rule's own threshold number (if the product
+    // states one, e.g. "Decline if more than 1 violation") is compared
+    // against the real value instead of always passing.
+    const driversWithViolationData = subDrivers.filter(d => d.violations !== undefined);
+    const totalViolations = driversWithViolationData.reduce((s, d) => s + (Number(d.violations) || 0), 0);
+    const lossCount = (sub && sub.losses) ? sub.losses.length : 0;
+    const thresholdNum = extractNumber(desc) ?? extractNumber(uw.name);
+
     let subVal = "No Disqualifying Condition";
+    let uwPass = true;
     if (n.includes("conviction") || n.includes("violation")) {
-      subVal = `${subDrivers.length} Driver(s) – 0 Violations`;
+      subVal = driversWithViolationData.length
+        ? `${subDrivers.length} Driver(s) – ${totalViolations} Violation(s)`
+        : `${subDrivers.length} Driver(s) – Violation Data Pending`;
+      if (driversWithViolationData.length && thresholdNum !== null) uwPass = totalViolations <= thresholdNum;
     } else if (n.includes("salvage") || n.includes("title")) {
-      subVal = `${subVehicles.length} Unit(s) – 0 Salvage`;
+      subVal = subVehicles.length > 0 ? `${subVehicles.length} Unit(s) Submitted – Salvage Not Reported` : "Fleet Data Pending";
     } else if (n.includes("licence") || n.includes("license") || n.includes("unlicensed")) {
-      subVal = `${subDrivers.length} Driver(s) – All Licensed`;
+      const licensedDrivers = subDrivers.filter(d => d.licenseNumber || d.licensestate).length;
+      subVal = subDrivers.length > 0 ? `${licensedDrivers} of ${subDrivers.length} Driver(s) With License Data` : "Driver Data Pending";
     } else if (n.includes("loss") || n.includes("claim")) {
-      subVal = `${(sub && sub.losses ? sub.losses.length : 0)} Prior Claim(s)`;
+      subVal = `${lossCount} Prior Claim(s)`;
+      if (thresholdNum !== null) uwPass = lossCount <= thresholdNum;
     }
 
     rules.push({
@@ -576,7 +592,7 @@ function buildProductAppetiteRules(schemaObj, sub) {
       category: uw.cat || (isDecline ? "Automated Knockout" : "Underwriting Gate"),
       cover: isDecline ? "Mandatory Gate" : (uw.cat || "Underwriting"),
       priority: uw.priority || 20,
-      pass: true
+      pass: uwPass
     });
   });
 

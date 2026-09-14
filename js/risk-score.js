@@ -109,10 +109,11 @@ function renderRiskScoreCard(sub) {
           </div>
         </div>
 
-        <div class="risk-score-edit-row mt-3">
-          <label class="form-label" style="margin:0;">Underwriter Override:</label>
+        <div class="uwp-subsection-title">Underwriting Decision</div>
+        <div class="risk-score-edit-row">
+          <label class="form-label" style="margin:0;">Risk Score:</label>
           <input type="number" min="0" max="100" class="form-control form-control-sm" id="riskScoreOverrideInput" style="max-width:100px;" value="${currentScore}">
-          <button class="btn btn-sm btn-outline" onclick="saveRiskScoreOverride('${sub.id}')"><i class="ph ph-floppy-disk"></i> Save Score</button>
+          <button class="btn btn-sm btn-primary" onclick="saveRiskScoreOverride('${sub.id}')"><i class="ph ph-floppy-disk"></i> Save</button>
           <button class="btn btn-sm btn-outline" onclick="resetRiskScoreToAuto('${sub.id}')"><i class="ph ph-arrow-counter-clockwise"></i> Reset to Auto (${auto.score})</button>
         </div>
       </div>

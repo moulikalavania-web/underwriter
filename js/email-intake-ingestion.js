@@ -142,9 +142,11 @@ function switchEmailDigestTab(tab) {
 function resetEmailCaptureForm() {
   emailDigestAttachedFiles = [];
   const textarea = document.getElementById("emailDigestRawText");
+  const jsonTextarea = document.getElementById("emailDigestSubmissionJsonText");
   const fileList = document.getElementById("emailDigestFileList");
   const createBtn = document.getElementById("emailDigestCreateBtn");
   if (textarea) textarea.value = "";
+  if (jsonTextarea) jsonTextarea.value = "";
   if (fileList) fileList.innerHTML = "";
   if (createBtn) { createBtn.disabled = false; createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Add Raw Data & Documents to Submission'; }
 }
@@ -274,14 +276,23 @@ function getBlankSubmissionSkeleton() {
     canonicalJson: {},
     isReferral: false,
     lifecycleStatus: null,
-    pasSync: null
+    pasSync: null,
+    // Business Type, Years in Business, Operating Authority, Interstate/
+    // Intrastate, Operating Radius, Annual Mileage, Annual Revenue, States
+    // Operated, Primary Garaging State, For-Hire/Private Carrier, Common/
+    // Contract Carrier, Owner Operator Usage, Brokerage Operations, Hazmat
+    // Operations. Populated only from the raw email text and/or a
+    // structured Submission JSON at Document Ingestion — never fabricated.
+    operationsProfile: {}
   };
 }
 
 async function createRawSubmissionFromEmail() {
   const textarea = document.getElementById("emailDigestRawText");
   const lobSelect = document.getElementById("emailDigestLobSelect");
+  const jsonTextarea = document.getElementById("emailDigestSubmissionJsonText");
   const rawText = textarea ? textarea.value.trim() : "";
+  const rawSubmissionJsonText = jsonTextarea ? jsonTextarea.value.trim() : "";
   const lobKey = lobSelect ? lobSelect.value : "trucking";
 
   if (!rawText && emailDigestAttachedFiles.length === 0) {
@@ -366,6 +377,7 @@ async function createRawSubmissionFromEmail() {
     // --- The actual raw capture. Never mutated again by this module. ---
     newSub.rawEmailText = rawText;   // verbatim, as pasted
     newSub.rawAttachments = rawAttachments; // verbatim, as uploaded
+    newSub.rawSubmissionJsonText = rawSubmissionJsonText; // verbatim, as pasted — parsed only at Document Ingestion
     newSub.normalizationStatus = "pending"; // 'pending' | 'normalized' | 'needs_review'
     newSub.normalizedMeta = null;
 
@@ -571,6 +583,22 @@ function extractDriverDetails(raw) {
       d.licenseclasstype = `Class ${licMatch[2]}`;
     }
 
+    const dobMatch = rest.match(/(?:DOB|Date of Birth)\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+    if (dobMatch && d.dob === undefined) d.dob = dobMatch[1];
+
+    const sexMatch = rest.match(/\bSex\s*[:\-]?\s*(Male|Female|M|F)\b/i);
+    if (sexMatch && d.sex === undefined) {
+      const s = sexMatch[1].toUpperCase();
+      d.sex = s.startsWith("M") ? "M" : "F";
+    }
+
+    const dlMatch = rest.match(/\bDL\s*(?:No\.?|Number)?\s*[:#]\s*([A-Za-z0-9-]+)/i)
+      || rest.match(/(?:Driver'?s?\s*)?Licen[sc]e\s*(?:Number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i);
+    if (dlMatch && d.licenseNumber === undefined) d.licenseNumber = dlMatch[1].toUpperCase();
+
+    const violationsMatch = rest.match(/(\d+)\s*(?:MVR\s*)?Violations?/i);
+    if (violationsMatch && d.violations === undefined) d.violations = parseInt(violationsMatch[1], 10);
+
     if (d.name === undefined) {
       const segments = rest.split(",").map(s => s.trim()).filter(Boolean);
       const looksLikeName = (s) => !!s
@@ -578,7 +606,7 @@ function extractDriverDetails(raw) {
         && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(s)
         && s.length >= 2 && s.length <= 40
         && /^[A-Za-z .'-]+$/.test(s)
-        && !/licen[sc]e|experience|class|cdl/i.test(s);
+        && !/licen[sc]e|experience|class|cdl|\bdob\b|\bsex\b|\bdl\b|date of birth/i.test(s);
       // Name can lead the line ("Rahul Sharma, Age 24, ...") or trail it
       // ("Age 24, TX Class A license, 3 years CDL experience, Rahul Sharma").
       if (segments.length && looksLikeName(segments[0])) {
@@ -621,6 +649,24 @@ function extractLossHistory(raw) {
 // Parses the "Vehicles" block into per-unit details, keyed by unit number
 // (1-based) — "Unit <N>: <year> <make> <model> — Stated Value $<amount> —
 // assigned to <driver>".
+// Common commercial-vehicle body/type words that show up as the trailing
+// words of a vehicle's model description (e.g. "Transit 350 Cargo Van",
+// "M2 106 Box Truck") — used only to split an existing model description
+// into model + type, never to invent a type that isn't actually there.
+const VEHICLE_TYPE_KEYWORDS = [
+  "Cargo Van", "Box Truck", "Pickup Truck", "Flatbed Truck", "Dump Truck",
+  "Tractor Trailer", "Semi Tractor", "Refrigerated Truck", "Tanker Truck",
+  "Step Van", "Sprinter Van", "Panel Van", "Van", "Truck", "Trailer", "Pickup", "Sedan", "SUV"
+];
+function extractVehicleTypeFromModel(modelText) {
+  if (!modelText) return null;
+  for (const kw of VEHICLE_TYPE_KEYWORDS) {
+    const re = new RegExp(`\\b${kw}\\b\\s*$`, "i");
+    if (re.test(modelText)) return kw.replace(/\b\w/g, c => c.toUpperCase());
+  }
+  return null;
+}
+
 function extractVehicleDetails(raw) {
   const vehicles = {};
   if (!raw) return vehicles;
@@ -628,15 +674,120 @@ function extractVehicleDetails(raw) {
   let m;
   while ((m = re.exec(raw)) !== null) {
     const makeModelParts = m[3].trim().split(/\s+/);
+    const model = makeModelParts.slice(1).join(" ");
     vehicles[parseInt(m[1], 10)] = {
       year: parseInt(m[2], 10),
       make: makeModelParts[0] || "",
-      model: makeModelParts.slice(1).join(" "),
+      model: model,
+      vehicle_type: extractVehicleTypeFromModel(model),
       stated_value: parseInt(m[4].replace(/,/g, ""), 10),
       assigned_driver: m[5].trim()
     };
   }
   return vehicles;
+}
+
+// Operations Profile — best-effort label-based extraction from free-form
+// email text. Only ever fills a field the email actually states under
+// that label; everything else stays absent ("Not Provided").
+const OPERATIONS_PROFILE_FIELD_PATTERNS = {
+  business_type: /Business Type\s*:\s*([^\n,]+)/i,
+  years_in_business: /Years in Business\s*:\s*(\d+)/i,
+  operating_authority: /Operating Authority\s*:\s*([^\n,]+)/i,
+  interstate_intrastate: /Interstate\s*\/\s*Intrastate\s*:\s*([^\n,]+)/i,
+  operating_radius: /Operating Radius\s*:\s*([\d,]+)\s*(?:miles)?/i,
+  annual_mileage: /Annual Mileage\s*:\s*([\d,]+)/i,
+  annual_revenue: /Annual Revenue\s*:\s*\$?\s*([\d,]+)/i,
+  states_operated: /States Operated\s*:\s*([^\n]+)/i,
+  primary_garaging_state: /Primary Garaging State\s*:\s*([A-Za-z ]+)/i,
+  for_hire_private_carrier: /For-?Hire\s*\/\s*Private Carrier\s*:\s*([^\n,]+)/i,
+  common_contract_carrier: /Common\s*\/\s*Contract Carrier\s*:\s*([^\n,]+)/i,
+  owner_operator_usage: /Owner Operator Usage\s*:\s*([^\n,]+)/i,
+  brokerage_operations: /Brokerage Operations\s*:\s*([^\n,]+)/i,
+  hazmat_operations: /Hazmat Operations\s*:\s*([^\n,]+)/i
+};
+
+function extractOperationsProfileFromEmail(raw) {
+  const profile = {};
+  if (!raw) return profile;
+  Object.keys(OPERATIONS_PROFILE_FIELD_PATTERNS).forEach(key => {
+    const match = raw.match(OPERATIONS_PROFILE_FIELD_PATTERNS[key]);
+    if (!match) return;
+    let val = match[1].trim();
+    if (key === "years_in_business" || key === "operating_radius" || key === "annual_mileage" || key === "annual_revenue") {
+      val = Number(val.replace(/,/g, ""));
+    } else if (key === "states_operated") {
+      val = val.split(/[,;]/).map(s => s.trim()).filter(Boolean);
+    }
+    profile[key] = val;
+  });
+  return profile;
+}
+
+// A structured Submission JSON (pasted alongside the email) is a more
+// reliable source for these fields than regex guesswork — only recognized
+// keys are pulled out, everything else in the pasted JSON is ignored.
+function extractOperationsProfileFromJson(rawJsonText) {
+  if (!rawJsonText) return {};
+  try {
+    const parsed = JSON.parse(rawJsonText);
+    const source = parsed.operationsProfile || parsed.operations_profile || parsed;
+    const profile = {};
+    Object.keys(OPERATIONS_PROFILE_FIELD_PATTERNS).forEach(key => {
+      if (source[key] !== undefined && source[key] !== null && source[key] !== "") {
+        profile[key] = source[key];
+      }
+    });
+    return profile;
+  } catch (e) {
+    return {}; // invalid/malformed JSON — silently ignored, never blocks the raw-text extraction
+  }
+}
+
+// Extended Underwriting Workbench fields — Policy Information (expiration
+// date, policy type, program, prior policy period), Assigned Underwriter,
+// Coverages/Limits/Deductibles, UW rating add-ons (SAFER safety factor,
+// driver pool counts, pollution risk, UW discretionary factor), Primary
+// Commodity/Cargo Type, Endorsements, and per-record extras on vehicles/
+// drivers/losses (VIN, body/weight/ownership, actuarial rating factors,
+// base rate, item premium, driver tenure/status/factor, loss paid amount).
+// A structured Submission JSON is the only reliable source for most of
+// these (free-form email text rarely states a base rate or an ILF factor),
+// so this reads directly from recognized JSON keys — nothing is invented
+// when a key is absent.
+function extractExtendedWorkbenchFieldsFromJson(rawJsonText) {
+  if (!rawJsonText) return {};
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJsonText);
+  } catch (e) {
+    return {};
+  }
+  const out = {};
+  const genInfo = parsed.genInfo || {};
+  if (genInfo.expiration_date) out.expirationDate = genInfo.expiration_date;
+  if (genInfo.policytype || genInfo.policyType) out.policyType = genInfo.policytype || genInfo.policyType;
+  if (genInfo.program || parsed.program) out.program = genInfo.program || parsed.program;
+  if (parsed.priorPolicyPeriod || parsed.prior_policy_period) out.priorPolicyPeriod = parsed.priorPolicyPeriod || parsed.prior_policy_period;
+  if (parsed.underwriter || parsed.assignedUnderwriter) out.assignedUnderwriter = parsed.underwriter || parsed.assignedUnderwriter;
+  if (parsed.mcs90Filed !== undefined) out.mcs90Filed = !!parsed.mcs90Filed;
+  else if (parsed.mcs90_filed !== undefined) out.mcs90Filed = !!parsed.mcs90_filed;
+
+  if (parsed.coveragesInfo && typeof parsed.coveragesInfo === "object") out.coveragesInfo = parsed.coveragesInfo;
+  if (parsed.filingInfo && typeof parsed.filingInfo === "object") out.filingInfo = parsed.filingInfo;
+  if (parsed.uwReviewInfo && typeof parsed.uwReviewInfo === "object") out.uwReviewInfo = parsed.uwReviewInfo;
+  if (parsed.commoditiesInfo && typeof parsed.commoditiesInfo === "object") out.commoditiesInfo = parsed.commoditiesInfo;
+  if (Array.isArray(parsed.endorsements)) out.endorsements = parsed.endorsements;
+
+  // Per-unit / per-driver / per-loss extras, keyed the same way as the
+  // vehicle/driver/loss arrays are ordered (index 0 = Unit 1 / Driver 1 /
+  // first loss line) so they line up with whatever the email text (or this
+  // same JSON) already established for that record.
+  if (Array.isArray(parsed.vehicles)) out.vehicleExtras = parsed.vehicles;
+  if (Array.isArray(parsed.drivers)) out.driverExtras = parsed.drivers;
+  if (Array.isArray(parsed.losses)) out.lossExtras = parsed.losses;
+
+  return out;
 }
 
 // The insured's name is never explicitly labeled in this email template —
@@ -676,6 +827,12 @@ function buildLocalNormalizationDraft(sub) {
   const email = find(/From:\s*[^<\n]*<([^>]+)>/i) || find(/([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})/);
   const address = find(/Address\s*:\s*([^\n]+)/i);
   const effectiveDate = find(/Effective Date\s*:\s*([^\n]+)/i);
+  const expirationDate = find(/Expiration Date\s*:\s*([^\n]+)/i);
+  const policyType = find(/Policy Type\s*:\s*([^\n]+)/i);
+  const program = find(/\bProgram\s*:\s*([^\n]+)/i);
+  const priorPolicyPeriod = find(/Prior Policy Period\s*:\s*([^\n]+)/i);
+  const assignedUnderwriter = find(/Assigned Underwriter\s*:\s*([^\n]+)/i);
+  const primaryCommodity = find(/(?:Primary Commodity|Commodity(?:\s*\/\s*Cargo)?\s*Type|Cargo Type)\s*:\s*([^\n]+)/i);
   const fein = find(/\bFEIN\b\s*(?:\/\s*Tax\s*ID)?\s*[:#]?\s*([A-Z0-9-]+)/i);
   const dot = find(/\bDOT\b\s*(?:Number)?\s*#?\s*:?\s*([A-Z0-9-]+)/i);
   const mcNumber = find(/\bMC\b\s*(?:Number)?\s*#?\s*:?\s*(MC-?\d+|[A-Z0-9-]+)/i);
@@ -685,6 +842,14 @@ function buildLocalNormalizationDraft(sub) {
   const driverDetails = extractDriverDetails(raw);
   const lossHistory = extractLossHistory(raw);
   const vehicleDetails = extractVehicleDetails(raw);
+  // Structured Submission JSON (if pasted) takes priority per-field over
+  // best-effort email-text extraction.
+  const operationsProfile = Object.assign(
+    {},
+    extractOperationsProfileFromEmail(raw),
+    extractOperationsProfileFromJson(sub.rawSubmissionJsonText)
+  );
+  const extendedFromJson = extractExtendedWorkbenchFieldsFromJson(sub.rawSubmissionJsonText);
   const fields = { insured, fein, dot, mcNumber, broker, email, exposureVal: limit ? Number(limit.replace(/,/g, "")) : null };
   const confidence = {};
   Object.keys(fields).forEach(key => { if (fields[key] !== null) confidence[key] = "medium"; });
@@ -695,10 +860,26 @@ function buildLocalNormalizationDraft(sub) {
     driverDetails,
     lossHistory,
     vehicleDetails,
+    operationsProfile,
     ...fields,
     channelType: broker ? "broker" : "direct",
     address,
     effectiveDate,
+    expirationDate: extendedFromJson.expirationDate || expirationDate,
+    policyType: extendedFromJson.policyType || policyType,
+    program: extendedFromJson.program || program,
+    priorPolicyPeriod: extendedFromJson.priorPolicyPeriod || priorPolicyPeriod,
+    assignedUnderwriter: extendedFromJson.assignedUnderwriter || assignedUnderwriter,
+    primaryCommodity: primaryCommodity,
+    mcs90Filed: extendedFromJson.mcs90Filed !== undefined ? extendedFromJson.mcs90Filed : mcs90Filed,
+    coveragesInfo: extendedFromJson.coveragesInfo || null,
+    filingInfo: extendedFromJson.filingInfo || null,
+    uwReviewInfo: extendedFromJson.uwReviewInfo || null,
+    commoditiesInfo: extendedFromJson.commoditiesInfo || null,
+    endorsements: extendedFromJson.endorsements || null,
+    vehicleExtras: extendedFromJson.vehicleExtras || null,
+    driverExtras: extendedFromJson.driverExtras || null,
+    lossExtras: extendedFromJson.lossExtras || null,
     coverageSummary: "Coverage requested in the captured submission; verify details.",
     lossHistorySummary: lossHistory.length ? `${lossHistory.length} prior loss(es) captured from email` : null,
     brokerNote: null,
@@ -934,6 +1115,51 @@ function applyNormalizedDataToSubmission(subId) {
   if (dot) sub.dot = dot;
   if (mcNumber) sub.mcNumber = mcNumber;
   if (address) sub.address = address;
+  // Effective Date was extracted into the draft but never actually written
+  // back onto the submission — Applicant/Policy Information's Effective
+  // Date field stayed blank even when the email clearly stated it.
+  const effectiveDateVal = getVal("normField_effectiveDate", "effectiveDate");
+  if (effectiveDateVal) {
+    sub.effectiveDate = effectiveDateVal;
+    if (!sub.genInfo) sub.genInfo = {};
+    if (!sub.genInfo.effective_date) sub.genInfo.effective_date = effectiveDateVal;
+  }
+
+  // --- Policy Information card: Expiration Date, Policy Type, Program,
+  // Prior Policy Period. Assigned Underwriter (UW Tag / Summary Strip).
+  // Primary Commodity/Cargo Type. Only set when the email text or the
+  // structured Submission JSON actually stated it. ---
+  if (!sub.genInfo) sub.genInfo = {};
+  if (draft.expirationDate) {
+    sub.expirationDate = draft.expirationDate;
+    if (!sub.genInfo.expiration_date) sub.genInfo.expiration_date = draft.expirationDate;
+  }
+  if (draft.policyType && !sub.genInfo.policytype) sub.genInfo.policytype = draft.policyType;
+  if (draft.program && !sub.program) sub.program = draft.program;
+  if (draft.priorPolicyPeriod && !sub.priorPolicyPeriod) sub.priorPolicyPeriod = draft.priorPolicyPeriod;
+  if (draft.assignedUnderwriter && !sub.underwriter) sub.underwriter = draft.assignedUnderwriter;
+  // MCS-90 financial-responsibility endorsement — only set when the email
+  // or structured JSON explicitly states its filing status (true or
+  // false). If never stated, sub.mcs90Filed stays false (the honest
+  // default) and the underwriter can confirm it manually on the Authority
+  // Desk's Regulatory Compliance card once they've verified it themselves.
+  if (draft.mcs90Filed !== null && draft.mcs90Filed !== undefined) sub.mcs90Filed = draft.mcs90Filed;
+  if (draft.primaryCommodity) {
+    if (!sub.commoditiesInfo) sub.commoditiesInfo = {};
+    if (!sub.commoditiesInfo.secondary_class) sub.commoditiesInfo.secondary_class = draft.primaryCommodity;
+  }
+
+  // --- Structured-JSON-only extras: Coverages/Limits/Deductibles, UW rating
+  // add-ons (SAFER factor, driver pool counts, pollution risk, UW
+  // discretionary factor), full Commodities info, Endorsements. Merged
+  // (not replaced) so anything already set (e.g. commoditiesInfo above)
+  // isn't clobbered by an absent JSON key. ---
+  if (draft.coveragesInfo) sub.coveragesInfo = Object.assign({}, sub.coveragesInfo, draft.coveragesInfo);
+  if (draft.filingInfo) sub.filingInfo = Object.assign({}, sub.filingInfo, draft.filingInfo);
+  if (draft.uwReviewInfo) sub.uwReviewInfo = Object.assign({}, sub.uwReviewInfo, draft.uwReviewInfo);
+  if (draft.commoditiesInfo) sub.commoditiesInfo = Object.assign({}, sub.commoditiesInfo, draft.commoditiesInfo);
+  if (draft.endorsements) sub.endorsements = draft.endorsements;
+
   sub.broker = broker;
   sub.email = email || sub.email;
   sub.channelType = draft.channelType === "direct" ? "direct" : "broker";
@@ -1017,6 +1243,10 @@ function applyNormalizedDataToSubmission(subId) {
       if (d.experience !== undefined) driverRecord.experience = d.experience;
       if (d.licensestate !== undefined) driverRecord.licensestate = d.licensestate;
       if (d.licenseclasstype !== undefined) driverRecord.licenseclasstype = d.licenseclasstype;
+      if (d.dob !== undefined) driverRecord.dob = d.dob;
+      if (d.sex !== undefined) driverRecord.sex = d.sex;
+      if (d.licenseNumber !== undefined) driverRecord.licenseNumber = d.licenseNumber;
+      if (d.violations !== undefined) driverRecord.violations = d.violations;
     });
 
     // Minimum Driver Age eligibility (Underwriting Workbench) must re-check
@@ -1024,12 +1254,32 @@ function applyNormalizedDataToSubmission(subId) {
     // it showing eligibility computed off the old template ages.
     sub.driverAgeGuardrail = undefined;
   }
+  // Per-driver Tenure / Status / Driver Factor — only ever present in a
+  // structured Submission JSON, matched to the same driver by array
+  // position (Driver 1 = index 0, matching the "Driver N" numbering the
+  // email itself uses).
+  if (draft.driverExtras && sub.drivers && sub.drivers.length) {
+    draft.driverExtras.forEach((extra, idx) => {
+      if (!extra || !sub.drivers[idx]) return;
+      if (extra.tenure !== undefined) sub.drivers[idx].tenure = extra.tenure;
+      if (extra.status !== undefined) sub.drivers[idx].status = extra.status;
+      if (extra.driver_factor !== undefined) sub.drivers[idx].driver_factor = extra.driver_factor;
+    });
+  }
 
   // --- Loss history captured from the "Loss Run History" block — replaces
   // the cloned template's losses entirely, since these are this submission's
   // actual prior losses, not the template's placeholder ones. ---
   if (draft.lossHistory && draft.lossHistory.length) {
     sub.losses = draft.lossHistory;
+  }
+  // Paid Amount per loss — only ever present in a structured Submission
+  // JSON (never labeled in the free-form email text), matched to the same
+  // loss row by position.
+  if (draft.lossExtras && sub.losses && sub.losses.length) {
+    draft.lossExtras.forEach((extra, idx) => {
+      if (sub.losses[idx] && extra && extra.paid !== undefined) sub.losses[idx].paid = extra.paid;
+    });
   }
 
   // --- Vehicle details captured from the "Vehicles" block. Only the fields
@@ -1057,7 +1307,65 @@ function applyNormalizedDataToSubmission(subId) {
       vehicleRecord.model = v.model;
       vehicleRecord.stated_value = v.stated_value;
       vehicleRecord.assigned_driver = v.assigned_driver;
+      if (v.vehicle_type) vehicleRecord.vehicle_type = v.vehicle_type;
     });
+  }
+  // Per-unit rating/actuarial extras (VIN, model number, weight, ownership,
+  // miles driven, base rate, AL value, rating class, ILF/LCM/fleet/age/
+  // radius factors, item premium) — only ever present in a structured
+  // Submission JSON, matched to the same vehicle by array position (Unit 1
+  // = index 0, matching the "Unit N" numbering the email itself uses).
+  if (draft.vehicleExtras && sub.vehicles && sub.vehicles.length) {
+    const vehicleExtraFields = [
+      "vin", "model_number", "weight", "ownership", "miles_driven", "radius_miles",
+      "liab_baserate", "al_value", "rating_class", "liab_ilf_factor", "liab_lcm_factor",
+      "liab_fleet_factor", "vehicle_age_factor", "radius_factor",
+      "liability_premium", "al_premium_wo_mod_factor"
+    ];
+    draft.vehicleExtras.forEach((extra, idx) => {
+      if (!extra || !sub.vehicles[idx]) return;
+      vehicleExtraFields.forEach(f => {
+        if (extra[f] !== undefined && extra[f] !== null && extra[f] !== "") sub.vehicles[idx][f] = extra[f];
+      });
+    });
+  }
+
+  // --- Operations Profile — Business Type, Years in Business, Operating
+  // Authority, Interstate/Intrastate, Operating Radius, Annual Mileage,
+  // Annual Revenue, States Operated, Primary Garaging State, For-Hire/
+  // Private Carrier, Common/Contract Carrier, Owner Operator Usage,
+  // Brokerage Operations, Hazmat Operations. Only fields the structured
+  // Submission JSON or the raw email text actually provided are set. ---
+  if (draft.operationsProfile && Object.keys(draft.operationsProfile).length) {
+    sub.operationsProfile = Object.assign({}, sub.operationsProfile, draft.operationsProfile);
+
+    // Keep insuredInfo.insured_garaging_state (used across the Workbench —
+    // Summary Strip's State field, jurisdiction-based appetite rules, etc.)
+    // in sync with the same real value, so the same fact isn't shown
+    // differently in different places.
+    if (draft.operationsProfile.primary_garaging_state) {
+      if (!sub.insuredInfo) sub.insuredInfo = {};
+      if (!sub.insuredInfo.insured_garaging_state) {
+        sub.insuredInfo.insured_garaging_state = draft.operationsProfile.primary_garaging_state;
+      }
+    }
+
+    // Keep radiusOfOperationsInfo.radius/Intrastate_interstate (used by the
+    // Questionnaire panel, the Operational Profile & Rating Factors tile,
+    // and the Vehicles Schedule) in sync with the same real Operating
+    // Radius value, so it shows consistently everywhere on the page.
+    if (draft.operationsProfile.operating_radius !== undefined) {
+      if (!sub.radiusOfOperationsInfo) sub.radiusOfOperationsInfo = {};
+      if (sub.radiusOfOperationsInfo.radius === undefined) {
+        sub.radiusOfOperationsInfo.radius = draft.operationsProfile.operating_radius;
+      }
+    }
+    if (draft.operationsProfile.interstate_intrastate) {
+      if (!sub.radiusOfOperationsInfo) sub.radiusOfOperationsInfo = {};
+      if (!sub.radiusOfOperationsInfo.Intrastate_interstate) {
+        sub.radiusOfOperationsInfo.Intrastate_interstate = draft.operationsProfile.interstate_intrastate;
+      }
+    }
   }
 
   // --- Appetite Rules (Step 7) are built from whichever product was last
@@ -1069,6 +1377,18 @@ function applyNormalizedDataToSubmission(subId) {
   const activeProduct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
   if (activeProduct && typeof buildProductAppetiteRules === "function") {
     sub.appetiteRules = buildProductAppetiteRules(activeProduct, sub);
+  }
+
+  // --- Intake Questionnaire (Underwriting Workbench) — the QUESTIONS come
+  // from the ingested product's own questionnaire/riskAttributes schema
+  // (what to ask), the ANSWERS come only from this submission's real data
+  // (findAnswer() inside mapQuestionnaireFromProduct reads sub.vehicles/
+  // drivers/losses/etc. and returns null — "Not Provided" — for anything
+  // not actually known). Nothing here is fabricated; if the product
+  // declares no questionnaire, sub.questionnaireGroups is left unset and
+  // the Workbench falls back to its static default question list. ---
+  if (activeProduct && typeof mapQuestionnaireFromProduct === "function") {
+    mapQuestionnaireFromProduct(activeProduct, sub);
   }
 
   // --- Bookkeeping — rawEmailText / rawAttachments are intentionally NOT
