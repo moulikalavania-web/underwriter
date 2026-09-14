@@ -2559,6 +2559,19 @@ function getBasePremiumFromRatingPayload(sub) {
   return found ? Math.round(total) : getSubmissionPremium(sub);
 }
 
+// Broker Discount — a dedicated input alongside the Credit/Debit adjustment.
+// Defaults to 10% and is hard-capped at 15% for everyone, no exceptions.
+// It's disabled/read-only for every role except Chief Underwriting Officer
+// ("senior") and System Administrator ("admin"), who alone can change it
+// (still within the same 15% cap).
+var BROKER_DISCOUNT_DEFAULT_PCT = 10;
+var BROKER_DISCOUNT_MAX_PCT = 15;
+var BROKER_DISCOUNT_EDIT_ROLES = ["senior", "admin"]; // Chief Underwriting Officer, System Administrator
+
+function canEditBrokerDiscount() {
+  return BROKER_DISCOUNT_EDIT_ROLES.includes(currentUserRole);
+}
+
 function ensureDiscretionaryPricingSeed(sub) {
   if (!sub.discretionaryPricing) {
     const baseFromPayload = getBasePremiumFromRatingPayload(sub);
@@ -2569,16 +2582,22 @@ function ensureDiscretionaryPricingSeed(sub) {
       reason: null,
       appliedBy: null,
       appliedAt: null,
+      brokerDiscountPercent: BROKER_DISCOUNT_DEFAULT_PCT,
       finalPremium: baseFromPayload
     };
+  }
+  if (sub.discretionaryPricing.brokerDiscountPercent === undefined) {
+    sub.discretionaryPricing.brokerDiscountPercent = BROKER_DISCOUNT_DEFAULT_PCT;
   }
   return sub.discretionaryPricing;
 }
 
-function computeFinalQuotedPremium(basePremium, adjustmentType, adjustmentPercent) {
+function computeFinalQuotedPremium(basePremium, adjustmentType, adjustmentPercent, brokerDiscountPercent) {
   const signedPct = adjustmentType === "credit" ? -Math.abs(adjustmentPercent) : Math.abs(adjustmentPercent);
   const afterAdjustment = basePremium * (1 + signedPct / 100);
-  const afterTax = afterAdjustment * (1 + DISCRETIONARY_TAX_RATE_PCT / 100);
+  const bd = Math.max(0, Math.min(BROKER_DISCOUNT_MAX_PCT, Number(brokerDiscountPercent) || 0));
+  const afterBrokerDiscount = afterAdjustment * (1 - bd / 100);
+  const afterTax = afterBrokerDiscount * (1 + DISCRETIONARY_TAX_RATE_PCT / 100);
   return Math.round(afterTax);
 }
 
@@ -2587,9 +2606,10 @@ function renderDiscretionaryPricingCard(sub) {
   const basePremium = dp.basePremium;
   const hasApplied = !!dp.adjustmentType;
 
+  const brokerDiscountPct = dp.brokerDiscountPercent !== undefined ? dp.brokerDiscountPercent : BROKER_DISCOUNT_DEFAULT_PCT;
   const previewFinal = hasApplied
     ? dp.finalPremium
-    : computeFinalQuotedPremium(basePremium, null, 0);
+    : computeFinalQuotedPremium(basePremium, null, 0, brokerDiscountPct);
 
   return `
     <div class="card mb-3" id="discretionaryPricingCard">
@@ -2615,7 +2635,11 @@ function renderDiscretionaryPricingCard(sub) {
               </td>
             </tr>
             <tr>
-              <td><strong>3. Taxes & Fees</strong><br><span class="text-xs text-muted">Applied on top of adjusted premium</span></td>
+              <td><strong>3. Broker Discount</strong><br><span class="text-xs text-muted">Default ${BROKER_DISCOUNT_DEFAULT_PCT}%, max ${BROKER_DISCOUNT_MAX_PCT}% — editable only by Chief Underwriting Officer / System Admin</span></td>
+              <td class="font-mono text-right"><strong style="color:var(--color-success);">−${brokerDiscountPct}%</strong></td>
+            </tr>
+            <tr>
+              <td><strong>4. Taxes & Fees</strong><br><span class="text-xs text-muted">Applied on top of adjusted premium</span></td>
               <td class="font-mono text-right">+${DISCRETIONARY_TAX_RATE_PCT}%</td>
             </tr>
             <tr style="background:var(--color-surface); font-weight:700;">
@@ -2677,6 +2701,20 @@ function openDiscretionaryPricingModal(subId) {
     </div>
 
     <div class="form-group mb-3">
+      <label class="u-label-sm">Broker Discount % <span class="text-xs text-muted">(default ${BROKER_DISCOUNT_DEFAULT_PCT}%, max ${BROKER_DISCOUNT_MAX_PCT}%)</span></label>
+      <input type="number" id="dpBrokerDiscountInput" class="form-control" min="0" max="${BROKER_DISCOUNT_MAX_PCT}" step="0.5"
+        value="${dp.brokerDiscountPercent !== undefined ? dp.brokerDiscountPercent : BROKER_DISCOUNT_DEFAULT_PCT}"
+        ${canEditBrokerDiscount() ? "" : "disabled readonly"}
+        oninput="updateDiscretionaryPricingPreview()">
+      <p class="text-xs text-muted u-mt-4">
+        ${canEditBrokerDiscount()
+          ? `As Chief Underwriting Officer / System Administrator, you may change this up to ${BROKER_DISCOUNT_MAX_PCT}%.`
+          : `Only the Chief Underwriting Officer or System Administrator can edit this field.`}
+      </p>
+      <span class="field-error-text u-hidden" id="dpBrokerDiscountInputError">Broker Discount cannot exceed ${BROKER_DISCOUNT_MAX_PCT}%.</span>
+    </div>
+
+    <div class="form-group mb-3">
       <label class="u-label-sm">Underwriting Rationale <span class="u-text-danger">*</span></label>
       <textarea id="dpReason" class="form-control" rows="3" placeholder="e.g. Telematics installed fleet-wide, clean DOT inspection record over 24 months, no preventable accidents..." oninput="clearFieldError('dpReason')">${dp.reason || ""}</textarea>
       <span class="field-error-text u-hidden" id="dpReasonError">Underwriting Rationale is required.</span>
@@ -2697,6 +2735,7 @@ function updateDiscretionaryPricingPreview() {
   const typeSelect = document.getElementById("dpAdjustmentType");
   const percentInput = document.getElementById("dpPercentInput");
   const percentLabel = document.getElementById("dpPercentLabel");
+  const brokerInput = document.getElementById("dpBrokerDiscountInput");
   const previewArea = document.getElementById("dpPreviewArea");
   if (!typeSelect || !percentInput || !previewArea) return;
 
@@ -2709,10 +2748,23 @@ function updateDiscretionaryPricingPreview() {
   if (pct > maxAllowed) { pct = maxAllowed; percentInput.value = maxAllowed; }
   if (pct < 0) { pct = 0; percentInput.value = 0; }
 
-  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct);
+  // Broker Discount — never auto-clamped; a value above the 15% cap shows
+  // the required error message and blocks Apply & Save (checked again in
+  // saveDiscretionaryPricing()).
+  let brokerPct = BROKER_DISCOUNT_DEFAULT_PCT;
+  let brokerInvalid = false;
+  if (brokerInput) {
+    brokerPct = parseFloat(brokerInput.value);
+    if (isNaN(brokerPct)) brokerPct = 0;
+    brokerInvalid = brokerPct > BROKER_DISCOUNT_MAX_PCT;
+    if (brokerInvalid) showFieldError("dpBrokerDiscountInput");
+    else clearFieldError("dpBrokerDiscountInput");
+  }
+
+  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct, brokerInvalid ? BROKER_DISCOUNT_MAX_PCT : brokerPct);
   previewArea.innerHTML = `
     <div class="alert ${type === 'credit' ? 'alert-success' : 'alert-warning'} u-fs-12-5">
-      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type} + ${DISCRETIONARY_TAX_RATE_PCT}% taxes = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
+      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type} − ${brokerInvalid ? BROKER_DISCOUNT_MAX_PCT : brokerPct}% broker discount + ${DISCRETIONARY_TAX_RATE_PCT}% taxes = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
     </div>`;
 }
 
@@ -2747,15 +2799,28 @@ function saveDiscretionaryPricing() {
     return;
   }
 
+  // Broker Discount — must never exceed the 15% cap; Apply & Save is
+  // blocked while it does, same as the Underwriting Rationale check above.
+  const brokerInput = document.getElementById("dpBrokerDiscountInput");
+  let brokerPct = brokerInput ? parseFloat(brokerInput.value) : BROKER_DISCOUNT_DEFAULT_PCT;
+  if (isNaN(brokerPct) || brokerPct < 0) brokerPct = 0;
+  if (brokerPct > BROKER_DISCOUNT_MAX_PCT) {
+    showFieldError("dpBrokerDiscountInput");
+    showToast(`⛔ Broker Discount cannot exceed ${BROKER_DISCOUNT_MAX_PCT}%.`, "danger");
+    return;
+  }
+  clearFieldError("dpBrokerDiscountInput");
+
   const dp = ensureDiscretionaryPricingSeed(sub);
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct);
+  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct, brokerPct);
 
   dp.adjustmentType = type;
   dp.adjustmentPercent = pct;
   dp.reason = reason;
   dp.appliedBy = `${roleConfig.name} (${roleConfig.title})`;
   dp.appliedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
+  dp.brokerDiscountPercent = brokerPct;
   dp.finalPremium = finalPremium;
 
   sub.currentPremium = finalPremium;
@@ -2766,10 +2831,10 @@ function saveDiscretionaryPricing() {
     decision: `discretionary_${type}`,
     by: dp.appliedBy,
     at: dp.appliedAt,
-    notes: `Applied ${type === "credit" ? "-" : "+"}${pct}% ${type} (${reason}). Base $${dp.basePremium.toLocaleString()} → Final $${finalPremium.toLocaleString()}.`
+    notes: `Applied ${type === "credit" ? "-" : "+"}${pct}% ${type} (${reason}); Broker Discount −${brokerPct}%. Base $${dp.basePremium.toLocaleString()} → Final $${finalPremium.toLocaleString()}.`
   });
 
-  showToast(`✅ ${type === "credit" ? "Credit" : "Debit"} of ${pct}% applied. Final Quoted Premium: $${finalPremium.toLocaleString()}.`, "success");
+  showToast(`✅ ${type === "credit" ? "Credit" : "Debit"} of ${pct}% + Broker Discount ${brokerPct}% applied. Final Quoted Premium: $${finalPremium.toLocaleString()}.`, "success");
   closeDiscretionaryPricingModal();
 
   // Refresh the whole Step 7 view (not just the discretionary pricing card)
