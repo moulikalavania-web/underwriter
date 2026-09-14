@@ -264,7 +264,6 @@ function getBlankSubmissionSkeleton() {
     uwReviewInfo: {},
     decisionLog: [],
     broker_fee: { amount: 0, default: 0 },
-    mcs90Filed: false,
     minStatutoryLimit: null,
     desk: null,
     underwriter: null,
@@ -770,8 +769,6 @@ function extractExtendedWorkbenchFieldsFromJson(rawJsonText) {
   if (genInfo.program || parsed.program) out.program = genInfo.program || parsed.program;
   if (parsed.priorPolicyPeriod || parsed.prior_policy_period) out.priorPolicyPeriod = parsed.priorPolicyPeriod || parsed.prior_policy_period;
   if (parsed.underwriter || parsed.assignedUnderwriter) out.assignedUnderwriter = parsed.underwriter || parsed.assignedUnderwriter;
-  if (parsed.mcs90Filed !== undefined) out.mcs90Filed = !!parsed.mcs90Filed;
-  else if (parsed.mcs90_filed !== undefined) out.mcs90Filed = !!parsed.mcs90_filed;
 
   if (parsed.coveragesInfo && typeof parsed.coveragesInfo === "object") out.coveragesInfo = parsed.coveragesInfo;
   if (parsed.filingInfo && typeof parsed.filingInfo === "object") out.filingInfo = parsed.filingInfo;
@@ -871,7 +868,6 @@ function buildLocalNormalizationDraft(sub) {
     priorPolicyPeriod: extendedFromJson.priorPolicyPeriod || priorPolicyPeriod,
     assignedUnderwriter: extendedFromJson.assignedUnderwriter || assignedUnderwriter,
     primaryCommodity: primaryCommodity,
-    mcs90Filed: extendedFromJson.mcs90Filed !== undefined ? extendedFromJson.mcs90Filed : mcs90Filed,
     coveragesInfo: extendedFromJson.coveragesInfo || null,
     filingInfo: extendedFromJson.filingInfo || null,
     uwReviewInfo: extendedFromJson.uwReviewInfo || null,
@@ -1138,12 +1134,6 @@ function applyNormalizedDataToSubmission(subId) {
   if (draft.program && !sub.program) sub.program = draft.program;
   if (draft.priorPolicyPeriod && !sub.priorPolicyPeriod) sub.priorPolicyPeriod = draft.priorPolicyPeriod;
   if (draft.assignedUnderwriter && !sub.underwriter) sub.underwriter = draft.assignedUnderwriter;
-  // MCS-90 financial-responsibility endorsement — only set when the email
-  // or structured JSON explicitly states its filing status (true or
-  // false). If never stated, sub.mcs90Filed stays false (the honest
-  // default) and the underwriter can confirm it manually on the Authority
-  // Desk's Regulatory Compliance card once they've verified it themselves.
-  if (draft.mcs90Filed !== null && draft.mcs90Filed !== undefined) sub.mcs90Filed = draft.mcs90Filed;
   if (draft.primaryCommodity) {
     if (!sub.commoditiesInfo) sub.commoditiesInfo = {};
     if (!sub.commoditiesInfo.secondary_class) sub.commoditiesInfo.secondary_class = draft.primaryCommodity;
