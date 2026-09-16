@@ -1295,6 +1295,11 @@ function getGeneratedQuoteHtml(data, sub) {
   if (isTrackedSubmission) {
     const dp = ensureDiscretionaryPricingSeed(sub);
     q.finalPremium = dp.finalPremium;
+    // Base Premium (Discretionary Pricing card) and Base Coverage Premium
+    // (this Quote hero strip) must always be the exact same number, computed
+    // once before any Underwriter Credit/Debit, Broker Discount, or Taxes &
+    // Fees are applied — never two independently-derived/hardcoded values.
+    q.coveragePremium = dp.basePremium;
   }
 
   const totalFeeAmt = fees.reduce((sum, f) => sum + (f.amt || 0), 0);

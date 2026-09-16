@@ -110,18 +110,28 @@
   --outcome-restrict: #0369A1;
   --outcome-evidence: #0F766E;
 
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  /* Elevation — vdx-global.css §1E (navy-tinted, not neutral black) */
+  --shadow-xs: 0 1px 2px rgba(27, 38, 53, 0.06);
+  --shadow-sm: 0 2px 4px rgba(27, 38, 53, 0.08);
+  --shadow-md: 0 4px 8px rgba(27, 38, 53, 0.10), 0 1px 3px rgba(27, 38, 53, 0.06);
+  --shadow-lg: 0 8px 24px rgba(27, 38, 53, 0.12), 0 2px 6px rgba(27, 38, 53, 0.06);
+  --shadow-xl: 0 16px 48px rgba(27, 38, 53, 0.16), 0 4px 12px rgba(27, 38, 53, 0.08);
+  --shadow-focus: 0 0 0 3px rgba(248, 100, 7, 0.35);
+  --shadow-focus-error: 0 0 0 3px rgba(220, 38, 38, 0.25);
 
-  /* Radius scale — VeriDex Enterprise UI/UX Framework (FND-001) */
+  /* Radius scale — VeriDex Global CSS (vdx-global.css §1D) */
   --radius-none: 0px;
+  --radius-xs: 2px;
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius-2xl: 24px;
   --radius-full: 9999px;
+
+  /* Border strength scale — vdx-global.css §1B */
+  --border-subtle: #D0D4DC;  /* neutral-200 — cards, low-emphasis dividers */
+  --border-strong: #B0B6C3;  /* neutral-300 */
 
   /* Spacing scale (§7) */
   --space-1: 4px;
@@ -147,7 +157,7 @@
 
   /* Typography (§4): Inter for UI, IBM Plex Mono for identifiers/code */
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -276,6 +286,9 @@ body {
 .app-header .brand-subtitle,
 .app-header .hw-label {
   color: #9CA3AF;
+}
+.app-header .brand-title strong {
+  color: var(--color-brand);
 }
 .app-header .btn-sidebar-toggle,
 .app-header .btn-header-sidebar-toggle,
@@ -632,7 +645,7 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
 
 .h-stepper-desc {
   font-size: 10px;
-  color: #94a3b8;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -717,8 +730,8 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
    Left Navigation Sidebar
    -------------------------------------------------------------------------- */
 .app-sidebar {
-  width: 270px;
-  min-width: 270px;
+  width: 240px;
+  min-width: 240px;
   background-color: var(--color-shell);
   color: #f8fafc;
   border-right: 1px solid var(--color-border-dark);
@@ -782,6 +795,7 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 44px;
   padding: var(--space-3) var(--space-3);
   background: transparent;
   border: 1px solid transparent;
@@ -807,8 +821,8 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
 }
 
 .sidebar-nav-item .nav-icon {
-  font-size: 16px;
-  width: 22px;
+  font-size: 20px;
+  width: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1098,8 +1112,8 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
 
 /* Collapsed Sidebar Styles */
 .app-layout.sidebar-collapsed .app-sidebar {
-  width: 64px;
-  min-width: 64px;
+  width: 56px;
+  min-width: 56px;
 }
 
 .app-layout.sidebar-collapsed .sidebar-section-title,
@@ -1438,7 +1452,9 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
 
 .filter-tabs {
   display: flex;
-  gap: 6px;
+  gap: 0;
+  border-bottom: 2px solid var(--border-subtle);
+  overflow-x: auto;
 }
 
 .table-right-controls {
@@ -1582,6 +1598,15 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
 tr.rbac-role-highlight {
   background-color: #eff6ff;
   box-shadow: inset 3px 0 0 var(--primary-light);
+}
+
+/* Permission Matrix checkboxes (checked = permitted for that role/action).
+   VeriDex Global CSS defines the checked-state color for form controls as
+   --vdx-color-action-primary (brand orange), not the browser's default
+   blue — applied here via accent-color so native checkbox rendering
+   matches the design system. */
+.rbac-editor-cb {
+  accent-color: var(--color-brand);
 }
 
 /* Assign Submission modal — selectable team-member list */
@@ -1809,10 +1834,11 @@ tr.rbac-role-highlight {
 .alert {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--space-3);
+  padding: var(--space-4);
   border-radius: var(--radius-md);
   border: 1px solid transparent;
+  font-size: 14px;
   line-height: 1.5;
 }
 
@@ -1821,10 +1847,10 @@ tr.rbac-role-highlight {
   flex-shrink: 0;
 }
 
-.alert-info { background: var(--info-bg); border-color: #bae6fd; color: #075985; }
-.alert-warning { background: var(--warning-bg); border-color: #fde68a; color: #92400e; }
-.alert-success { background: var(--success-bg); border-color: #bbf7d0; color: #166534; }
-.alert-danger { background: var(--danger-bg); border-color: #fecaca; color: #991b1b; }
+.alert-info { background: var(--info-bg); border-color: #2563EB; color: #1D4ED8; }
+.alert-warning { background: var(--warning-bg); border-color: #D97706; color: var(--warning); }
+.alert-success { background: var(--success-bg); border-color: #15803D; color: var(--success); }
+.alert-danger { background: var(--danger-bg); border-color: #DC2626; color: var(--danger); }
 
 .tag-ready {
   color: #16a34a;
@@ -1938,15 +1964,15 @@ tr.rbac-role-highlight {
    24px padding (16px mobile — see media query below). */
 .card {
   background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
   overflow: hidden;
 }
 
 .card.selected {
   border: 2px solid var(--color-brand);
-  background: rgba(248, 100, 7, 0.04);
+  background: rgba(248, 100, 7, 0.03);
 }
 
 .card-header {
@@ -2145,25 +2171,31 @@ tr.rbac-role-highlight {
   color: var(--primary);
 }
 
+/* Tabs — VeriDex Global CSS .vdx-tabs__tab (underline style, no pill bg/border) */
 .tab-btn {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  border-radius: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: 0.15s;
+  white-space: nowrap;
+  transition: color 0.1s ease, border-color 0.1s ease;
 }
-.tab-btn:hover {
+.tab-btn:hover:not(.active) {
   color: var(--text-main);
-  border-color: var(--color-brand);
 }
 .tab-btn.active {
-  background: var(--color-brand-light);
-  border-color: var(--color-brand);
-  color: var(--color-brand-dark);
+  color: var(--color-brand);
+  border-bottom-color: var(--color-brand);
+  font-weight: 600;
 }
 
 .form-grid {
@@ -2204,9 +2236,11 @@ tr.rbac-role-highlight {
   box-shadow: 0 0 0 3px rgba(248, 100, 7, 0.15);
 }
 
-.form-control[readonly] {
+.form-control[readonly],
+.form-control:disabled {
   background: var(--bg-subtle);
   color: var(--text-secondary);
+  cursor: not-allowed;
 }
 
 /* ==========================================================================
@@ -4060,20 +4094,20 @@ tr.rbac-role-highlight {
 }
 
 .btn-action-primary {
-  background: #2563eb;
-  color: #ffffff;
-  border-color: #1d4ed8;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  border-color: var(--color-brand-dark);
 }
 
 .btn-action-primary:hover {
-  background: #1d4ed8;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
+  background: var(--color-brand-dark);
+  box-shadow: 0 2px 6px rgba(248, 100, 7, 0.35);
   transform: translateY(-1px);
 }
 
 .btn-action-primary:active {
   transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 1px 2px rgba(248, 100, 7, 0.2);
 }
 
 .btn-action-referral {
@@ -5086,7 +5120,7 @@ body.has-bottom-footer .app-layout {
 }
 .tl-subtotal-label {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 .tl-subtotal-val {
   font-size: 20px;
@@ -6031,12 +6065,9 @@ body.has-bottom-footer .app-layout {
    ============================================================================ */
 .email-digest-tabs {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border, #e2e8f0);
+  gap: 0;
+  border-bottom: 2px solid var(--border-subtle);
   margin-bottom: 16px;
-}
-.email-digest-tabs .tab-btn {
-  border-radius: 8px 8px 0 0;
 }
 
 .email-digest-dropzone {
@@ -6075,7 +6106,7 @@ body.has-bottom-footer .app-layout {
   border: none;
   background: none;
   cursor: pointer;
-  color: #94a3b8;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
 }
@@ -6431,7 +6462,7 @@ body.has-bottom-footer .app-layout {
   word-break: break-word;
 }
 .iq-item-row.unanswered .iq-item-a {
-  color: #94a3b8;
+  color: var(--text-muted);
   font-style: italic;
   font-weight: 500;
 }
@@ -6827,7 +6858,7 @@ body.has-bottom-footer .app-layout {
 .cbc-row-code {
   font-size: 10.5px;
   font-family: var(--font-mono);
-  color: #94a3b8;
+  color: var(--text-muted);
   text-transform: uppercase;
 }
 .cbc-row-desc {
@@ -7323,7 +7354,7 @@ body.has-bottom-footer .app-layout {
   font-weight: 600;
   color: var(--color-ink);
 }
-.uwp-field-value.uwp-empty { color: #94a3b8; font-style: italic; font-weight: 400; }
+.uwp-field-value.uwp-empty { color: var(--text-muted); font-style: italic; font-weight: 400; }
 
 /* Decision panel */
 .uwp-decision-grid {
@@ -7366,7 +7397,7 @@ body.has-bottom-footer .app-layout {
   margin-top: 14px;
   justify-content: flex-end;
 }
-.uwp-empty-inline { color: #94a3b8; font-style: italic; font-weight: 400; }
+.uwp-empty-inline { color: var(--text-muted); font-style: italic; font-weight: 400; }
 
 
 /* uwp light-theme data table (Loss Runs / UW Factors / Endorsements) */

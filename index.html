@@ -621,7 +621,7 @@ run<!--
         <div class="screen-header">
           <div>
             <h2><i class="ph ph-database text-primary"></i> Data Enrichment & Smart Routing</h2>
-            <p class="screen-desc">Automated verified registry checks (FMCSA, Credit Bureaus, Catastrophe Models) & underwriter queue assignment.</p>
+            <p class="screen-desc">Automated verified registry checks (FMCSA, NHTSA, State DMV) & underwriter queue assignment.</p>
           </div>
           <div class="header-status-badge">
             <span class="badge badge-success" style="font-size: 11px; padding: 6px 12px;">
@@ -1043,17 +1043,19 @@ run<!--
           </div>
         </div>
 
-        <!-- Ingest Dropzone & Schema Loader -->
-        <div class="ps-upload-card">
+        <!-- Ingest Dropzone & Schema Loader (empty state — hidden once a product is loaded) -->
+        <div class="ps-upload-card" id="psEmptyStateBox">
           <div class="ps-dropzone-box" id="psJsonDropzone" onclick="document.getElementById('psJsonFileInput').click()">
             <input class="u-hidden" type="file" id="psJsonFileInput" accept=".json" onchange="handleJsonFileSelect(event)">
             <div style="font-size:36px; color:#f97316; margin-bottom:8px;"><i class="ph ph-cloud-arrow-up"></i></div>
             <div style="font-size:15px; font-weight:700; color:#0f172a;">Drag & Drop your Insurance Product Studio JSON file here or <span style="color:#f97316; text-decoration:underline;">Browse Files</span></div>
             <div style="font-size:12px; color:#64748b; margin-top:4px;">Supported schema: <code>insurance-product-studio-product-v1</code> (e.g. PRD-021 Trucking_test, Auto Liability, Property)</div>
           </div>
+          <div class="u-row-gap8 mt-3" style="justify-content:center;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="openRawJsonModal()"><i class="ph ph-code"></i> Paste JSON Instead</button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="loadSamplePrd021()"><i class="ph ph-flask"></i> Load Sample PRD-021</button>
+          </div>
         </div>
-
-    
 
         <!-- LOADED PRODUCT CONTENT BOX (Hidden until JSON is uploaded) -->
         <div class="u-hidden" id="psLoadedContentBox" style="margin-top:14px; padding:12px 16px; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
@@ -1066,8 +1068,119 @@ run<!--
           <button type="button" class="btn btn-sm btn-outline" onclick="showIntakePage()">
             <i class="ph ph-arrow-right"></i> Go to Submission Intake
           </button>
+
+          <!-- Full Product Studio detail — a child of psLoadedContentBox so it
+               shows/hides automatically with the same toggle above; forced
+               onto its own row inside that flex container. -->
+          <div style="flex-basis:100%; width:100%; margin-top:16px; display:flex; flex-direction:column; gap:16px;">
+
+            <div class="ps-identity-card">
+              <div class="ps-id-main">
+                <h3><i class="ph ph-package text-primary"></i> <span id="psStatusBadge" class="badge badge-light font-mono text-xs">DRAFT</span></h3>
+                <p id="psProductDesc">Product configuration details.</p>
+              </div>
+              <div class="ps-meta-item">
+                <span class="ps-meta-label">Line of Business</span>
+                <span class="ps-meta-val" id="psLobBadge">—</span>
+              </div>
+              <div class="ps-meta-item">
+                <span class="ps-meta-label">Carrier / Type</span>
+                <span class="ps-meta-val" id="psCarrier">—</span>
+              </div>
+              <div class="ps-meta-item">
+                <span class="ps-meta-label" id="psFamily">Family: —</span>
+                <span class="ps-meta-val" id="psJurisdictions">—</span>
+              </div>
+              <div class="ps-meta-item">
+                <span class="ps-meta-label" id="psOwner">Owner: —</span>
+                <span class="ps-meta-val" id="psEffectiveDates">—</span>
+              </div>
+              <div class="ps-meta-item">
+                <span class="ps-meta-label">Schema Completion</span>
+                <span class="ps-meta-val"><span id="psCompletionVal">0%</span></span>
+                <div style="background:#e2e8f0; border-radius:99px; height:6px; overflow:hidden; margin-top:2px;">
+                  <div id="psCompletionBar" style="background:#f97316; height:100%; width:0%; transition:width .3s ease;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="ps-tabs-bar">
+              <button type="button" class="ps-tab-btn active" id="tabBtnCovers" onclick="switchStudioTab('covers')"><i class="ph ph-shield-check"></i> Covers <span id="psCoversCount" class="badge badge-light text-xs">0</span></button>
+              <button type="button" class="ps-tab-btn" id="tabBtnQuestionnaire" onclick="switchStudioTab('questionnaire')"><i class="ph ph-list-checks"></i> Questionnaire & Risk Attributes</button>
+              <button type="button" class="ps-tab-btn" id="tabBtnEligibility" onclick="switchStudioTab('eligibility')"><i class="ph ph-gavel"></i> Eligibility & Underwriting</button>
+              <button type="button" class="ps-tab-btn" id="tabBtnRating" onclick="switchStudioTab('rating')"><i class="ph ph-calculator"></i> Rating</button>
+              <button type="button" class="ps-tab-btn" id="tabBtnGovernance" onclick="switchStudioTab('governance')"><i class="ph ph-scales"></i> Governance & Audit</button>
+              <button type="button" class="ps-tab-btn" id="tabBtnJson" onclick="switchStudioTab('json')"><i class="ph ph-code"></i> Raw JSON</button>
+            </div>
+
+            <div class="ps-studio-panel" id="panelCovers" style="display:block;">
+              <div class="ps-cover-grid" id="psCoversContainer"></div>
+            </div>
+
+            <div class="ps-studio-panel" id="panelQuestionnaire" style="display:none;">
+              <div id="psQuestionGroupsContainer"></div>
+              <div class="uwp-subsection-title">Risk Attributes</div>
+              <div class="ps-grid-2" id="psRiskAttributesContainer" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); gap:10px;"></div>
+            </div>
+
+            <div class="ps-studio-panel" id="panelEligibility" style="display:none;">
+              <div class="uwp-subsection-title" style="margin-top:0;">Eligibility Rules</div>
+              <div class="ps-grid-2" id="psEligibilityContainer" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px,1fr)); gap:10px;"></div>
+              <div class="uwp-subsection-title">Underwriting Rules</div>
+              <div class="ps-grid-2" id="psUnderwritingRulesContainer" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px,1fr)); gap:10px;"></div>
+            </div>
+
+            <div class="ps-studio-panel" id="panelRating" style="display:none;">
+              <div class="ps-rating-box">
+                <span class="ps-factor-title">Base Premium</span>
+                <div class="ps-factor-val" id="psBasePremiumDisplay" style="font-size:1.5rem;">$0.00</div>
+              </div>
+              <div class="ps-rating-factors-grid" id="psRatingFactorsContainer"></div>
+            </div>
+
+            <div class="ps-studio-panel" id="panelGovernance" style="display:none;">
+              <div class="uwp-subsection-title" style="margin-top:0;">Governance Gates</div>
+              <div class="ps-gate-row" id="psGovernanceGatesContainer"></div>
+              <div class="uwp-subsection-title">Audit Trail</div>
+              <div class="table-responsive">
+                <table class="ps-audit-table">
+                  <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Page</th><th>Description</th></tr></thead>
+                  <tbody id="psAuditTbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="ps-studio-panel" id="panelJson" style="display:none;">
+              <textarea class="ps-json-editor" id="psRawJsonTextarea" spellcheck="false"></textarea>
+              <div class="modal-footer mt-3" style="margin:0; padding:12px 0 0 0;">
+                <button type="button" class="btn btn-outline" onclick="applyJsonFromEditor()"><i class="ph ph-cloud-arrow-up"></i> Apply Edited JSON</button>
+                <button type="button" class="btn btn-primary" onclick="exportStudioJson()"><i class="ph ph-download-simple"></i> Export JSON</button>
+              </div>
+            </div>
+
+          </div>
         </div>
 
+      </div>
+
+      <!-- Paste JSON Modal (alternative to file upload) -->
+      <div class="modal-overlay" id="psPasteJsonModal" role="dialog" aria-modal="true" style="display:none;">
+        <div class="modal-content modal-xl">
+          <div class="modal-header">
+            <h3><i class="ph ph-code text-primary"></i> Paste Insurance Product Studio JSON</h3>
+            <button class="btn-close" aria-label="Close" onclick="closeRawJsonModal()"><i class="ph ph-x"></i></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-xs text-muted u-m0" style="margin-bottom:10px;">
+              Paste a full <code>insurance-product-studio-product-v1</code> schema JSON below, then click Ingest to activate it.
+            </p>
+            <textarea class="ps-json-editor" id="psModalJsonTextarea" spellcheck="false" placeholder='{ "productId": "PRD-021", "product": { ... }, "studios": { ... } }'></textarea>
+            <div class="modal-footer mt-3" style="margin:0; padding:12px 0 0 0;">
+              <button type="button" class="btn btn-outline" onclick="closeRawJsonModal()">Cancel</button>
+              <button type="button" class="btn btn-primary" onclick="ingestModalJson()"><i class="ph ph-cloud-arrow-up"></i> Ingest Product JSON</button>
+            </div>
+          </div>
+        </div>
       </div>
 
     </div>

@@ -2596,7 +2596,8 @@ function computeFinalQuotedPremium(basePremium, adjustmentType, adjustmentPercen
   const signedPct = adjustmentType === "credit" ? -Math.abs(adjustmentPercent) : Math.abs(adjustmentPercent);
   const afterAdjustment = basePremium * (1 + signedPct / 100);
   const bd = Math.max(0, Math.min(BROKER_DISCOUNT_MAX_PCT, Number(brokerDiscountPercent) || 0));
-  const afterBrokerDiscount = afterAdjustment * (1 - bd / 100);
+  // Adjusted Premium = Base Premium + Broker Discount — added, never subtracted.
+  const afterBrokerDiscount = afterAdjustment * (1 + bd / 100);
   const afterTax = afterBrokerDiscount * (1 + DISCRETIONARY_TAX_RATE_PCT / 100);
   return Math.round(afterTax);
 }
@@ -2636,7 +2637,7 @@ function renderDiscretionaryPricingCard(sub) {
             </tr>
             <tr>
               <td><strong>3. Broker Discount</strong><br><span class="text-xs text-muted">Default ${BROKER_DISCOUNT_DEFAULT_PCT}%, max ${BROKER_DISCOUNT_MAX_PCT}% — editable only by Chief Underwriting Officer / System Admin</span></td>
-              <td class="font-mono text-right"><strong style="color:var(--color-success);">−${brokerDiscountPct}%</strong></td>
+              <td class="font-mono text-right"><strong style="color:var(--color-success);">+${brokerDiscountPct}%</strong></td>
             </tr>
             <tr>
               <td><strong>4. Taxes & Fees</strong><br><span class="text-xs text-muted">Applied on top of adjusted premium</span></td>
@@ -2764,7 +2765,7 @@ function updateDiscretionaryPricingPreview() {
   const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct, brokerInvalid ? BROKER_DISCOUNT_MAX_PCT : brokerPct);
   previewArea.innerHTML = `
     <div class="alert ${type === 'credit' ? 'alert-success' : 'alert-warning'} u-fs-12-5">
-      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type} − ${brokerInvalid ? BROKER_DISCOUNT_MAX_PCT : brokerPct}% broker discount + ${DISCRETIONARY_TAX_RATE_PCT}% taxes = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
+      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type} + ${brokerInvalid ? BROKER_DISCOUNT_MAX_PCT : brokerPct}% broker discount + ${DISCRETIONARY_TAX_RATE_PCT}% taxes = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
     </div>`;
 }
 
@@ -2831,7 +2832,7 @@ function saveDiscretionaryPricing() {
     decision: `discretionary_${type}`,
     by: dp.appliedBy,
     at: dp.appliedAt,
-    notes: `Applied ${type === "credit" ? "-" : "+"}${pct}% ${type} (${reason}); Broker Discount −${brokerPct}%. Base $${dp.basePremium.toLocaleString()} → Final $${finalPremium.toLocaleString()}.`
+    notes: `Applied ${type === "credit" ? "-" : "+"}${pct}% ${type} (${reason}); Broker Discount +${brokerPct}%. Base $${dp.basePremium.toLocaleString()} → Final $${finalPremium.toLocaleString()}.`
   });
 
   showToast(`✅ ${type === "credit" ? "Credit" : "Debit"} of ${pct}% + Broker Discount ${brokerPct}% applied. Final Quoted Premium: $${finalPremium.toLocaleString()}.`, "success");

@@ -63,8 +63,58 @@ function renderManagerDashboardHtml() {
     ? `<div class="metrics-summary-bar">${workloadCards}</div>`
     : "";
 
+  // "Assigned to Me" — every manager-tier persona (Senior UW, CUO, Admin)
+  // sees, right here on their own Assignment Dashboard, exactly the
+  // submissions assigned to them. This appears the moment
+  // assignSubmissionToUser() runs (it already calls renderRoleDashboard()
+  // right after saving the assignment) — no separate refresh needed.
+  //
+  // Assignment and authority are two different things: a submission stays
+  // listed here even if its exposure exceeds this role's authority limit —
+  // it is never hidden or removed for that reason. Instead each row shows
+  // an "Exceeds Authority" badge so the CUO can see it and take the
+  // required escalation/referral action, rather than the case silently
+  // disappearing from view.
+  const myAssigned = liveSubmissions.filter(s => s.assignedTo === currentUserRole);
+  const myAssignedSection = myAssigned.length ? `
+    <div class="card mt-3">
+      <div class="card-header">
+        <h3><i class="ph ph-user-focus"></i> Assigned to Me (${myAssigned.length})</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Submission</th><th>Insured</th><th>LOB</th><th>Exposure</th><th>Authority Status</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+              ${myAssigned.map(sub => {
+                const roleConfig = USER_ROLES_CONFIG[currentUserRole] || {};
+                const authorityLimit = sub.authorityLimit || roleConfig.limit || 0;
+                const overLimit = (sub.exposureVal || 0) > authorityLimit;
+                const authorityBadge = overLimit
+                  ? `<span class="badge badge-danger text-xs" title="Exposure $${(sub.exposureVal || 0).toLocaleString()} exceeds your $${authorityLimit.toLocaleString()} authority limit"><i class="ph ph-warning"></i> Exceeds Authority — Refer/Escalate</span>`
+                  : `<span class="badge badge-success text-xs"><i class="ph ph-check-circle"></i> Within Authority</span>`;
+                return `
+                <tr onclick="openCaseAtCurrentStep('${sub.id}')" style="cursor:pointer;">
+                  <td><span class="badge badge-light font-mono">${sub.id}</span></td>
+                  <td>${sub.insured}</td>
+                  <td>${sub.lobName}</td>
+                  <td class="font-mono">${sub.exposure}</td>
+                  <td>${authorityBadge}</td>
+                  <td>${sub.statusText}</td>
+                  <td><button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>` : "";
+
   return `
     ${workloadCardsSection}
+    ${myAssignedSection}
   `;
 }
 
@@ -502,16 +552,9 @@ function confirmAssignSubmissionModal() {
   // refreshes the submissions table / role dashboards behind the modal.
   assignSubmissionToUser(assignSubmissionModalSubId, assignSubmissionModalSelectedRole || "");
 
-  // Re-render in place instead of closing, so both tabs visibly reflect
-  // the new assignment status right away — no page refresh, no reopening
-  // the popup required. Land on whichever tab the chosen assignee now
-  // actually falls into (e.g. picking someone previously free jumps the
-  // view to "Assigned Submission" since they now have this one).
-  if (assignSubmissionModalSelectedRole) {
-    const { assignedRoles } = getAssignSubmissionModalRoleGroups();
-    assignSubmissionModalActiveTab = assignedRoles.includes(assignSubmissionModalSelectedRole) ? "assigned" : "unassigned";
-  }
-  renderAssignSubmissionModalOptions();
+  // Close the popup automatically the moment the assignment is confirmed
+  // — no manual X/Close click required.
+  closeAssignSubmissionModal();
 }
 window.confirmAssignSubmissionModal = confirmAssignSubmissionModal;
 
