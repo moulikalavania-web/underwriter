@@ -458,12 +458,22 @@ window.togglePostNormalizationCards = togglePostNormalizationCards;
 // is opened for a submission that hasn't been normalized yet, build the AI
 // extraction draft and render the review/edit form directly — the same form
 // that used to require a separate "Run AI Document Ingestion" click first.
+// Single unified card for the whole ingestion review flow — one header, one
+// frame. (Used to be two nested cards: an outer "AI Document Ingestion"
+// shell wrapping an inner "AI-Normalized Standard Data" panel with its own
+// header — same chrome twice, which is what made it feel cluttered.)
 function renderIngestionReviewDirect(sub, box) {
   box.innerHTML = `
-    <div class="card raw-capture-card">
-      <div class="card-header">
-        <h3><i class="ph ph-magic-wand"></i> AI Document Ingestion</h3>
-        <span class="badge badge-light"><i class="ph ph-lock-simple"></i> Review Before Applying</span>
+    <div class="card ingestion-review-card">
+      <div class="card-header ingestion-review-header">
+        <div class="ingestion-review-heading">
+          <span class="ingestion-review-icon"><i class="ph ph-magic-wand"></i></span>
+          <div>
+            <h3>AI Document Ingestion</h3>
+            <p class="ingestion-review-subtitle">Review what the AI extracted below, fix anything that's wrong, then apply it to the submission.</p>
+          </div>
+        </div>
+        <span class="badge badge-info ingestion-review-pill"><i class="ph ph-lock-simple"></i> Review Before Applying</span>
       </div>
       <div class="card-body">
         <div class="email-digest-dupe-banner" id="emailDigestDupeBanner"></div>
@@ -1216,58 +1226,50 @@ function renderNormalizationReview(subId, draft) {
 
   reviewBox.style.display = "block";
   reviewBox.innerHTML = `
-    <div class="email-digest-review-panel">
-      <div class="email-digest-review-header">
-        <div class="email-digest-review-heading">
-          <span class="email-digest-review-icon"><i class="ph ph-magic-wand"></i></span>
-          <div>
-            <h4>AI-Normalized Standard Data <span class="badge badge-info email-digest-draft-pill">Draft — Not Yet Applied</span></h4>
-            <p class="email-digest-review-subtitle">Review what the AI extracted below, fix anything that's wrong, then apply it to the submission.</p>
-          </div>
+    <div class="email-digest-toolbar">
+      <div class="email-digest-toolbar-progress">
+        <div class="email-digest-progress-bar" title="${filledCount} of ${fieldRows.length} fields have a value">
+          <div class="email-digest-progress-fill" style="width:${Math.round((filledCount / fieldRows.length) * 100)}%;"></div>
         </div>
-        <div class="form-group email-digest-lob-field">
-          <label>Line of Business</label>
-          <select class="form-control form-control-sm" id="normField_lobKey">
-            ${EMAIL_DIGEST_LOB_TEMPLATES.map(l => `<option value="${l}" ${l === draft.lobKey ? "selected" : ""}>${l}</option>`).join("")}
-          </select>
+        <div class="email-digest-progress-label">
+          <i class="ph ph-list-checks"></i> ${filledCount} of ${fieldRows.length} fields filled
+          ${blankCount > 0 ? `<span class="text-danger">— ${blankCount} need attention</span>` : `<span class="text-success">— all set</span>`}
         </div>
       </div>
-
-      <div class="email-digest-progress-bar" title="${filledCount} of ${fieldRows.length} fields have a value">
-        <div class="email-digest-progress-fill" style="width:${Math.round((filledCount / fieldRows.length) * 100)}%;"></div>
+      <div class="form-group email-digest-lob-field">
+        <label>Line of Business</label>
+        <select class="form-control form-control-sm" id="normField_lobKey">
+          ${EMAIL_DIGEST_LOB_TEMPLATES.map(l => `<option value="${l}" ${l === draft.lobKey ? "selected" : ""}>${l}</option>`).join("")}
+        </select>
       </div>
-      <div class="email-digest-progress-label">
-        <i class="ph ph-list-checks"></i> ${filledCount} of ${fieldRows.length} fields filled
-        ${blankCount > 0 ? `<span class="text-danger">— ${blankCount} need attention</span>` : `<span class="text-success">— all set</span>`}
+    </div>
+
+    ${reviewFlagHtml}
+
+    ${sectionsHtml}
+
+    <div class="email-digest-section">
+      <div class="email-digest-section-title"><i class="ph ph-note-pencil"></i> Notes</div>
+      <div class="email-digest-field-row email-digest-field-row--wide">
+        <label>Coverage Summary</label>
+        <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2" placeholder="e.g. Auto liability, cargo, and general liability requested...">${draft.coverageSummary || ""}</textarea>
       </div>
-
-      ${reviewFlagHtml}
-
-      ${sectionsHtml}
-
-      <div class="email-digest-section">
-        <div class="email-digest-section-title"><i class="ph ph-note-pencil"></i> Notes</div>
-        <div class="email-digest-field-row email-digest-field-row--wide">
-          <label>Coverage Summary</label>
-          <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2" placeholder="e.g. Auto liability, cargo, and general liability requested...">${draft.coverageSummary || ""}</textarea>
-        </div>
-        <div class="email-digest-field-row email-digest-field-row--wide">
-          <label>Loss History Summary</label>
-          <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2" placeholder="e.g. No losses reported in the last 3 years...">${draft.lossHistorySummary || ""}</textarea>
-        </div>
+      <div class="email-digest-field-row email-digest-field-row--wide">
+        <label>Loss History Summary</label>
+        <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2" placeholder="e.g. No losses reported in the last 3 years...">${draft.lossHistorySummary || ""}</textarea>
       </div>
+    </div>
 
-      <div class="modal-footer email-digest-review-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">
-        <div class="email-digest-review-footer-left">
-          <button type="button" class="btn btn-outline" onclick="discardNormalizationDraft('${subId}')"><i class="ph ph-arrow-counter-clockwise"></i> Discard Draft</button>
-          <button type="button" class="btn btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="openMissingFieldsModal('${subId}')">
-            <i class="ph ph-warning-circle"></i> Request Missing Information
-          </button>
-        </div>
-        <button type="button" class="btn btn-primary" onclick="applyNormalizedDataToSubmission('${subId}')">
-          <i class="ph ph-cloud-arrow-up"></i> Confirm & Apply Standard Data
+    <div class="modal-footer email-digest-review-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">
+      <div class="email-digest-review-footer-left">
+        <button type="button" class="btn btn-outline" onclick="discardNormalizationDraft('${subId}')"><i class="ph ph-arrow-counter-clockwise"></i> Discard Draft</button>
+        <button type="button" class="btn btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="openMissingFieldsModal('${subId}')">
+          <i class="ph ph-warning-circle"></i> Request Missing Information
         </button>
       </div>
+      <button type="button" class="btn btn-primary" onclick="applyNormalizedDataToSubmission('${subId}')">
+        <i class="ph ph-cloud-arrow-up"></i> Confirm & Apply Standard Data
+      </button>
     </div>
   `;
 }

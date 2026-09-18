@@ -6491,61 +6491,86 @@ body.has-bottom-footer .app-layout {
 }
 .email-digest-dupe-banner i { font-size: 18px; margin-top: 1px; }
 
-.email-digest-review-panel {
-  background: linear-gradient(180deg, #faf8ff 0%, #ffffff 90px);
-  border: 1px solid #e4defb;
+/* Outer card shell for the whole ingestion review flow (one header, one
+   frame — see the comment on renderIngestionReviewDirect for why this used
+   to be two nested cards). */
+.ingestion-review-card {
+  border: 1px solid #e2e8f0;
+  border-top: 3px solid #7c3aed;
   border-radius: 12px;
-  padding: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
-
-.email-digest-review-header {
+.ingestion-review-card .card-header {
+  padding: 16px 20px;
+  align-items: flex-start;
+}
+.ingestion-review-card .card-body {
+  padding: 20px;
+}
+.ingestion-review-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 12px;
+  width: 100%;
 }
-.email-digest-review-heading {
+.ingestion-review-heading {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
-.email-digest-review-icon {
+.ingestion-review-icon {
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #7c3aed, #a855f7);
   color: #fff;
-  font-size: 16px;
+  font-size: 17px;
+  box-shadow: 0 2px 6px rgba(124, 58, 237, 0.25);
 }
-.email-digest-review-header h4 {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
+.ingestion-review-header h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   color: #1e1b3a;
 }
-.email-digest-draft-pill {
-  font-size: 10px;
+.ingestion-review-subtitle {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted, #64748b);
+}
+.ingestion-review-pill {
+  flex: 0 0 auto;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .03em;
-  padding: 3px 8px;
+  padding: 5px 10px;
+  white-space: nowrap;
 }
-.email-digest-review-subtitle {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--text-muted, #64748b);
+
+/* Slim utility bar: completion progress + Line of Business, replacing what
+   used to be a second full header inside the card. */
+.email-digest-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eef0f4;
+}
+.email-digest-toolbar-progress {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 420px;
 }
 .email-digest-lob-field {
-  max-width: 240px;
+  max-width: 220px;
   flex: 0 0 auto;
   margin: 0;
 }
@@ -6570,7 +6595,6 @@ body.has-bottom-footer .app-layout {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-bottom: 12px;
 }
 
 .email-digest-needs-review-flag {
@@ -6622,6 +6646,7 @@ body.has-bottom-footer .app-layout {
 .email-digest-section:last-of-type {
   border-bottom: none;
   padding-bottom: 0;
+  margin-top: 6px;
   margin-bottom: 12px;
 }
 .email-digest-section-title {
@@ -6662,6 +6687,11 @@ body.has-bottom-footer .app-layout {
 }
 .email-digest-field-row--wide {
   margin-bottom: 10px;
+}
+.email-digest-field-row--wide textarea.form-control {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
 }
 .email-digest-field-row label {
   display: flex;
