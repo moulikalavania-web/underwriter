@@ -552,6 +552,92 @@ function escapeHtml(str) {
 //   "Driver 1: Rahul Sharma, Age 24, TX Class A license, 3 years CDL experience"
 //   "Driver 1: Age 24, TX Class A license, 3 years CDL experience"  (no name given)
 //   "Driver Name: Rahul Sharma" / "Age: 24"  (single unnumbered driver, applies to Driver 1)
+// Text-only, section-agnostic block grabber — returns every non-empty line
+// following a header line matching `headerRegex`, up to the next blank line
+// or the next section-header-looking line (short line ending in ':'). Used
+// by the driver/vehicle fallback parsers below when the email doesn't use
+// the rigid "Driver N:" / "Unit N:" numbering the primary regexes expect.
+function extractSection(raw, headerRegex) {
+  if (!raw) return null;
+  const lines = raw.split(/\r?\n/);
+  const headerIdx = lines.findIndex(l => headerRegex.test(l));
+  if (headerIdx === -1) return null;
+  const out = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") break;
+    if (/^[A-Za-z][A-Za-z /]{2,40}:\s*$/.test(line.trim()) && out.length) break; // next section header
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+const DRIVER_NAME_PATTERN = "[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,3}";
+
+// Pulls whatever driver fields a single free-text line/clause states
+// (age, experience, license state/class, DOB, sex, DL number, violations,
+// name) into `d`, only ever setting a field that isn't already present.
+// Shared by the numbered "Driver N: ..." parser and the unnumbered
+// bulleted-list fallback so both recognize the same phrasing.
+function applyDriverLineDetails(rest, d) {
+  const namePattern = DRIVER_NAME_PATTERN;
+
+  const ageMatch = rest.match(/age\s*[:\s]?\s*(\d+(?:\.\d+)?)/i) || rest.match(/\b(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*old\b/i);
+  if (ageMatch && d.age === undefined) d.age = parseFloat(ageMatch[1]);
+
+  const expMatch = rest.match(/(\d+)\s*years?\s*(?:CDL\s*)?experience/i);
+  if (expMatch && d.experience === undefined) d.experience = `${expMatch[1]} Years`;
+
+  const licMatch = rest.match(/\b([A-Z]{2})\s*Class\s*([A-Za-z0-9]+)\s*licen[sc]e/i);
+  if (licMatch && d.licensestate === undefined) {
+    d.licensestate = licMatch[1];
+    d.licenseclasstype = `Class ${licMatch[2]}`;
+  }
+
+  const dobMatch = rest.match(/(?:DOB|Date of Birth)\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+  if (dobMatch && d.dob === undefined) d.dob = dobMatch[1];
+
+  const sexMatch = rest.match(/\bSex\s*[:\-]?\s*(Male|Female|M|F)\b/i);
+  if (sexMatch && d.sex === undefined) {
+    const s = sexMatch[1].toUpperCase();
+    d.sex = s.startsWith("M") ? "M" : "F";
+  }
+
+  const dlMatch = rest.match(/\bDL\s*(?:No\.?|Number)?\s*[:#]\s*([A-Za-z0-9-]+)/i)
+    || rest.match(/(?:Driver'?s?\s*)?Licen[sc]e\s*(?:Number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i);
+  if (dlMatch && d.licenseNumber === undefined) d.licenseNumber = dlMatch[1].toUpperCase();
+
+  const violationsMatch = rest.match(/(\d+)\s*(?:MVR\s*)?Violations?/i);
+  if (violationsMatch && d.violations === undefined) d.violations = parseInt(violationsMatch[1], 10);
+
+  // Name directly followed by a parenthetical DL number ("... 3 years CDL
+  // experience, Salman Khan ( DL number: TX-DEMO-24001)") won't split
+  // cleanly on commas since the name and "(DL..." share the last segment
+  // — so this attaches to the name a comma-fallback below would miss.
+  if (d.name === undefined) {
+    const nameBeforeDl = rest.match(new RegExp(`(${namePattern})\\s*\\(\\s*DL`, "i"));
+    if (nameBeforeDl) d.name = nameBeforeDl[1].trim();
+  }
+
+  if (d.name === undefined) {
+    const segments = rest.split(",").map(s => s.trim()).filter(Boolean);
+    const looksLikeName = (s) => !!s
+      && !/^age\b/i.test(s)
+      && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(s)
+      && s.length >= 2 && s.length <= 40
+      && /^[A-Za-z .'-]+$/.test(s)
+      && !/licen[sc]e|experience|class|cdl|\bdob\b|\bsex\b|\bdl\b|date of birth/i.test(s);
+    // Name can lead the line ("Rahul Sharma, Age 24, ...") or trail it
+    // ("Age 24, TX Class A license, 3 years CDL experience, Rahul Sharma").
+    if (segments.length && looksLikeName(segments[0])) {
+      d.name = segments[0];
+    } else if (segments.length > 1 && looksLikeName(segments[segments.length - 1])) {
+      d.name = segments[segments.length - 1];
+    }
+  }
+  return d;
+}
+
 function extractDriverDetails(raw) {
   const details = {};
   if (!raw) return details;
@@ -561,7 +647,7 @@ function extractDriverDetails(raw) {
     return details[idx];
   }
 
-  const namePattern = "[A-Za-z][A-Za-z.'-]*(?:\\s+[A-Za-z][A-Za-z.'-]*){0,3}";
+  const namePattern = DRIVER_NAME_PATTERN;
 
   const reNumberedNamed = new RegExp(`Driver\\s*(\\d+)\\s*Name\\s*[:\\-]\\s*(${namePattern})`, "gi");
   let m;
@@ -573,61 +659,7 @@ function extractDriverDetails(raw) {
   while ((m = reNumberedLine.exec(raw)) !== null) {
     const idx = parseInt(m[1], 10);
     const rest = m[2].trim();
-    const d = ensure(idx);
-
-    const ageMatch = rest.match(/age\s*[:\s]?\s*(\d+(?:\.\d+)?)/i) || rest.match(/\b(\d+(?:\.\d+)?)\s*(?:years?|yrs?)\s*old\b/i);
-    if (ageMatch && d.age === undefined) d.age = parseFloat(ageMatch[1]);
-
-    const expMatch = rest.match(/(\d+)\s*years?\s*(?:CDL\s*)?experience/i);
-    if (expMatch && d.experience === undefined) d.experience = `${expMatch[1]} Years`;
-
-    const licMatch = rest.match(/\b([A-Z]{2})\s*Class\s*([A-Za-z0-9]+)\s*licen[sc]e/i);
-    if (licMatch && d.licensestate === undefined) {
-      d.licensestate = licMatch[1];
-      d.licenseclasstype = `Class ${licMatch[2]}`;
-    }
-
-    const dobMatch = rest.match(/(?:DOB|Date of Birth)\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-    if (dobMatch && d.dob === undefined) d.dob = dobMatch[1];
-
-    const sexMatch = rest.match(/\bSex\s*[:\-]?\s*(Male|Female|M|F)\b/i);
-    if (sexMatch && d.sex === undefined) {
-      const s = sexMatch[1].toUpperCase();
-      d.sex = s.startsWith("M") ? "M" : "F";
-    }
-
-    const dlMatch = rest.match(/\bDL\s*(?:No\.?|Number)?\s*[:#]\s*([A-Za-z0-9-]+)/i)
-      || rest.match(/(?:Driver'?s?\s*)?Licen[sc]e\s*(?:Number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i);
-    if (dlMatch && d.licenseNumber === undefined) d.licenseNumber = dlMatch[1].toUpperCase();
-
-    const violationsMatch = rest.match(/(\d+)\s*(?:MVR\s*)?Violations?/i);
-    if (violationsMatch && d.violations === undefined) d.violations = parseInt(violationsMatch[1], 10);
-
-    // Name directly followed by a parenthetical DL number ("... 3 years CDL
-    // experience, Salman Khan ( DL number: TX-DEMO-24001)") won't split
-    // cleanly on commas since the name and "(DL..." share the last segment
-    // — so this attaches to the name a comma-fallback below would miss.
-    if (d.name === undefined) {
-      const nameBeforeDl = rest.match(new RegExp(`(${namePattern})\\s*\\(\\s*DL`, "i"));
-      if (nameBeforeDl) d.name = nameBeforeDl[1].trim();
-    }
-
-    if (d.name === undefined) {
-      const segments = rest.split(",").map(s => s.trim()).filter(Boolean);
-      const looksLikeName = (s) => !!s
-        && !/^age\b/i.test(s)
-        && !/^\d+(\.\d+)?\s*(years?|yrs?)?$/i.test(s)
-        && s.length >= 2 && s.length <= 40
-        && /^[A-Za-z .'-]+$/.test(s)
-        && !/licen[sc]e|experience|class|cdl|\bdob\b|\bsex\b|\bdl\b|date of birth/i.test(s);
-      // Name can lead the line ("Rahul Sharma, Age 24, ...") or trail it
-      // ("Age 24, TX Class A license, 3 years CDL experience, Rahul Sharma").
-      if (segments.length && looksLikeName(segments[0])) {
-        d.name = segments[0];
-      } else if (segments.length > 1 && looksLikeName(segments[segments.length - 1])) {
-        d.name = segments[segments.length - 1];
-      }
-    }
+    applyDriverLineDetails(rest, ensure(idx));
   }
 
   if (Object.keys(details).length === 0) {
@@ -635,6 +667,23 @@ function extractDriverDetails(raw) {
     if (single) ensure(1).name = single[1].trim();
     const ageSingle = raw.match(/(?:^|\W)age\s*[:\s]?\s*(\d+(?:\.\d+)?)/i);
     if (ageSingle) ensure(1).age = parseFloat(ageSingle[1]);
+  }
+
+  // Fallback: the email never used the "Driver N:" numbering at all — parse
+  // a bulleted/numbered list sitting under a "Drivers" / "Drivers I need
+  // covered" section header instead, assigning sequential driver numbers in
+  // the order the lines appear. Covers the common real-world case of a
+  // driver schedule written as a plain bullet list with no per-line label.
+  if (Object.keys(details).length === 0) {
+    const section = extractSection(raw, /^\s*(?:Drivers?(?:\s+I\s+need\s+covered)?|Driver\s+Schedule)\s*:?\s*$/im);
+    if (section) {
+      const items = section.split(/\n/)
+        .map(l => l.replace(/^\s*[-*•]\s*|^\s*\d+[.)]\s*/, "").trim())
+        .filter(Boolean);
+      items.forEach((line, i) => {
+        applyDriverLineDetails(line, ensure(i + 1));
+      });
+    }
   }
 
   return details;
@@ -646,6 +695,33 @@ function extractDriverDetails(raw) {
 // plain hyphen or en dash as the separator too, not just an em dash — most
 // pasted emails use "-" rather than the actual "—" character, and this
 // used to silently extract zero losses whenever that was the case.
+// Pulls a loss-run row out of a single free-text line — a year or year
+// range, an optional description, an optional Closed/Open/Clean/Pending
+// status word, and an optional $ amount. Only a year is required; everything
+// else degrades to a sane default so a looser line (e.g. "2024: Minor fender
+// damage, Closed, $4,200") still produces a usable row.
+function parseLossLineDetails(line) {
+  const rangeMatch = line.match(/\b(\d{4})\s*[-–—]\s*(\d{4})\b/);
+  const yearMatch = rangeMatch || line.match(/\b(\d{4})\b/);
+  if (!yearMatch) return null;
+  const year = rangeMatch ? `${rangeMatch[1]} - ${rangeMatch[2]}` : yearMatch[1];
+
+  const amountMatch = line.match(/\$\s*([\d,]+)\s*incurred/i) || line.match(/\$\s*([\d,]+)/);
+  const statusMatch = line.match(/\b(Closed|Open|Clean|Pending|Reserved)\b/i);
+
+  let rest = line.slice(line.indexOf(yearMatch[0]) + yearMatch[0].length).replace(/^[\s:,-]+/, "");
+  let desc = rest.split(/\s*[-–—,]\s*|\$/)[0].trim();
+  if (statusMatch) desc = desc.replace(new RegExp(statusMatch[0], "i"), "").trim();
+  desc = desc.replace(/[-–—,\s]+$/, "").trim();
+
+  return {
+    year,
+    desc: desc || "No description provided",
+    status: statusMatch ? statusMatch[1].replace(/^\w/, c => c.toUpperCase()) : (amountMatch ? "Closed" : "Clean"),
+    incurred: amountMatch ? `$${amountMatch[1]}` : "$0"
+  };
+}
+
 function extractLossHistory(raw) {
   const losses = [];
   if (!raw) return losses;
@@ -659,6 +735,24 @@ function extractLossHistory(raw) {
       incurred: `$${m[4]}`
     });
   }
+
+  // Fallback: the email never used the rigid "<year range>: <desc> —
+  // <status> — $<amount> incurred" format — parse a bulleted/numbered list
+  // under a "Loss Run History" / "Prior Losses" section header instead,
+  // one row per line, each field best-effort.
+  if (losses.length === 0) {
+    const section = extractSection(raw, /^\s*(?:Loss Run History|Loss History|Prior Losses|Loss Runs?)\s*(?:\(.*\))?\s*:?\s*$/im);
+    if (section) {
+      section.split(/\n/)
+        .map(l => l.replace(/^\s*[-*•]\s*|^\s*\d+[.)]\s*/, "").trim())
+        .filter(Boolean)
+        .forEach(line => {
+          const parsed = parseLossLineDetails(line);
+          if (parsed) losses.push(parsed);
+        });
+    }
+  }
+
   return losses;
 }
 
@@ -687,23 +781,64 @@ function extractVehicleTypeFromModel(modelText) {
 // hyphen or en dash as the separator, not just an em dash, and uses a
 // space-bounded dash as the actual delimiter so a mid-word hyphen in a
 // model name (e.g. "M2-106") isn't mistaken for one.
+// Pulls whatever vehicle fields a single free-text line/clause states (year,
+// make/model, stated value, assigned driver) into a vehicle record. Stated
+// value and assigned-driver are both optional — a line just needs a 4-digit
+// year to be recognized as a vehicle at all.
+function parseVehicleLineDetails(line) {
+  const yearMatch = line.match(/\b(19|20)\d{2}\b/);
+  if (!yearMatch) return null;
+
+  const valueMatch = line.match(/Stated Value\s*\$?\s*([\d,]+)/i) || line.match(/\$\s*([\d,]+)/);
+  const assignedMatch = line.match(/assigned to\s*([^\n,;]+)/i);
+
+  let makeModelText = line.slice(line.indexOf(yearMatch[0]) + yearMatch[0].length);
+  makeModelText = makeModelText.split(/\s*[-–—,]\s*(?:Stated Value|assigned to)/i)[0]
+    .replace(/^[\s:,-]+/, "")
+    .trim();
+  const makeModelParts = makeModelText.split(/\s+/).filter(Boolean);
+  const model = makeModelParts.slice(1).join(" ");
+
+  return {
+    year: parseInt(yearMatch[0], 10),
+    make: makeModelParts[0] || "",
+    model: model,
+    vehicle_type: extractVehicleTypeFromModel(model),
+    stated_value: valueMatch ? parseInt(valueMatch[1].replace(/,/g, ""), 10) : null,
+    assigned_driver: assignedMatch ? assignedMatch[1].trim() : null
+  };
+}
+
 function extractVehicleDetails(raw) {
   const vehicles = {};
   if (!raw) return vehicles;
-  const re = /Unit\s*(\d+)\s*:\s*(\d{4})\s+(.+?)\s+[-–—]\s+Stated Value\s*\$?([\d,]+)\s*[-–—]\s*assigned to\s*([^\n]+)/gi;
+
+  const re = /(?:Unit|Vehicle)\s*(\d+)\s*:\s*([^\n]+)/gi;
   let m;
   while ((m = re.exec(raw)) !== null) {
-    const makeModelParts = m[3].trim().split(/\s+/);
-    const model = makeModelParts.slice(1).join(" ");
-    vehicles[parseInt(m[1], 10)] = {
-      year: parseInt(m[2], 10),
-      make: makeModelParts[0] || "",
-      model: model,
-      vehicle_type: extractVehicleTypeFromModel(model),
-      stated_value: parseInt(m[4].replace(/,/g, ""), 10),
-      assigned_driver: m[5].trim()
-    };
+    const parsed = parseVehicleLineDetails(m[2].trim());
+    if (parsed) vehicles[parseInt(m[1], 10)] = parsed;
   }
+
+  // Fallback: the email never used the "Unit N:" / "Vehicle N:" numbering at
+  // all — parse a bulleted/numbered list sitting under a "Vehicles" / "Fleet"
+  // section header instead, assigning sequential unit numbers in the order
+  // the lines appear. Covers a plain bullet-list vehicle schedule with no
+  // per-line label, which is the more common real-world email format.
+  if (Object.keys(vehicles).length === 0) {
+    const section = extractSection(raw, /^\s*(?:Vehicles?|Fleet|Vehicle\s+Schedule)\s*(?:\(.*\))?\s*:?\s*$/im);
+    if (section) {
+      const items = section.split(/\n/)
+        .map(l => l.replace(/^\s*[-*•]\s*|^\s*\d+[.)]\s*/, "").trim())
+        .filter(Boolean);
+      let next = 1;
+      items.forEach(line => {
+        const parsed = parseVehicleLineDetails(line);
+        if (parsed) vehicles[next++] = parsed;
+      });
+    }
+  }
+
   return vehicles;
 }
 
