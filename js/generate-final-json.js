@@ -105,6 +105,21 @@ function buildFinalUnderwritingJSON(sub) {
   };
 }
 
+// Generate JSON button (Authority Desk) — builds the JSON and downloads it
+// immediately, no preview modal.
+function generateAndDownloadFinalJson() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  if (!sub) { showToast("⚠️ No active submission selected.", "warning"); return; }
+
+  const finalJson = buildFinalUnderwritingJSON(sub);
+  if (!finalJson) return;
+
+  window._lastGeneratedFinalJson = finalJson;
+  window._lastGeneratedFinalJsonSubId = sub.id;
+
+  downloadFinalJson();
+}
+
 function openGenerateFinalJsonModal() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (!sub) { showToast("⚠️ No active submission selected.", "warning"); return; }
@@ -163,6 +178,7 @@ function downloadFinalJson() {
 }
 
 window.buildFinalUnderwritingJSON = buildFinalUnderwritingJSON;
+window.generateAndDownloadFinalJson = generateAndDownloadFinalJson;
 window.openGenerateFinalJsonModal = openGenerateFinalJsonModal;
 window.closeGenerateFinalJsonModal = closeGenerateFinalJsonModal;
 window.copyFinalJsonToClipboard = copyFinalJsonToClipboard;
