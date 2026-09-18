@@ -516,6 +516,13 @@ function buildProductAppetiteRules(schemaObj, sub) {
     }
 
     let subVal = "Verified Compliant";
+    // Default true — most eligibility rows below still only display real
+    // submission data without a numeric comparison (no fabricated
+    // pass/fail). Operating Radius is the one exception: the product JSON
+    // is the ONLY source of the rule/criteria and its guardrail limit, the
+    // email/JSON-ingested submission is the ONLY source of the actual
+    // value, and this rule is genuinely evaluated — never hardcoded.
+    let elgPass = true;
     if (n.includes("jurisdiction") || d.includes("state") || c.includes("state")) {
       subVal = subState ? `${subState} (Submitted)` : "State Verified";
     } else if (n.includes("vehicle age") || c.includes("vehicle_age")) {
@@ -527,7 +534,20 @@ function buildProductAppetiteRules(schemaObj, sub) {
     } else if (n.includes("vehicle type") || c.includes("vehicle_type")) {
       subVal = subVehicles.length > 0 ? `${subVehicles.length} Unit(s) Submitted` : "Fleet Data Pending";
     } else if (n.includes("radius") || c.includes("radius")) {
-      subVal = opRadius ? `${opRadius} Miles` : "Radius Data Pending";
+      // Criteria = JSON (this rule existing at all). Guardrail = JSON (the
+      // numeric limit stated in its own conditions/description). Submission
+      // value = Email/JSON (sub.radiusOfOperationsInfo.radius, populated
+      // only from real ingested data — never invented here). Evaluation =
+      // this direct comparison, nothing else.
+      const radiusGuardrail = extractNumber(condStr) ?? extractNumber(elg.description);
+      if (opRadius !== null && radiusGuardrail !== null) {
+        subVal = `${opRadius} Miles`;
+        elgPass = opRadius <= radiusGuardrail;
+      } else {
+        subVal = opRadius ? `${opRadius} Miles` : "Radius Data Pending";
+        // No guardrail number in the product JSON, or no radius value from
+        // the submission yet — nothing to compare, so this can't be failed.
+      }
     } else if (n.includes("fleet") || c.includes("fleet")) {
       subVal = subVehicles.length > 0 ? `${subVehicles.length} Power Units` : "Fleet Data Pending";
     }
@@ -543,7 +563,7 @@ function buildProductAppetiteRules(schemaObj, sub) {
       category: elg.category || "Product Eligibility",
       cover: elg.cover || "All Covers",
       conditions: condArr,
-      pass: true
+      pass: elgPass
     });
   });
 

@@ -1227,7 +1227,7 @@ function renderCostBreakdownSection(title, subtitleCount, totalLabel, totalAmt, 
       ${groups[c].rows.map(f => renderCostBreakdownRow(f)).join("")}
     `).join("");
   } else {
-    bodyHtml = rows.length ? rows.map(r => renderCostBreakdownRow(r)).join("") : `<div class="text-xs text-muted" style="padding:14px 0;">${opts.emptyText || 'None on file.'}</div>`;
+    bodyHtml = rows.length ? rows.map(r => renderCostBreakdownRow(r)).join("") : `<div class="empty-state" style="padding:16px 0;"><i class="ph ph-receipt empty-state-icon"></i><div class="empty-state-body">${opts.emptyText || 'None on file.'}</div></div>`;
   }
 
   return `
@@ -1482,18 +1482,18 @@ function getGeneratedQuoteHtml(data, sub) {
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
           <div>
             <h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 800; color: #0f172a;">Select Quote Delivery Target:</h4>
-            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #334155;">
-                <input type="radio" name="policyRecipientTarget" value="broker" checked onchange="updateIssuanceRecipientUI()">
-                <span>Producing Broker Agency (${(sub.broker || 'Marsh').split(' ')[0]})</span>
+            <div class="issuance-radios-grid" style="flex-direction: row; flex-wrap: wrap;">
+              <label class="issuance-radio-box selected" id="targetBrokerBox">
+                <input type="radio" id="radioTargetBroker" name="policyRecipientTarget" value="broker" checked onchange="updateIssuanceRecipientUI()">
+                <span class="radio-content"><span class="rc-title">Producing Broker Agency (${(sub.broker || 'Marsh').split(' ')[0]})</span></span>
               </label>
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #334155;">
-                <input type="radio" name="policyRecipientTarget" value="customer" onchange="updateIssuanceRecipientUI()">
-                <span>Direct Insured Customer (${sub.insured})</span>
+              <label class="issuance-radio-box" id="targetCustomerBox">
+                <input type="radio" id="radioTargetCustomer" name="policyRecipientTarget" value="customer" onchange="updateIssuanceRecipientUI()">
+                <span class="radio-content"><span class="rc-title">Direct Insured Customer (${sub.insured})</span></span>
               </label>
-              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 600; color: #334155;">
-                <input type="radio" name="policyRecipientTarget" value="both" onchange="updateIssuanceRecipientUI()">
-                <span>Simultaneous Dual Dispatch (Both)</span>
+              <label class="issuance-radio-box" id="targetBothBox">
+                <input type="radio" id="radioTargetBoth" name="policyRecipientTarget" value="both" onchange="updateIssuanceRecipientUI()">
+                <span class="radio-content"><span class="rc-title">Simultaneous Dual Dispatch (Both)</span></span>
               </label>
             </div>
           </div>

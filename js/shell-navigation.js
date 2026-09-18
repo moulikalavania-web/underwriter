@@ -43,14 +43,80 @@ document.addEventListener("DOMContentLoaded", () => {
   // "nothing ingested yet" rather than resurrecting the last session's data.
   try { localStorage.removeItem(VERIDEX_STORAGE_KEY); } catch (e) { /* localStorage unavailable — ignore */ }
 
+  populateLoginUserSelect();
+  // The rest of the app (submissions table, intake page, etc.) is only
+  // initialized after a successful login — see initAppAfterLogin(), fired
+  // from submitLogin(). Nothing internal renders or becomes reachable
+  // before that.
+});
+
+// ----------------------------------------------------------------------------
+// LOGIN GATE — must be the first thing the user sees and interacts with.
+// Everything else (header, sidebar, all 9 screens, every modal) stays
+// hidden behind body.pre-login until submitLogin() succeeds. This is a
+// browser-only prototype with no backend, so there is no real credential
+// check — signing in means picking who you are (same roster used
+// everywhere else in the app, USER_ROLES_CONFIG/TEAM_USERS) and entering
+// any non-empty password. What matters functionally is that no internal
+// page, data, or action is reachable until this step completes, and that
+// existing role-based permissions are set up exactly as before via the
+// same changeUserRole() used by the role switcher.
+// ----------------------------------------------------------------------------
+function populateLoginUserSelect() {
+  const select = document.getElementById("loginUserSelect");
+  if (!select) return;
+  const roster = (typeof TEAM_USERS !== "undefined" && TEAM_USERS.length)
+    ? TEAM_USERS
+    : Object.keys(USER_ROLES_CONFIG).map(roleKey => ({ roleKey, name: USER_ROLES_CONFIG[roleKey].name, title: USER_ROLES_CONFIG[roleKey].title }));
+  select.innerHTML = roster.map(u =>
+    `<option value="${u.roleKey}">${u.name} — ${u.title}</option>`
+  ).join("");
+}
+
+function submitLogin() {
+  const select = document.getElementById("loginUserSelect");
+  const passwordInput = document.getElementById("loginPasswordInput");
+  let valid = true;
+
+  if (!select || !select.value) {
+    if (typeof showFieldError === "function") showFieldError("loginUserSelect");
+    valid = false;
+  } else if (typeof clearFieldError === "function") {
+    clearFieldError("loginUserSelect");
+  }
+
+  if (!passwordInput || !passwordInput.value.trim()) {
+    if (typeof showFieldError === "function") showFieldError("loginPasswordInput");
+    valid = false;
+  } else if (typeof clearFieldError === "function") {
+    clearFieldError("loginPasswordInput");
+  }
+
+  if (!valid) return;
+
+  const chosenRole = select.value;
+  document.body.classList.remove("pre-login");
+  if (passwordInput) passwordInput.value = "";
+
+  initAppAfterLogin(chosenRole);
+}
+window.submitLogin = submitLogin;
+
+// Runs exactly once, right after a successful login. Sets the logged-in
+// user's role (via the same changeUserRole() the role switcher already
+// uses, so permissions/sidebar/dashboards are configured identically to
+// before) and then performs the app's normal first render — this used to
+// run unconditionally on DOMContentLoaded; now it only runs post-login.
+function initAppAfterLogin(chosenRole) {
   setupNavigationEvents();
   restoreSidebarCollapsedState();
   setupLOBSelector();
   setupDiagramModal();
+  if (typeof changeUserRole === "function" && chosenRole) changeUserRole(chosenRole);
   renderSubmissionsTable();
   selectSubmission(activeSubmissionId, false);
   showIntakePage();
-});
+}
 
 function setupNavigationEvents() {
   // Note: the sidebar toggle button already has an inline onclick="toggleSidebar()"
@@ -106,7 +172,8 @@ function changeUserRole(role) {
   } else {
     filterSubmissionsTable("all");
   }
-  showToast(`${roleConfig.icon} ${roleConfig.name} — ${roleConfig.title.split(' (')[0]}`, "info");
+
+  showToast(`${roleConfig.icon} Now viewing as ${roleConfig.name}`, "info");
 
   // Refresh Table highlights
   renderSubmissionsTable();
@@ -455,6 +522,26 @@ function setPageTitle(pageName) {
     name = name.slice(0, budget - 1).trimEnd() + "…";
   }
   document.title = name + sep + moduleName + suffix;
+
+  // Breadcrumb — was static ("Submission Intake" no matter where you were),
+  // which made it actively misleading rather than just unhelpful. This is
+  // the one function every navigation path (every show*Page(), every
+  // goToWorkflowStep()) already calls, so wiring the breadcrumb here makes
+  // it accurate everywhere with no new call sites and no change to any
+  // existing click handler.
+  const breadcrumbCurrentEl = document.getElementById("breadcrumbCurrent");
+  if (breadcrumbCurrentEl) breadcrumbCurrentEl.textContent = pageName;
+
+  // "Case Workflow" context segment — appears only when pageName is one of
+  // the 7 in-case workflow step titles (Doc Ingestion, Clearance, etc.),
+  // making it visually obvious this is a different navigation level than a
+  // sidebar module page (Decline Center, Archive, etc.). Click jumps back
+  // to Submission Intake, same as leaving the workflow any other way.
+  const isWorkflowStep = typeof WORKFLOW_STEPS !== "undefined" && WORKFLOW_STEPS.some(s => s.title === pageName);
+  const contextEl = document.getElementById("breadcrumbContext");
+  const contextSepEl = document.getElementById("breadcrumbContextSep");
+  if (contextEl) contextEl.classList.toggle("u-hidden", !isWorkflowStep);
+  if (contextSepEl) contextSepEl.classList.toggle("u-hidden", !isWorkflowStep);
 }
 
 function resetAllTopLevelPages() {

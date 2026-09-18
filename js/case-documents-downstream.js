@@ -401,8 +401,10 @@ function renderAllDownstreamScreens(sub) {
 
   // Screen 4: Third-Party Data Enrichment & Manual Assignment (Optional)
   renderEnrichmentCards(sub.enrichmentCards);
+  if (typeof renderRegistryVerificationCard === "function") renderRegistryVerificationCard(sub);
   if (typeof renderVehicleEnrichment === "function") renderVehicleEnrichment(sub);
   if (typeof renderComplianceGate === "function") renderComplianceGate(sub);
+  if (typeof renderDriverLicenseVerification === "function") renderDriverLicenseVerification(sub);
   const deskSelect = document.getElementById("manualDeskSelect");
   const uwSelect = document.getElementById("manualUnderwriterSelect");
   const callout = document.getElementById("assignmentVisibilityCallout");
@@ -529,7 +531,7 @@ function coverageLineIcon(lineText) {
 
 function renderCoverageRowsHtml(coverageRows) {
   if (!coverageRows || !coverageRows.length) {
-    return '<div class="text-xs text-muted" style="padding:10px 0;"><i class="ph ph-shield-slash"></i> No coverage lines on file.</div>';
+    return '<div class="empty-state" style="padding:16px 0;"><i class="ph ph-shield-slash empty-state-icon"></i><div class="empty-state-body">No coverage lines on file.</div></div>';
   }
   return '<div class="coverage-lines-list">' + coverageRows.map(function (c) {
     return '' +
@@ -643,7 +645,16 @@ function evaluateAppetiteRule(rule) {
 
 function formatRuleBaseValue(r) {
   const bv = r.baseValue;
-  if (bv === undefined || bv === null) return r.val;
+  if (bv === undefined || bv === null) {
+    // No explicit carrier base value on this rule — try to pull one out of
+    // its own guardrail/threshold text (e.g. "Fleet Age <= 10 Years" -> 10).
+    // Never falls back to r.val (the submission's own value) here — that's
+    // a different column entirely, and showing it in the editable "MGA
+    // Base Value" field previously produced garbled numbers when someone
+    // edited it (see validateMgaOverrideInput).
+    const guardrailNum = parseRuleNumber(r.guardrail || r.threshold);
+    return guardrailNum !== null ? (guardrailNum + (r.unit && r.unit !== "Yes/No" ? " " + r.unit : "")) : "";
+  }
   if (r.unit === "$") return "$" + Number(bv).toLocaleString();
   if (r.unit === "%") return bv + "%";
   if (typeof bv === "number") return bv + (r.unit ? " " + r.unit : "");
@@ -671,6 +682,15 @@ function toggleAppetiteRuleOverride(ruleId) {
 
   const rule = sub.appetiteRules.find(r => r.ruleId === ruleId);
   if (!rule) return;
+
+  // Turning an override ON bypasses a failed appetite rule — a real
+  // underwriting decision, not a display toggle — so it gets a lightweight
+  // confirmation step, same spirit as the Decline and Bind safeguards.
+  // Turning it back OFF just undoes that, no confirmation needed.
+  if (!rule.manualPassOverride) {
+    const confirmed = window.confirm(`Override appetite rule "${rule.factor}" (${ruleId})?\n\nThis will mark a failed rule as passed for this submission. This action is logged.`);
+    if (!confirmed) return;
+  }
 
   rule.manualPassOverride = !rule.manualPassOverride;
   if (rule.manualPassOverride) {
@@ -831,20 +851,18 @@ function validateMgaOverrideInput(inputEl) {
 
   // Live comparison: Submission Value vs the (possibly just-edited) MGA
   // Base Value, using the rule's own operator — never a hardcoded pass.
+  // This is the single source of truth for pass/fail (same function that
+  // computes the PASS/FAIL badge). A second, independently regex-parsed
+  // "guardrail violated" check used to live here too — it read the raw
+  // guardrail *text* and the input's raw digits separately, which could
+  // disagree with this real evaluation (e.g. for a rule whose base value
+  // isn't set, the input falls back to showing the submission's own
+  // descriptive text, and stripping non-digits out of a string like
+  // "Fleet Age: 3 Yrs (2023 Model)" mashes "3" and "2023" together into a
+  // huge bogus number — always "exceeding" any real guardrail). Removed;
+  // "violated" now just mirrors the real pass/fail.
   if (!rule.manualPassOverride) rule.pass = evaluateAppetiteRule(rule);
-
-  const guardrailMatch = (rule.guardrail || "").match(/(<=|>=|<|>)\s*\$?([\d,]+(?:\.\d+)?)/);
-  let violated = false;
-
-  if (guardrailMatch) {
-    const op = guardrailMatch[1];
-    const limit = parseFloat(guardrailMatch[2].replace(/,/g, ""));
-    const entered = parseFloat(String(inputEl.value).replace(/[^0-9.\-]/g, ""));
-    if (!isNaN(entered)) {
-      if ((op === "<=" || op === "<") && entered > limit) violated = true;
-      if ((op === ">=" || op === ">") && entered < limit) violated = true;
-    }
-  }
+  const violated = !rule.manualPassOverride && !rule.pass;
 
   inputEl.classList.toggle("mga-exceeded", violated);
   if (msgEl) {
@@ -927,6 +945,7 @@ function renderEnrichmentCards(cards) {
     </div>
   `).join("");
 }
+
 
 // Helper: Document Tab in Screen 5
 function switchDocTab(tabKey) {
@@ -1261,26 +1280,45 @@ function renderUnderwritingWorkbench(sub) {
     const opsForTiles = sub.operationsProfile || {};
     const commodities = sub.commoditiesInfo || {};
 
+    // Every tile here that maps to a single real field is directly
+    // editable by the underwriter (per explicit request) — `field` is the
+    // dot-path written back onto `sub`, `raw` is that field's current
+    // unformatted value (what shows in the input; the tile's own display
+    // formatting — "mi", "%", commas — only applies to the read-only view).
+    // Vehicle Type / Vehicle Count / Driver Violations / Loss History are
+    // aggregated from the Vehicles/Drivers/Loss Runs tables elsewhere on
+    // this page, not a standalone value, so they stay read-only here.
     const opTiles = [
-      { label: "Operating Radius", value: rad.radius !== undefined ? `${rad.radius} mi` : null, caption: rad.Intrastate_interstate || "" },
-      { label: "SAFER Safety Factor", value: fil.safer_factor !== undefined ? `${fil.safer_factor}` : null, caption: fil.FMCSA_alert !== undefined ? `${fil.FMCSA_alert} Alerts` : "" },
-      { label: "Driver Pool", value: uwRev.og_driver_count !== undefined ? `${uwRev.og_driver_count}` : null, caption: uwRev.cr_driver_count !== undefined ? `${uwRev.cr_driver_count} Active Verified` : "" },
-      { label: "Pollution Risk", value: uwRev.al_pollution !== undefined ? `${uwRev.al_pollution}` : null, caption: uwRev.min_earn_factor !== undefined ? `Min Earned ${uwRev.min_earn_factor}%` : "" },
-      { label: "UW Discretionary Factor", value: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? '-' + Math.round((1 - Number(fil.uw_credit_debit_factor)) * 100) + '%' : '+' + Math.round((Number(fil.uw_credit_debit_factor) - 1) * 100) + '%') : null, caption: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? 'Discretionary Credit' : 'Debit Applied') : "", wide: true },
-      { label: "Vehicle Type", value: uniqueVehicleTypes.length ? uniqueVehicleTypes.join(", ") : null },
-      { label: "Business Type", value: opsForTiles.business_type || null },
-      { label: "Primary Commodity / Cargo Type", value: commodities.secondary_class || null },
-      { label: "Operating Territory", value: rad.Intrastate_interstate || opsForTiles.interstate_intrastate || null },
-      { label: "Annual Mileage", value: (opsForTiles.annual_mileage !== undefined && opsForTiles.annual_mileage !== null) ? `${Number(opsForTiles.annual_mileage).toLocaleString()} mi/yr` : null },
-      { label: "Vehicle Count", value: vehicles.length || null },
-      { label: "Driver Violations", value: driversWithViolationData.length ? `${totalDriverViolations}` : null },
-      { label: "Loss History", value: (sub.losses && sub.losses.length) ? `${sub.losses.length} Claim${sub.losses.length === 1 ? '' : 's'}` : null, caption: (sub.losses && sub.losses.length) ? `$${sub.losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0).toLocaleString()} Total Incurred` : "" }
+      { label: "Operating Radius", value: rad.radius !== undefined ? `${rad.radius} mi` : null, caption: rad.Intrastate_interstate || "", field: "radiusOfOperationsInfo.radius", raw: rad.radius },
+      { label: "SAFER Safety Factor", value: fil.safer_factor !== undefined ? `${fil.safer_factor}` : null, caption: fil.FMCSA_alert !== undefined ? `${fil.FMCSA_alert} Alerts` : "", field: "filingInfo.safer_factor", raw: fil.safer_factor },
+      { label: "Driver Pool", value: uwRev.og_driver_count !== undefined ? `${uwRev.og_driver_count}` : null, caption: uwRev.cr_driver_count !== undefined ? `${uwRev.cr_driver_count} Active Verified` : "", field: "uwReviewInfo.og_driver_count", raw: uwRev.og_driver_count },
+      { label: "Pollution Risk", value: uwRev.al_pollution !== undefined ? `${uwRev.al_pollution}` : null, caption: uwRev.min_earn_factor !== undefined ? `Min Earned ${uwRev.min_earn_factor}%` : "", field: "uwReviewInfo.al_pollution", raw: uwRev.al_pollution },
+      { label: "UW Discretionary Factor", value: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? '-' + Math.round((1 - Number(fil.uw_credit_debit_factor)) * 100) + '%' : '+' + Math.round((Number(fil.uw_credit_debit_factor) - 1) * 100) + '%') : null, caption: fil.uw_credit_debit_factor ? (Number(fil.uw_credit_debit_factor) < 1 ? 'Discretionary Credit' : 'Debit Applied') : "", wide: true, field: "filingInfo.uw_credit_debit_factor", raw: fil.uw_credit_debit_factor },
+      { label: "Vehicle Type", value: uniqueVehicleTypes.length ? uniqueVehicleTypes.join(", ") : null, readonly: true },
+      { label: "Business Type", value: opsForTiles.business_type || null, field: "operationsProfile.business_type", raw: opsForTiles.business_type },
+      { label: "Primary Commodity / Cargo Type", value: commodities.secondary_class || null, field: "commoditiesInfo.secondary_class", raw: commodities.secondary_class },
+      { label: "Operating Territory", value: rad.Intrastate_interstate || opsForTiles.interstate_intrastate || null, field: "radiusOfOperationsInfo.Intrastate_interstate", raw: rad.Intrastate_interstate || opsForTiles.interstate_intrastate },
+      { label: "Annual Mileage", value: (opsForTiles.annual_mileage !== undefined && opsForTiles.annual_mileage !== null) ? `${Number(opsForTiles.annual_mileage).toLocaleString()} mi/yr` : null, field: "operationsProfile.annual_mileage", raw: opsForTiles.annual_mileage },
+      { label: "Vehicle Count", value: vehicles.length || null, readonly: true },
+      { label: "Driver Violations", value: driversWithViolationData.length ? `${totalDriverViolations}` : null, readonly: true },
+      { label: "Loss History", value: (sub.losses && sub.losses.length) ? `${sub.losses.length} Claim${sub.losses.length === 1 ? '' : 's'}` : null, caption: (sub.losses && sub.losses.length) ? `$${sub.losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0).toLocaleString()} Total Incurred` : "", readonly: true }
     ];
 
     const renderIpTile = (t) => `
       <div class="ip-tile ${t.wide ? 'wide' : ''}">
         <div class="ip-tile-label">${t.label}</div>
         <div class="ip-tile-value">${t.value !== null && t.value !== undefined ? t.value : '<span class="ip-tile-empty">—</span>'}</div>
+        ${t.caption ? `<div class="ip-tile-caption">${t.caption}</div>` : ''}
+      </div>`;
+
+    // Editable variant — used only for the Operational Profile & Rating
+    // Factors panel (opTiles), never Coverages or the product-fallback
+    // tiles. Shows the raw stored value in the input (not the formatted
+    // display string), same generic writer as Policy Information above.
+    const renderIpTileEditable = (t) => t.readonly ? renderIpTile(t) : `
+      <div class="ip-tile ${t.wide ? 'wide' : ''}">
+        <div class="ip-tile-label">${t.label}</div>
+        <input type="text" class="ip-tile-input" placeholder="Not Provided" value="${t.raw !== undefined && t.raw !== null ? String(t.raw).replace(/"/g, '&quot;') : ''}" onchange="updateWorkbenchNestedField('${sub.id}', '${t.field}', this.value)">
         ${t.caption ? `<div class="ip-tile-caption">${t.caption}</div>` : ''}
       </div>`;
 
@@ -1310,10 +1348,10 @@ function renderUnderwritingWorkbench(sub) {
       { label: "Tax Rate", value: productPricing.taxRatePct !== undefined ? `${productPricing.taxRatePct}%` : null, caption: "Product Rating Configuration", wide: true }
     ] : [];
     const opRightBody = hasSubRatingData
-      ? `<div class="ip-grid">${opTiles.map(renderIpTile).join('')}</div>`
+      ? `<div class="ip-grid">${opTiles.map(renderIpTileEditable).join('')}</div>`
       : (productPricingTiles.length
         ? `<div class="ip-grid">${productPricingTiles.map(renderIpTile).join('')}</div>`
-        : `<div class="ip-grid">${opTiles.map(renderIpTile).join('')}</div>`);
+        : `<div class="ip-grid">${opTiles.map(renderIpTileEditable).join('')}</div>`);
     // "UW Tag" — the assigned underwriter's name (set on Screen 4's manual
     // assignment dropdown, sub.underwriter). Falls back to the discretionary
     // rating factor / product config badge only when no underwriter has
@@ -1358,6 +1396,7 @@ function renderUnderwritingWorkbench(sub) {
         </h3>
         ${vehicles.length ? `
         <div style="display: flex; align-items: center; gap: 8px;">
+          <button type="button" class="btn btn-xs btn-outline" onclick="toggleTableDetailView('vehiclesScheduleTable', this)"><i class="ph ph-columns"></i> Simplify View</button>
           <span class="badge ${canOverrideBaseRate ? 'badge-warning' : 'badge-success'}" style="font-size: 11px;">
             <i class="ph ${canOverrideBaseRate ? 'ph-shield-check' : 'ph-lock'}"></i>
             ${canOverrideBaseRate ? 'UW Base Rate Overrides Enabled' : 'Base Rate Rating Factors Locked'}
@@ -1367,7 +1406,7 @@ function renderUnderwritingWorkbench(sub) {
       <div class="card-body p-0">
         ${vehicles.length ? `
         <div class="table-responsive">
-          <table class="data-table wb-detail-table">
+          <table class="data-table wb-detail-table" id="vehiclesScheduleTable">
             <thead>
               <tr>
                 <th>Unit #</th>
@@ -1375,10 +1414,10 @@ function renderUnderwritingWorkbench(sub) {
                 <th>Model No. & Driver</th>
                 <th>Operating Radius</th>
                 <th>Stated Value</th>
-                <th>AL Value</th>
-                <th>Class</th>
-                <th>Actuarial Rating Factors</th>
-                <th>Base Rate & Validation</th>
+                <th class="wb-detail-col">AL Value</th>
+                <th class="wb-detail-col">Class</th>
+                <th class="wb-detail-col">Actuarial Rating Factors</th>
+                <th class="wb-detail-col">Base Rate & Validation</th>
                 <th>Item Premium</th>
               </tr>
             </thead>
@@ -1435,13 +1474,13 @@ function renderUnderwritingWorkbench(sub) {
                     ${radiusVal !== undefined ? `<span class="badge badge-info" style="font-weight: 700; font-size: 11px;"><i class="ph ph-navigation-arrow"></i> ${radiusVal} Miles Radius</span>` : NP}
                   </td>
                   <td class="font-mono font-bold">${wbFmtCurrency(v.stated_value)}</td>
-                  <td class="font-mono text-primary">${wbFmtCurrency(v.al_value)}</td>
-                  <td>${v.rating_class !== undefined ? `<span class="badge badge-info">Class ${v.rating_class}</span>` : NP}</td>
-                  <td style="font-size: 11px;" class="font-mono">
+                  <td class="font-mono text-primary wb-detail-col">${wbFmtCurrency(v.al_value)}</td>
+                  <td class="wb-detail-col">${v.rating_class !== undefined ? `<span class="badge badge-info">Class ${v.rating_class}</span>` : NP}</td>
+                  <td style="font-size: 11px;" class="font-mono wb-detail-col">
                     ${(v.liab_ilf_factor !== undefined || v.liab_lcm_factor !== undefined) ? `ILF: ${v.liab_ilf_factor !== undefined ? v.liab_ilf_factor : '—'} | LCM: ${v.liab_lcm_factor !== undefined ? v.liab_lcm_factor : '—'}<br>` : ''}
                     ${(v.liab_fleet_factor !== undefined || v.vehicle_age_factor !== undefined || v.radius_factor !== undefined) ? `Fleet: ${v.liab_fleet_factor !== undefined ? v.liab_fleet_factor : '—'} | Age: ${v.vehicle_age_factor !== undefined ? v.vehicle_age_factor : '—'} | Radius: ${radiusVal !== undefined ? radiusVal + ' Miles' : '—'} (${v.radius_factor !== undefined ? v.radius_factor : '—'})` : (v.liab_ilf_factor === undefined ? NP : '')}
                   </td>
-                  <td>${baseRateCell}</td>
+                  <td class="wb-detail-col">${baseRateCell}</td>
                   <td class="font-mono vehicle-item-premium">
                     <strong style="color: #15803d; font-size: 13px;">${v.liability_premium || v.al_premium_wo_mod_factor || NP}</strong>
                     ${v.overridden ? `<span class="badge badge-warning text-xs ml-1"><i class="ph ph-shield-check"></i> UW Override</span>` : ''}
@@ -1601,6 +1640,7 @@ function renderUnderwritingWorkbench(sub) {
   renderWbRiskOverviewGrid(sub);
   renderWbLossRunsUwp(sub);
   renderWbUwFactorsUwp(sub);
+  if (typeof renderWbRegistryVerification === "function") renderWbRegistryVerification(sub);
 }
 
 // ============================================================================
@@ -1690,25 +1730,32 @@ function renderWbRiskOverviewGrid(sub) {
     { label: "Industry", value: fieldVal(ops.business_type) }
   ];
 
+  // Policy Information — every field here is directly editable by the
+  // underwriter (per explicit request). Vehicle/Driver Count are the one
+  // exception: they're literally the length of the Vehicles/Drivers
+  // Schedule arrays elsewhere on this page, not a standalone value, so
+  // editing them here wouldn't mean anything — they stay read-only counts.
   const policyFields = [
-    { label: "Effective Date", value: fieldVal(gen.effective_date || sub.effectiveDate) },
-    { label: "Expiration Date", value: fieldVal(gen.expiration_date || sub.expirationDate) },
-    { label: "Prior Policy Period", value: fieldVal(sub.priorPolicyPeriod) },
-    { label: "Requested Limit / TIV", value: fieldVal(sub.exposure) },
-    { label: "Vehicle Count", value: vehicles.length || null },
-    { label: "Driver Count", value: drivers.length || null },
-    { label: "Policy Type", value: fieldVal(gen.policytype) },
-    { label: "Program", value: fieldVal(sub.program) }
+    { label: "Effective Date", value: fieldVal(gen.effective_date || sub.effectiveDate), path: "effectiveDate" },
+    { label: "Expiration Date", value: fieldVal(gen.expiration_date || sub.expirationDate), path: "expirationDate" },
+    { label: "Prior Policy Period", value: fieldVal(sub.priorPolicyPeriod), path: "priorPolicyPeriod" },
+    { label: "Requested Limit / TIV", value: fieldVal(sub.exposure), path: "exposure" },
+    { label: "Vehicle Count", value: vehicles.length || null, readonly: true },
+    { label: "Driver Count", value: drivers.length || null, readonly: true },
+    { label: "Policy Type", value: fieldVal(gen.policytype), path: "genInfo.policytype" },
+    { label: "Program", value: fieldVal(sub.program), path: "program" }
   ];
 
-  const renderCard = (title, icon, fields) => `
+  const renderCard = (title, icon, fields, editable) => `
     <div class="uwp-card">
       <div class="uwp-card-title"><i class="ph ${icon}"></i> ${title}</div>
       <div class="uwp-field-grid">
         ${fields.map(f => `
           <div class="uwp-field">
             <span class="uwp-field-label">${f.label}</span>
-            ${f.value !== null && f.value !== undefined ? `<span class="uwp-field-value">${f.value}</span>` : NP}
+            ${editable && !f.readonly
+              ? `<input type="text" class="form-control form-control-sm uwp-field-input" value="${f.value !== null && f.value !== undefined ? String(f.value).replace(/"/g, '&quot;') : ''}" placeholder="Not Provided" onchange="updateWorkbenchNestedField('${sub.id}', '${f.path}', this.value)">`
+              : (f.value !== null && f.value !== undefined ? `<span class="uwp-field-value">${f.value}</span>` : NP)}
           </div>
         `).join('')}
       </div>
@@ -1716,11 +1763,51 @@ function renderWbRiskOverviewGrid(sub) {
 
   box.innerHTML = `
     <div class="uwp-grid-2col-even">
-      ${renderCard("Applicant Information", "ph-identification-card", applicantFields)}
-      ${renderCard("Policy Information", "ph-file-text", policyFields)}
+      ${renderCard("Applicant Information", "ph-identification-card", applicantFields, false)}
+      ${renderCard("Policy Information", "ph-file-text", policyFields, true)}
     </div>
   `;
 }
+
+// Generic dot-path field writer for underwriter-editable Workbench fields
+// (Policy Information, Operational Profile & Rating Factors). Writes the
+// underwriter's typed value directly onto the submission at the given path
+// (creating intermediate objects as needed), then re-renders so every other
+// place that same fact is shown stays consistent, and persists it — same
+// pattern as every other manual UW edit in this app (Risk Score override,
+// Discretionary Pricing, etc.).
+function updateWorkbenchNestedField(subId, path, rawValue) {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
+  if (!sub) return;
+
+  const value = rawValue.trim();
+  const parts = path.split(".");
+  let target = sub;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!target[parts[i]] || typeof target[parts[i]] !== "object") target[parts[i]] = {};
+    target = target[parts[i]];
+  }
+  const leafKey = parts[parts.length - 1];
+  target[leafKey] = value === "" ? null : value;
+
+  // Keep the couple of fields that are mirrored elsewhere in sync, same as
+  // the ingestion pipeline already does for these exact fields.
+  if (path === "effectiveDate") {
+    if (!sub.genInfo) sub.genInfo = {};
+    sub.genInfo.effective_date = value || null;
+  } else if (path === "expirationDate") {
+    if (!sub.genInfo) sub.genInfo = {};
+    sub.genInfo.expiration_date = value || null;
+  } else if (path === "exposure" && value) {
+    const numeric = parseFloat(value.replace(/[^0-9.]/g, ""));
+    if (!isNaN(numeric)) sub.exposureVal = numeric;
+  }
+
+  if (typeof renderUnderwritingWorkbench === "function") renderUnderwritingWorkbench(sub);
+  if (typeof persistAppState === "function") persistAppState();
+  showToast(`✅ ${sub.id} updated.`, "success");
+}
+window.updateWorkbenchNestedField = updateWorkbenchNestedField;
 
 // Loss Runs — straight from sub.losses (Email/Submission JSON extracted).
 // Paid Amount has no source anywhere in the app yet, so it's honestly "—"
@@ -1743,6 +1830,37 @@ function renderWbLossRunsUwp(sub) {
     </tr>`;
   }).join('') : `<tr><td colspan="5"><div class="empty-state"><i class="ph ph-file-text empty-state-icon"></i><div class="empty-state-body">No loss history was provided with this submission.</div></div></td></tr>`;
 
+  // Loss Ratio = Incurred Losses ÷ Earned Premium × 100. Incurred Losses is
+  // the real sum of sub.losses above — never hardcoded. Earned Premium
+  // (the prior period's premium) isn't something Email/JSON ever states
+  // directly, so it's a value the underwriter enters here; the ratio then
+  // (re)calculates live off whatever real incurred total + entered premium
+  // exist, and stays "Not Provided" rather than a fabricated number when
+  // either is missing.
+  const earnedPremium = (typeof sub.priorEarnedPremium === "number" && sub.priorEarnedPremium > 0) ? sub.priorEarnedPremium : null;
+  const lossRatio = (earnedPremium && losses.length) ? (totalIncurred / earnedPremium) * 100 : null;
+  const lossRatioColor = lossRatio === null ? "var(--text-muted)" : (lossRatio < 60 ? "#166534" : (lossRatio <= 90 ? "#B45309" : "#B91C1C"));
+
+  const lossRatioHtml = `
+    <div class="uwp-subsection-title">Loss Ratio</div>
+    <div class="uwp-field-grid" style="grid-template-columns: repeat(3, 1fr);">
+      <div class="uwp-field">
+        <span class="uwp-field-label">Total Incurred Losses</span>
+        <span class="uwp-field-value font-mono">$${totalIncurred.toLocaleString()}</span>
+      </div>
+      <div class="uwp-field">
+        <span class="uwp-field-label">Earned Premium (Prior Period)</span>
+        <input type="text" class="form-control form-control-sm" placeholder="Enter earned premium" value="${earnedPremium !== null ? earnedPremium : ''}" onchange="updateLossRatioEarnedPremium('${sub.id}', this.value)">
+      </div>
+      <div class="uwp-field">
+        <span class="uwp-field-label">Loss Ratio</span>
+        ${lossRatio !== null
+          ? `<span class="uwp-field-value font-mono" style="color:${lossRatioColor}; font-weight:800;">${lossRatio.toFixed(1)}%</span>`
+          : `<span class="uwp-field-value uwp-empty">Not Provided</span>`}
+      </div>
+    </div>
+    <div class="text-xs text-muted mt-1">Loss Ratio = Incurred Losses ÷ Earned Premium × 100</div>`;
+
   box.innerHTML = `
     <div class="uwp-card">
       <div class="uwp-card-title"><i class="ph ph-file-text"></i> Loss Runs (${losses.length} Claim${losses.length === 1 ? '' : 's'})</div>
@@ -1753,8 +1871,23 @@ function renderWbLossRunsUwp(sub) {
           ${losses.length ? `<tfoot><tr><td>Total Claims: ${losses.length}</td><td></td><td class="font-mono">Total Incurred: $${totalIncurred.toLocaleString()}</td><td></td><td></td></tr></tfoot>` : ''}
         </table>
       </div>
+      ${lossRatioHtml}
     </div>`;
 }
+
+// Earned Premium is a manual underwriter entry (no Email/JSON field states
+// it), so it's captured and stored on the submission the same way Risk
+// Score overrides and other manual UW inputs are — then the Loss Ratio
+// section recalculates live off it plus the real incurred-losses total.
+function updateLossRatioEarnedPremium(subId, rawValue) {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
+  if (!sub) return;
+  const numeric = parseFloat(String(rawValue).replace(/[^0-9.]/g, ""));
+  sub.priorEarnedPremium = (!isNaN(numeric) && numeric > 0) ? numeric : null;
+  renderWbLossRunsUwp(sub);
+  if (typeof persistAppState === "function") persistAppState();
+}
+window.updateLossRatioEarnedPremium = updateLossRatioEarnedPremium;
 
 // UW Factors — the exact breakdown calculateRiskScore() already computes
 // (risk-score.js), just presented as a table. Impact tiers and "Source"

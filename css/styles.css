@@ -1414,8 +1414,8 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
    ========================================================================== */
 .metrics-summary-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
 }
 
 .metric-box {
@@ -1793,6 +1793,7 @@ tr.rbac-role-highlight {
 .badge-primary { background: var(--color-brand-light); color: var(--color-link); border: 1px solid #fed7aa; text-transform: uppercase; }
 .badge-light { background: #e2e8f0; color: #334155; }
 .badge-secondary { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; text-transform: uppercase; }
+.badge-outline { background: transparent; color: #475569; border: 1px solid #cbd5e1; }
 
 /* ==========================================================================
    Utility classes — extracted from the most-repeated inline style="" blocks
@@ -2133,6 +2134,25 @@ tr.rbac-role-highlight {
 }
 .btn-outline-warning:hover {
   background: #fffbeb;
+}
+
+.btn-outline-primary {
+  background: #fff;
+  border-color: var(--color-link);
+  color: var(--color-link);
+}
+.btn-outline-primary:hover {
+  background: var(--bg-subtle);
+}
+
+.btn-outline-secondary {
+  background: #fff;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+.btn-outline-secondary:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
 }
 
 .btn-success {
@@ -2731,6 +2751,198 @@ tr.rbac-role-highlight {
   line-height: 1.4;
 }
 
+/* Login Page — gates the whole app shell until a successful login.
+   body.pre-login hides everything else; removing that class (on
+   successful sign-in) reveals the normal app exactly as before. */
+body.pre-login > .app-header,
+body.pre-login > .breadcrumb-bar,
+body.pre-login > .demo-mode-banner,
+body.pre-login > .app-layout {
+  display: none !important;
+}
+.login-page-view {
+  display: none;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-shell);
+  padding: var(--space-6);
+}
+body.pre-login .login-page-view {
+  display: flex;
+}
+.login-card {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  padding: var(--space-8);
+  width: 100%;
+  max-width: 400px;
+}
+.login-logo-box {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.login-logo-box .logo-icon {
+  font-size: 28px;
+  color: var(--color-brand);
+}
+.login-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0 0 4px 0;
+}
+.login-subtitle {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-6) 0;
+  line-height: 1.5;
+}
+
+/* ACORD-Format Quote Document */
+.acord-form-doc {
+  background: #ffffff;
+  padding: 20px;
+  font-size: 11px;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
+.acord-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #0f172a;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+.acord-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #f1f5f9;
+  padding: 5px 8px;
+  margin: 14px 0 8px 0;
+  border-left: 3px solid var(--color-brand);
+}
+.acord-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+}
+.acord-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.4px;
+}
+.acord-val {
+  font-size: 11.5px;
+  font-weight: 600;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 2px 0 4px 0;
+}
+.acord-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+.acord-table th {
+  background: #0f172a;
+  color: #fff;
+  text-align: left;
+  padding: 5px 8px;
+}
+.acord-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+@media print {
+  body * { visibility: hidden; }
+  #acordFormModal, #acordFormModal .modal-body, #acordFormBody, #acordFormBody * {
+    visibility: visible;
+  }
+  #acordFormModal {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+  }
+  #acordFormModal .modal-content { box-shadow: none; max-width: 100%; }
+  .u-no-print { display: none !important; }
+}
+
+/* Underwriting Workbench — collapsible sections (native <details>) */
+.wb-collapsible {
+  margin-bottom: var(--space-3);
+}
+.wb-collapsible > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  padding: 4px 2px;
+  user-select: none;
+}
+.wb-collapsible > summary::-webkit-details-marker { display: none; }
+.wb-collapsible > summary:hover { color: var(--color-brand); }
+.wb-collapsible-caret {
+  transition: transform 0.15s ease;
+  font-size: 12px;
+}
+.wb-collapsible[open] > summary .wb-collapsible-caret {
+  transform: rotate(90deg);
+}
+
+/* Progressive disclosure — wide schedule tables (Vehicles/Drivers) */
+.wb-detail-table.basic-view .wb-detail-col {
+  display: none;
+}
+
+/* Assignment & Rights Drawer — consolidates Assign Submission + Assign
+   Rights into one slide-in panel instead of two separate modals. Reuses
+   .modal-overlay for the dimmed backdrop, but the panel itself docks to
+   the right edge and slides in, rather than a centered modal-content box. */
+#assignHubModal {
+  justify-content: flex-end;
+  padding: 0;
+}
+.drawer-panel {
+  background: #ffffff;
+  width: 100%;
+  max-width: 480px;
+  height: 100vh;
+  box-shadow: var(--shadow-xl);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  animation: drawerSlideIn 0.2s ease-out;
+}
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+#assignHubPanelSubmission,
+#assignHubPanelRights {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+#assignHubPanelSubmission.u-hidden,
+#assignHubPanelRights.u-hidden {
+  display: none;
+}
+
 /* Demo Fill mode */
 #demoModeToggleBtn.active {
   background: #fef3c7;
@@ -2776,6 +2988,66 @@ tr.rbac-role-highlight {
 
 .enrich-loading-box {
   padding: var(--space-3);
+}
+
+/* Registry Enrichment Fetch Modal (Screen 4 auto-fetch progress popup) */
+.registry-fetch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  font-size: 13px;
+  color: var(--color-text-muted, #64748b);
+  transition: color 0.2s ease;
+}
+
+.registry-fetch-row.is-done {
+  color: var(--color-text, #1e293b);
+  font-weight: 600;
+}
+
+.registry-fetch-status {
+  width: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary, #2563eb);
+}
+
+.registry-fetch-row.is-done .registry-fetch-status {
+  color: #16a34a;
+}
+
+.registry-fetch-progress-track {
+  margin-top: 10px;
+  height: 6px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.registry-fetch-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #2563eb;
+  border-radius: 4px;
+  transition: width 0.45s ease;
+}
+
+.registry-verify-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+.registry-verify-card {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #cbd5e1);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .enrich-confidence-row {
@@ -3839,18 +4111,33 @@ tr.rbac-role-highlight {
   pointer-events: auto;
   background: #0f172a;
   color: #ffffff;
-  padding: 11px 22px;
-  border-radius: 9999px;
+  padding: 11px 18px;
+  max-width: 380px;
+  border-radius: 12px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  align-items: flex-start;
+  gap: var(--space-2);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.4;
   animation: slideToastDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-left: 5px solid var(--primary-light);
   transition: all 0.3s ease;
+}
+
+.toast > i {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.toast > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .toast.toast-success { 
@@ -6218,6 +6505,10 @@ body.has-bottom-footer .app-layout {
   padding: 10px 12px;
   background: #fff;
 }
+.email-digest-inbox-meta {
+  flex: 1;
+  min-width: 0;
+}
 .email-digest-inbox-subject {
   display: flex;
   align-items: center;
@@ -6225,6 +6516,9 @@ body.has-bottom-footer .app-layout {
   font-weight: 600;
   font-size: 13px;
   color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .email-digest-inbox-from {
   font-size: 11.5px;
@@ -6269,6 +6563,10 @@ body.has-bottom-footer .app-layout {
 }
 
 /* Risk Score card (Underwriting Workbench + Authority Desk) — Add-On */
+.risk-score-card {
+  border: 1.5px solid var(--color-brand);
+  box-shadow: 0 2px 10px rgba(248, 100, 7, 0.08);
+}
 .risk-score-layout {
   display: flex;
   gap: 20px;
@@ -6317,6 +6615,9 @@ body.has-bottom-footer .app-layout {
 }
 
 /* Intake Questionnaire & Risk Assessment Responses — Redesign */
+.iq-card {
+  border-radius: 10px;
+}
 .iq-header {
   display: flex;
   align-items: center;
@@ -7029,6 +7330,30 @@ body.has-bottom-footer .app-layout {
   font-size: 10.5px;
   color: #64748b;
   margin-top: 3px;
+}
+
+/* Editable Operational Profile & Rating Factors tiles — underwriter can
+   type directly into the instrument-panel tile, matching its glowing
+   readout style instead of looking like a generic form input. */
+.ip-tile-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(94, 234, 212, 0.3);
+  font-size: 16px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: #5EEAD4;
+  padding: 2px 0 3px 0;
+  outline: none;
+}
+.ip-tile-input::placeholder {
+  color: #475569;
+  font-weight: 400;
+  font-size: 13px;
+}
+.ip-tile-input:focus {
+  border-bottom-color: #5EEAD4;
 }
 
 /* Account Overview uses the same instrument-panel tiles but with body text

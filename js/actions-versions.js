@@ -226,12 +226,189 @@ function updateIssuanceRecipientUI() {
   if (boxBoth) boxBoth.classList.toggle("selected", radioBoth && radioBoth.checked);
 }
 
+// ----------------------------------------------------------------------------
+// E-SIGNATURE — gates Issue Quote & Bind. Nothing is issued/bound until the
+// underwriter types their full legal name and confirms the authority
+// attestation; the signed name + timestamp are stored on the submission and
+// logged to its decision log, same as every other underwriting action.
+// ----------------------------------------------------------------------------
+function openESignatureModal() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
+  const modal = document.getElementById("eSignatureModal");
+  const subLabel = document.getElementById("eSigSubLabel");
+  const nameInput = document.getElementById("eSigNameInput");
+  const checkbox = document.getElementById("eSigAttestCheckbox");
+  const timestampPreview = document.getElementById("eSigTimestampPreview");
+  if (!modal || !sub) return;
+
+  if (subLabel) subLabel.textContent = `${sub.id} — ${sub.insured || "N/A"}`;
+  if (nameInput) nameInput.value = "";
+  if (checkbox) checkbox.checked = false;
+  if (timestampPreview) timestampPreview.innerHTML = `<i class="ph ph-clock"></i> Will be signed as of: ${new Date().toLocaleString()}`;
+  clearFieldError("eSigNameInput");
+  clearFieldError("eSigAttestCheckbox");
+
+  modal.style.display = "flex";
+}
+window.openESignatureModal = openESignatureModal;
+
+function closeESignatureModal() {
+  const modal = document.getElementById("eSignatureModal");
+  if (modal) modal.style.display = "none";
+}
+window.closeESignatureModal = closeESignatureModal;
+
+function confirmESignatureAndBind() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
+  const nameInput = document.getElementById("eSigNameInput");
+  const checkbox = document.getElementById("eSigAttestCheckbox");
+  if (!sub) return;
+
+  const signerName = nameInput ? nameInput.value.trim() : "";
+  let valid = true;
+  if (!signerName) { showFieldError("eSigNameInput"); valid = false; } else { clearFieldError("eSigNameInput"); }
+  if (!checkbox || !checkbox.checked) { showFieldError("eSigAttestCheckbox"); valid = false; } else { clearFieldError("eSigAttestCheckbox"); }
+  if (!valid) {
+    showToast("⛔ Type your full name and confirm the attestation to sign.", "danger");
+    return;
+  }
+
+  const signedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
+  sub.eSignature = {
+    signerName,
+    signedAt,
+    role: (USER_ROLES_CONFIG[currentUserRole] || {}).title || currentUserRole,
+    attested: true
+  };
+
+  if (!sub.decisionLog) sub.decisionLog = [];
+  sub.decisionLog.push({
+    step: 7,
+    decision: "e_signed",
+    by: signerName,
+    at: signedAt,
+    notes: `Electronically signed to issue quote & bind coverage (${sub.eSignature.role}).`
+  });
+
+  closeESignatureModal();
+  issueQuoteAction();
+}
+window.confirmESignatureAndBind = confirmESignatureAndBind;
+
+// ----------------------------------------------------------------------------
+// ACORD-FORMAT QUOTE DOCUMENT — a structured, printable application-form
+// layout (ACORD 137 Commercial Auto style) built only from this
+// submission's own real data (Email/JSON-ingested + underwriter actions
+// taken on it). Any field the submission never received stays "Not
+// Provided" — nothing here is invented to make the form look fuller.
+// ----------------------------------------------------------------------------
+function acordNP(val) {
+  return (val === undefined || val === null || val === "") ? '<span style="color:#94a3b8; font-style:italic;">Not Provided</span>' : val;
+}
+
+function renderAcordFormHtml(sub) {
+  const gen = sub.genInfo || {};
+  const drivers = sub.drivers || [];
+  const vehicles = sub.vehicles || [];
+  const cov = sub.coveragesInfo || {};
+  const coverageRows = sub.coverageRows || [];
+
+  const driverRows = drivers.length ? drivers.map((d, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${acordNP((d.given_name || d.last_name) ? `${d.given_name || ''} ${d.last_name || ''}`.trim() : null)}</td>
+      <td>${acordNP(d.dob)}</td>
+      <td>${acordNP(d.age)}</td>
+      <td>${acordNP(d.licenseNumber)}</td>
+      <td>${acordNP(d.licensestate)}</td>
+      <td>${acordNP(d.licenseclasstype)}</td>
+    </tr>`).join("") : `<tr><td colspan="7" style="text-align:center; color:#94a3b8;">No drivers on file</td></tr>`;
+
+  const vehicleRows = vehicles.length ? vehicles.map((v, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${acordNP(v.year)}</td>
+      <td>${acordNP(v.make)}</td>
+      <td>${acordNP(v.model)}</td>
+      <td>${acordNP(v.vin)}</td>
+      <td>${v.stated_value !== undefined ? `$${Number(v.stated_value).toLocaleString()}` : acordNP(null)}</td>
+    </tr>`).join("") : `<tr><td colspan="6" style="text-align:center; color:#94a3b8;">No vehicles on file</td></tr>`;
+
+  const coverageRowsHtml = coverageRows.length ? coverageRows.map(r => `
+    <tr><td>${acordNP(r.line)}</td><td>${acordNP(r.limit)}</td><td>${acordNP(r.ded)}</td><td>${acordNP(r.prem)}</td></tr>
+  `).join("") : (cov.liability !== undefined ? `
+    <tr><td>Auto Liability</td><td>$${Number(cov.liability).toLocaleString()}</td><td>${cov.pd_deductible_amount !== undefined ? '$' + Number(cov.pd_deductible_amount).toLocaleString() : acordNP(null)}</td><td>—</td></tr>
+  ` : `<tr><td colspan="4" style="text-align:center; color:#94a3b8;">No coverages on file</td></tr>`);
+
+  return `
+    <div class="acord-header-row">
+      <div><strong>ACORD 137</strong><br><span style="font-size:10px;">COMMERCIAL AUTO APPLICATION</span></div>
+      <div style="text-align:right; font-size:10px;">Submission: <strong>${sub.id}</strong><br>Date: ${new Date().toLocaleDateString()}</div>
+    </div>
+
+    <div class="acord-section-title">Applicant Information</div>
+    <div class="acord-grid-2">
+      <div><span class="acord-lbl">Named Insured</span><div class="acord-val">${acordNP(sub.insured)}</div></div>
+      <div><span class="acord-lbl">FEIN / Tax ID</span><div class="acord-val">${acordNP(sub.fein)}</div></div>
+      <div><span class="acord-lbl">Mailing Address</span><div class="acord-val">${acordNP(sub.address)}</div></div>
+      <div><span class="acord-lbl">DOT Number</span><div class="acord-val">${acordNP(sub.dot)}</div></div>
+      <div><span class="acord-lbl">Producer / Broker</span><div class="acord-val">${acordNP(sub.broker)}</div></div>
+      <div><span class="acord-lbl">MC Number</span><div class="acord-val">${acordNP(sub.mcNumber)}</div></div>
+    </div>
+
+    <div class="acord-section-title">Policy Information</div>
+    <div class="acord-grid-2">
+      <div><span class="acord-lbl">Effective Date</span><div class="acord-val">${acordNP(gen.effective_date || sub.effectiveDate)}</div></div>
+      <div><span class="acord-lbl">Expiration Date</span><div class="acord-val">${acordNP(gen.expiration_date || sub.expirationDate)}</div></div>
+      <div><span class="acord-lbl">Requested Limit / TIV</span><div class="acord-val">${acordNP(sub.exposure)}</div></div>
+      <div><span class="acord-lbl">Line of Business</span><div class="acord-val">${acordNP(sub.lobName)}</div></div>
+    </div>
+
+    <div class="acord-section-title">Schedule of Coverages</div>
+    <table class="acord-table"><thead><tr><th>Coverage</th><th>Limit</th><th>Deductible</th><th>Premium</th></tr></thead><tbody>${coverageRowsHtml}</tbody></table>
+
+    <div class="acord-section-title">Schedule of Vehicles</div>
+    <table class="acord-table"><thead><tr><th>#</th><th>Year</th><th>Make</th><th>Model</th><th>VIN</th><th>Stated Value</th></tr></thead><tbody>${vehicleRows}</tbody></table>
+
+    <div class="acord-section-title">Schedule of Drivers</div>
+    <table class="acord-table"><thead><tr><th>#</th><th>Name</th><th>DOB</th><th>Age</th><th>License #</th><th>State</th><th>Class</th></tr></thead><tbody>${driverRows}</tbody></table>
+
+    <div class="acord-section-title">Signature</div>
+    ${sub.eSignature ? `
+      <div class="acord-grid-2">
+        <div><span class="acord-lbl">Signed By</span><div class="acord-val">${sub.eSignature.signerName}</div></div>
+        <div><span class="acord-lbl">Signed At</span><div class="acord-val">${sub.eSignature.signedAt}</div></div>
+      </div>` : `<div class="acord-val" style="color:#94a3b8; font-style:italic;">Not yet signed — use "Issue Quote &amp; Bind" to sign.</div>`}
+  `;
+}
+
+function openAcordFormModal() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
+  const modal = document.getElementById("acordFormModal");
+  const body = document.getElementById("acordFormBody");
+  if (!sub || !modal || !body) return;
+  body.innerHTML = renderAcordFormHtml(sub);
+  modal.style.display = "flex";
+}
+window.openAcordFormModal = openAcordFormModal;
+
+function closeAcordFormModal() {
+  const modal = document.getElementById("acordFormModal");
+  if (modal) modal.style.display = "none";
+}
+window.closeAcordFormModal = closeAcordFormModal;
+
+function printAcordForm() {
+  window.print();
+}
+window.printAcordForm = printAcordForm;
+
 function issueQuoteAction() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
-  const btn = document.getElementById("btnIssueQuote") || document.getElementById("btnBindPolicy");
-  const banner = document.getElementById("issuedQuoteSuccessBanner") || document.getElementById("boundPolicyBanner");
+  const btn = document.getElementById("btnIssueQuote");
+  const banner = document.getElementById("issuedQuoteSuccessBanner");
   const details = document.getElementById("issuedQuoteRecipientDetails");
-  const statusBadge = document.getElementById("quoteIssuanceStatusBadge") || document.getElementById("bindStateBadge");
+  const statusBadge = document.getElementById("quoteIssuanceStatusBadge");
 
   // Determine selected delivery recipient
   const radioTarget = document.querySelector('input[name="policyRecipientTarget"]:checked');
@@ -322,6 +499,7 @@ function issueQuoteAction() {
       policyStatus: "Awaiting Bind & Accounting Payment Confirmation Before PAS Can Issue the Policy",
       issuedBy: issuingRoleConfig.name,
       owner: "Anika Sharma",
+      eSignature: sub.eSignature || null,
       parties: {
         carrier: sub.carrier || null,
         mga: sub.mga || null,
@@ -1049,10 +1227,56 @@ function exportQuoteVersionsCSV() {
   showToast("📥 Quote Version History exported to CSV!", "success");
 }
 
-// Toast Helper
+// Loading-state helper — briefly disables a button and swaps its label for
+// a spinner while workFn runs, so actions that will eventually hit a real
+// network/backend already have consistent loading feedback wired in. Purely
+// visual: workFn's own logic, timing, and side effects are unchanged.
+function withButtonLoading(btnEl, loadingLabel, workFn, delayMs) {
+  if (!btnEl) { workFn(); return; }
+  const originalHtml = btnEl.innerHTML;
+  const originalDisabled = btnEl.disabled;
+  btnEl.disabled = true;
+  btnEl.innerHTML = `<i class="ph ph-circle-notch ph-spin"></i> ${loadingLabel}`;
+  setTimeout(() => {
+    try {
+      workFn();
+    } finally {
+      btnEl.disabled = originalDisabled;
+      btnEl.innerHTML = originalHtml;
+    }
+  }, delayMs || 450);
+}
+window.withButtonLoading = withButtonLoading;
+
+// Progressive disclosure for wide schedule tables (Vehicles/Drivers) —
+// toggles a "basic-view" class that hides columns marked .wb-detail-col
+// (rating factors, base rate, etc.) instead of always showing every
+// column and forcing horizontal scroll on smaller screens.
+function toggleTableDetailView(tableId, btnEl) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const nowBasic = table.classList.toggle("basic-view");
+  if (btnEl) {
+    btnEl.innerHTML = nowBasic
+      ? '<i class="ph ph-columns"></i> Show Detailed Columns'
+      : '<i class="ph ph-columns"></i> Simplify View';
+  }
+}
+window.toggleTableDetailView = toggleTableDetailView;
+
+// Toast Helper — capped stack: bulk actions (Bulk Upload, etc.) can fire
+// many toasts in quick succession; rather than letting them pile up
+// off-screen or overlap, the oldest is dismissed immediately once the cap
+// is hit so the stack never grows unbounded.
+const TOAST_MAX_VISIBLE = 4;
+
 function showToast(msg, type = "info") {
   const container = document.getElementById("toastContainer");
   if (!container) return;
+
+  while (container.children.length >= TOAST_MAX_VISIBLE) {
+    container.removeChild(container.firstElementChild);
+  }
 
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;

@@ -1,0 +1,68 @@
+{
+  "submissions": [
+    {
+      "insured": "Meridian Freight Solutions LLC",
+      "fein": "47-3391082",
+      "dot": "3491027",
+      "mcNumber": "MC-889213",
+      "address": "4820 Freightline Rd, Columbus, OH 43207",
+      "broker": "Highline Risk Partners",
+      "email": "rahul.mehta@highlinerisk.com",
+      "effectiveDate": "10/01/2026",
+      "exposureVal": 2000000,
+      "lobKey": "trucking",
+      "channelType": "broker",
+      "drivers": [
+        { "given_name": "Rahul", "last_name": "Sharma", "age": 28, "dob": "03/12/1997", "sex": "M", "licenseNumber": "TX99887766", "licensestate": "TX", "licenseclasstype": "Class A", "experience": "5 Years", "violations": 0 },
+        { "given_name": "Anjali", "last_name": "Verma", "age": 32, "dob": "07/22/1993", "sex": "F", "licenseNumber": "TX55442211", "licensestate": "TX", "licenseclasstype": "Class A", "experience": "8 Years", "violations": 1 }
+      ],
+      "vehicles": [
+        { "year": 2023, "make": "Ford", "model": "Transit 350", "vehicle_type": "Cargo Van", "stated_value": 250000, "assigned_driver": "Rahul Sharma" },
+        { "year": 2022, "make": "Freightliner", "model": "M2 106", "vehicle_type": "Box Truck", "stated_value": 250000, "assigned_driver": "Anjali Verma" }
+      ],
+      "losses": [
+        { "year": "2024 - 2025", "desc": "Minor fender damage during backing maneuver", "status": "Closed", "incurred": "$4,200" },
+        { "year": "2022 - 2023", "desc": "No claims recorded", "status": "Clean", "incurred": "$0" }
+      ],
+      "operationsProfile": {
+        "business_type": "Regional Dry-Van Trucking",
+        "years_in_business": 7,
+        "operating_radius": 450,
+        "interstate_intrastate": "Interstate",
+        "primary_garaging_state": "OH"
+      }
+    },
+    {
+      "insured": "Westgate Logistics LLC",
+      "fein": "46-2210987",
+      "dot": "2938411",
+      "mcNumber": "MC-771205",
+      "address": "1200 Industrial Pkwy, Nashville, TN 37210",
+      "broker": "Gallagher Commercial",
+      "effectiveDate": "10/15/2026",
+      "exposureVal": 1500000,
+      "lobKey": "trucking",
+      "channelType": "broker",
+      "drivers": [
+        { "given_name": "Marcus", "last_name": "Bell", "age": 41, "licensestate": "TN", "licenseclasstype": "Class A", "experience": "12 Years", "violations": 0 }
+      ],
+      "vehicles": [
+        { "year": 2021, "make": "Kenworth", "model": "T680", "vehicle_type": "Truck Tractor", "stated_value": 180000, "assigned_driver": "Marcus Bell" }
+      ],
+      "losses": []
+    },
+    {
+      "insured": "Bright Harbor Distribution Center",
+      "fein": "58-1120044",
+      "address": "900 Harbor Blvd, Savannah, GA 31401",
+      "broker": "Direct",
+      "effectiveDate": "11/01/2026",
+      "exposureVal": 14200000,
+      "lobKey": "property",
+      "channelType": "direct",
+      "drivers": [],
+      "vehicles": [],
+      "losses": []
+    }
+  ]
+}

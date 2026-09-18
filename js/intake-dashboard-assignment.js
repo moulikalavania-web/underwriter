@@ -60,7 +60,10 @@ function renderManagerDashboardHtml() {
   // Administrator persona only, not every manager-tier role that can see
   // this dashboard (Senior UW, CUO, Binding Ops also land here).
   const workloadCardsSection = currentUserRole === "admin"
-    ? `<div class="metrics-summary-bar">${workloadCards}</div>`
+    ? `<div>
+        <div class="text-xs text-muted font-bold" style="text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px;">Team Workload Overview</div>
+        <div class="metrics-summary-bar">${workloadCards}</div>
+      </div>`
     : "";
 
   // "Assigned to Me" — every manager-tier persona (Senior UW, CUO, Admin)
@@ -77,7 +80,7 @@ function renderManagerDashboardHtml() {
   // disappearing from view.
   const myAssigned = liveSubmissions.filter(s => s.assignedTo === currentUserRole);
   const myAssignedSection = myAssigned.length ? `
-    <div class="card mt-3">
+    <div class="card">
       <div class="card-header">
         <h3><i class="ph ph-user-focus"></i> Assigned to Me (${myAssigned.length})</h3>
       </div>
@@ -112,9 +115,28 @@ function renderManagerDashboardHtml() {
       </div>
     </div>` : "";
 
+  // First-time / freshly-provisioned desk: nothing has been ingested yet.
+  // Point the manager straight at the three ways a submission can enter
+  // the pipeline instead of showing an all-zero dashboard with no next step.
+  const gettingStartedSection = liveSubmissions.length === 0 ? `
+    <div class="card" style="border-color:#93c5fd; background:#eff6ff;">
+      <div class="card-body">
+        <h3 style="margin:0 0 4px;"><i class="ph ph-rocket-launch"></i> Get Started — No Submissions Yet</h3>
+        <p class="text-sm text-muted" style="margin:0 0 12px;">Nothing has been ingested into this desk yet. Bring in your first case one of these ways:</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="showIntegratingApiPage()"><i class="ph ph-cloud-arrow-up"></i> Ingest Product/Schema (Integrating API)</button>
+          <button class="btn btn-outline" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
+          <button class="btn btn-outline" onclick="openEmailDigestModal()"><i class="ph ph-envelope-open"></i> Import from Email</button>
+        </div>
+      </div>
+    </div>` : "";
+
   return `
-    ${workloadCardsSection}
-    ${myAssignedSection}
+    <div style="display:flex; flex-direction:column; gap:var(--space-5);">
+      ${gettingStartedSection}
+      ${workloadCardsSection}
+      ${myAssignedSection}
+    </div>
   `;
 }
 
@@ -142,8 +164,20 @@ function renderWorkerDashboardHtml() {
       </div>
     </div>` : "";
 
+  // Brand-new / not-yet-assigned worker: nothing has been handed to them
+  // yet. Say so plainly instead of showing an all-zero metrics row with no
+  // explanation of what happens next.
+  const noWorkYetCard = mine.length === 0 ? `
+    <div class="card mb-2" style="border-color:#fcd34d; background:#fffbeb;">
+      <div class="card-body">
+        <h3 style="margin:0 0 4px;"><i class="ph ph-user-focus"></i> No Work Assigned Yet</h3>
+        <p class="text-sm text-muted" style="margin:0;">You have no submissions assigned to you yet. Once a submission is ingested and your Underwriting Manager assigns it to you, it will appear here as your next action.</p>
+      </div>
+    </div>` : "";
+
   return `
     ${nextActionCard}
+    ${noWorkYetCard}
     <div class="metrics-summary-bar">
       <div class="metric-box"><span class="lbl"><i class="ph ph-tray"></i> Total Assigned to Me</span><strong class="val">${mine.length}</strong></div>
       <div class="metric-box"><span class="lbl"><i class="ph ph-circle"></i> Not Started</span><strong class="val text-muted">${notStarted.length}</strong></div>
@@ -189,12 +223,13 @@ function renderSubmissionsTable() {
     else if (currentTableFilter === "referral") matchChannel = sub.exposureVal > sub.authorityLimit || sub.statusText.includes("Referral") || sub.priority === "P1";
 
     const term = currentSearchTerm.toLowerCase();
-    const matchSearch = term === "" || 
+    const matchSearch = term === "" ||
       sub.insured.toLowerCase().includes(term) ||
       sub.id.toLowerCase().includes(term) ||
       sub.fein.toLowerCase().includes(term) ||
       sub.broker.toLowerCase().includes(term) ||
       sub.lobName.toLowerCase().includes(term);
+
     return matchChannel && matchSearch;
   });
 
@@ -209,7 +244,7 @@ function renderSubmissionsTable() {
       const pOrder = { "P1": 1, "P2": 2, "P3": 3, "P4": 4 };
       const diff = (pOrder[a.priority] || 99) - (pOrder[b.priority] || 99);
       if (diff !== 0) return diff;
-      return b.priorityScore - a.priorityScore;
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
     }
   });
 
@@ -245,7 +280,9 @@ function renderSubmissionsTable() {
     let emptyIcon = "ph-tray";
     let emptyAction = "";
     if (liveSubmissions.length === 0) {
-      emptyMsg = "No data found.";
+      emptyMsg = isManagerView
+        ? "No submissions have been ingested yet. Use the \"Get Started\" panel above to ingest your first product, create a submission, or import an email."
+        : "No submissions exist yet. Once your Underwriting Manager ingests and assigns one, it will appear here.";
       emptyIcon = "ph-tray";
     } else if (!isManagerView) {
       emptyMsg = "You have no submissions assigned to you yet. Ask your Underwriting Manager to assign one from the Intake Queue.";
@@ -254,10 +291,12 @@ function renderSubmissionsTable() {
     tbody.innerHTML = `
       <tr>
         <td colspan="11" style="padding: 0; border: none;">
-          <div style="position: sticky; left: 50%; transform: translateX(-50%); width: max-content; text-align: center; padding: 24px; color: var(--text-muted);">
-            <i class="ph ${emptyIcon}" style="font-size: 28px; margin-bottom: 8px; display: block;"></i>
-            ${emptyMsg}
-            ${emptyAction}
+          <div style="position: sticky; left: 50%; transform: translateX(-50%); width: max-content;">
+            <div class="empty-state">
+              <i class="ph ${emptyIcon} empty-state-icon"></i>
+              <div class="empty-state-body">${emptyMsg}</div>
+              ${emptyAction}
+            </div>
           </div>
         </td>
       </tr>
@@ -297,7 +336,7 @@ function renderSubmissionsTable() {
         <td>
           <strong>${sub.insured}</strong>
           ${isReferralCase ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
-          <div class="text-secondary text-sm">FEIN: ${sub.fein} • Score: ${sub.priorityScore}/100</div>
+          <div class="text-secondary text-sm">FEIN: ${sub.fein} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
           ${sub.underwriter ? `<div class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</div>` : ''}
         </td>
         <td><span class="badge badge-light">${sub.lobName}</span></td>
@@ -325,8 +364,13 @@ function renderSubmissionsTable() {
         <td>
           <small class="text-muted"><i class="ph ph-clock"></i> ${sub.receivedAt.split(' ')[1]} ${sub.receivedAt.split(' ')[2]}</small>
         </td>
-        <td>
+        <td onclick="event.stopPropagation();">
           <span class="badge ${sub.statusBadge}">${sub.statusText}</span>
+          <button class="btn btn-xs ${sub.quoteIssued ? 'btn-outline' : 'btn-outline disabled'}" style="margin-top:4px;"
+            ${sub.quoteIssued ? `onclick="viewIssuedQuote('${sub.id}')"` : "disabled"}
+            title="${sub.quoteIssued ? 'View the issued quote' : 'Quote has not been issued to the broker/customer yet'}">
+            <i class="ph ph-file-text"></i> View Quote
+          </button>
         </td>
         <td onclick="event.stopPropagation();">
           ${(() => {
@@ -429,23 +473,55 @@ function openAssignSubmissionModal(subId) {
     assignSubmissionModalActiveTab = assignedRoles.includes(assignSubmissionModalSelectedRole) ? "assigned" : "unassigned";
   }
 
-  const titleEl = document.getElementById("assignSubmissionModalTitle");
-  if (titleEl) titleEl.textContent = `Assign — ${sub.insured} (${sub.id})`;
+  const subtitleEl = document.getElementById("assignHubSubtitle");
+  if (subtitleEl) subtitleEl.textContent = `Assign — ${sub.insured} (${sub.id})`;
 
   renderAssignSubmissionModalOptions();
 
-  const modal = document.getElementById("assignSubmissionModal");
-  if (modal) modal.style.display = "flex";
+  openAssignHubModal();
+  switchAssignHubTab("submission");
 }
 window.openAssignSubmissionModal = openAssignSubmissionModal;
 
 function closeAssignSubmissionModal() {
-  const modal = document.getElementById("assignSubmissionModal");
-  if (modal) modal.style.display = "none";
+  closeAssignHubModal();
   assignSubmissionModalSubId = null;
   assignSubmissionModalSelectedRole = null;
 }
 window.closeAssignSubmissionModal = closeAssignSubmissionModal;
+
+// ----------------------------------------------------------------------------
+// ASSIGNMENT & RIGHTS DRAWER SHELL — shared by both Assign Submission and
+// Assign Rights (js/audit-intelligence-admin.js). Each of those keeps its
+// own open/close function name for backward compatibility (existing
+// onclick="openAssignRightsModal(...)" etc. in the Team Roster and
+// elsewhere keep working unchanged) — they just delegate to this shared
+// shell instead of controlling their own separate modal.
+// ----------------------------------------------------------------------------
+function openAssignHubModal() {
+  const modal = document.getElementById("assignHubModal");
+  if (modal) modal.style.display = "flex";
+}
+window.openAssignHubModal = openAssignHubModal;
+
+function closeAssignHubModal() {
+  const modal = document.getElementById("assignHubModal");
+  if (modal) modal.style.display = "none";
+}
+window.closeAssignHubModal = closeAssignHubModal;
+
+function switchAssignHubTab(tab) {
+  const tabSubmission = document.getElementById("assignHubTabSubmission");
+  const tabRights = document.getElementById("assignHubTabRights");
+  const panelSubmission = document.getElementById("assignHubPanelSubmission");
+  const panelRights = document.getElementById("assignHubPanelRights");
+
+  if (tabSubmission) tabSubmission.classList.toggle("active", tab === "submission");
+  if (tabRights) tabRights.classList.toggle("active", tab === "rights");
+  if (panelSubmission) panelSubmission.classList.toggle("u-hidden", tab !== "submission");
+  if (panelRights) panelRights.classList.toggle("u-hidden", tab !== "rights");
+}
+window.switchAssignHubTab = switchAssignHubTab;
 
 function switchAssignSubmissionModalTab(tab) {
   assignSubmissionModalActiveTab = tab;
@@ -534,10 +610,29 @@ function renderAssignSubmissionModalOptions() {
           <strong>${r.name}</strong>
           <div class="text-xs text-muted">${r.title} • ${count} Assigned</div>
         </span>
+        <button type="button" class="btn btn-xs btn-outline" style="margin-left:auto;" title="View/edit ${r.name}'s permissions" onclick="event.stopPropagation(); jumpToAssignRightsFromAssignModal('${rk}');">
+          <i class="ph ph-shield-check"></i> Rights
+        </button>
         ${isSelected ? '<i class="ph ph-check-circle assign-modal-check"></i>' : ''}
       </div>`;
   }).join("");
 }
+
+// Cross-link between the two related "who can do what" actions — Assign
+// Submission (who this case goes to) and Assign Rights (what that person
+// is permitted to do). Previously these lived in two unrelated places
+// (submissions table vs. Team Roster); this lets an admin jump straight
+// from picking an assignee to checking/editing their permissions without
+// hunting them down in Team Roster separately. Each modal's own render
+// logic is untouched — this only closes one and opens the other.
+function jumpToAssignRightsFromAssignModal(roleKey) {
+  // Same drawer now — just switch tabs and populate the Rights panel for
+  // this person, no need to close and reopen a separate modal.
+  if (typeof openAssignRightsModal === "function") {
+    openAssignRightsModal(`u_${roleKey}`);
+  }
+}
+window.jumpToAssignRightsFromAssignModal = jumpToAssignRightsFromAssignModal;
 
 function selectAssignSubmissionOption(roleKey) {
   assignSubmissionModalSelectedRole = roleKey;
@@ -548,13 +643,22 @@ window.selectAssignSubmissionOption = selectAssignSubmissionOption;
 function confirmAssignSubmissionModal() {
   if (!assignSubmissionModalSubId) return;
 
-  // Save immediately — assignSubmissionToUser() persists the change and
-  // refreshes the submissions table / role dashboards behind the modal.
-  assignSubmissionToUser(assignSubmissionModalSubId, assignSubmissionModalSelectedRole || "");
+  const btn = document.getElementById("btnConfirmAssignment");
+  const doAssign = () => {
+    // Save immediately — assignSubmissionToUser() persists the change and
+    // refreshes the submissions table / role dashboards behind the modal.
+    assignSubmissionToUser(assignSubmissionModalSubId, assignSubmissionModalSelectedRole || "");
 
-  // Close the popup automatically the moment the assignment is confirmed
-  // — no manual X/Close click required.
-  closeAssignSubmissionModal();
+    // Close the popup automatically the moment the assignment is confirmed
+    // — no manual X/Close click required.
+    closeAssignSubmissionModal();
+  };
+
+  if (typeof withButtonLoading === "function") {
+    withButtonLoading(btn, "Assigning...", doAssign, 350);
+  } else {
+    doAssign();
+  }
 }
 window.confirmAssignSubmissionModal = confirmAssignSubmissionModal;
 
@@ -678,6 +782,21 @@ function openCaseAtCurrentStep(id) {
 function viewCase(id) {
   openCaseAtCurrentStep(id);
 }
+
+// "View Quote" (Submission Intake table, Flow Status column) — only ever
+// reachable once the formal quote has actually been issued to the
+// broker/customer (sub.quoteIssued, set by issueQuoteAction()). Before
+// that, the button in the table is rendered disabled and this function is
+// never wired to an onclick at all, so there is no way to view a quote
+// that hasn't been issued yet.
+function viewIssuedQuote(subId) {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
+  if (!sub || !sub.quoteIssued) return;
+  selectSubmission(subId, false);
+  showWorkflowPage(7);
+  showToast(`📄 Viewing issued quote for ${sub.id}`, "info");
+}
+window.viewIssuedQuote = viewIssuedQuote;
 
 function resumeCaseFlow(id) {
   openCaseAtCurrentStep(id);

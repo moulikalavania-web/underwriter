@@ -347,7 +347,12 @@ async function createRawSubmissionFromEmail() {
     newSub.assignedBy = null;
     newSub.assignedAt = null;
     newSub.priority = "P3";
-    newSub.priorityScore = 50;
+    // No real priority score exists yet — nothing has been analyzed. This
+    // used to be a hardcoded "50", which displayed on the Submission Intake
+    // table as if it were an actual calculated score before Document
+    // Ingestion ever ran. Stays null (shown as "Pending") until
+    // applyNormalizedDataToSubmission() computes the real one.
+    newSub.priorityScore = null;
     newSub.slaText = "Pending Triage";
     newSub.slaCountdown = "Awaiting Document Ingestion";
     newSub.priorityReason = "Raw Email Capture — Awaiting AI Normalization at Document Ingestion";
@@ -598,6 +603,15 @@ function extractDriverDetails(raw) {
     const violationsMatch = rest.match(/(\d+)\s*(?:MVR\s*)?Violations?/i);
     if (violationsMatch && d.violations === undefined) d.violations = parseInt(violationsMatch[1], 10);
 
+    // Name directly followed by a parenthetical DL number ("... 3 years CDL
+    // experience, Salman Khan ( DL number: TX-DEMO-24001)") won't split
+    // cleanly on commas since the name and "(DL..." share the last segment
+    // — so this attaches to the name a comma-fallback below would miss.
+    if (d.name === undefined) {
+      const nameBeforeDl = rest.match(new RegExp(`(${namePattern})\\s*\\(\\s*DL`, "i"));
+      if (nameBeforeDl) d.name = nameBeforeDl[1].trim();
+    }
+
     if (d.name === undefined) {
       const segments = rest.split(",").map(s => s.trim()).filter(Boolean);
       const looksLikeName = (s) => !!s
@@ -628,11 +642,14 @@ function extractDriverDetails(raw) {
 
 // Parses the "Loss Run History" block into structured rows matching
 // sub.losses' shape — one entry per line formatted
-// "<year range>: <description> — <status> — $<amount> incurred".
+// "<year range>: <description> — <status> — $<amount> incurred". Accepts a
+// plain hyphen or en dash as the separator too, not just an em dash — most
+// pasted emails use "-" rather than the actual "—" character, and this
+// used to silently extract zero losses whenever that was the case.
 function extractLossHistory(raw) {
   const losses = [];
   if (!raw) return losses;
-  const re = /(\d{4}\s*-\s*\d{4}):\s*([^—\n]+?)\s*—\s*([^—\n]+?)\s*—\s*\$?([\d,]+)\s*incurred/gi;
+  const re = /(\d{4}\s*-\s*\d{4}):\s*(.+?)\s+[-–—]\s+(.+?)\s+[-–—]\s+\$?([\d,]+)\s*incurred/gi;
   let m;
   while ((m = re.exec(raw)) !== null) {
     losses.push({
@@ -666,10 +683,14 @@ function extractVehicleTypeFromModel(modelText) {
   return null;
 }
 
+// Same dash-tolerant approach as extractLossHistory above — accepts a plain
+// hyphen or en dash as the separator, not just an em dash, and uses a
+// space-bounded dash as the actual delimiter so a mid-word hyphen in a
+// model name (e.g. "M2-106") isn't mistaken for one.
 function extractVehicleDetails(raw) {
   const vehicles = {};
   if (!raw) return vehicles;
-  const re = /Unit\s*(\d+)\s*:\s*(\d{4})\s+([^—\n]+?)\s*—\s*Stated Value\s*\$?([\d,]+)\s*—\s*assigned to\s*([^\n]+)/gi;
+  const re = /Unit\s*(\d+)\s*:\s*(\d{4})\s+(.+?)\s+[-–—]\s+Stated Value\s*\$?([\d,]+)\s*[-–—]\s*assigned to\s*([^\n]+)/gi;
   let m;
   while ((m = re.exec(raw)) !== null) {
     const makeModelParts = m[3].trim().split(/\s+/);
@@ -913,12 +934,13 @@ async function runDocIngestionNormalization(subId) {
     await new Promise(resolve => setTimeout(resolve, 900));
     const draft = buildLocalNormalizationDraft(sub);
     emailIngestionDraftBySubId[subId] = draft;
-    // No draft-review step: applying immediately swaps the panel over to
-    // the normalized summary, which is what reveals the AI/OCR Extraction
-    // Pipeline and Canonical Submission Record cards (see
-    // togglePostNormalizationCards). The "AI-Normalized Standard Data
-    // (Draft — Not Yet Applied)" review UI is intentionally never shown.
-    applyNormalizedDataToSubmission(subId);
+    // Show the extracted data as a review form first — nothing is applied
+    // to the submission yet. Blank fields (nothing found in the email/JSON)
+    // are flagged with a visible error. The form's own "Confirm & Apply
+    // Standard Data" button is what actually runs applyNormalizedDataToSubmission()
+    // — the same function this used to call immediately, just now gated
+    // behind the underwriter reviewing the draft first.
+    renderNormalizationReview(subId, draft);
   } catch (err) {
     showToast("❌ Document Ingestion failed: " + err.message, "danger");
   } finally {
@@ -949,10 +971,18 @@ function confBadge(conf) {
 // value is edited back to what the AI originally extracted.
 function handleNormFieldEdit(key, inputEl) {
   const badgeEl = document.getElementById(`confBadge_${key}`);
-  if (!badgeEl) return;
-  const original = inputEl.dataset.originalValue || "";
-  const edited = inputEl.value !== original;
-  badgeEl.innerHTML = edited ? confBadge("edited") : confBadge(inputEl.dataset.originalConf);
+  if (badgeEl) {
+    const original = inputEl.dataset.originalValue || "";
+    const edited = inputEl.value !== original;
+    badgeEl.innerHTML = edited ? confBadge("edited") : confBadge(inputEl.dataset.originalConf);
+  }
+
+  // Live-clear the blank-field error the moment the underwriter types a
+  // value in; re-show it if they clear the field back out.
+  const errorEl = inputEl.parentElement ? inputEl.parentElement.querySelector(".field-error-text") : null;
+  const isBlank = inputEl.value.trim() === "";
+  inputEl.classList.toggle("is-invalid", isBlank);
+  if (errorEl) errorEl.classList.toggle("u-hidden", !isBlank);
 }
 window.handleNormFieldEdit = handleNormFieldEdit;
 
@@ -978,10 +1008,16 @@ function renderNormalizationReview(subId, draft) {
     const val = draft[key] === null || draft[key] === undefined ? "" : draft[key];
     const conf = fc[key] || (val ? "medium" : "low");
     const safeVal = String(val).replace(/"/g, '&quot;');
+    // Blank field = nothing found in the email/JSON for this field — flagged
+    // visibly (not just the confidence badge) so it's obvious before
+    // applying, same pattern as every other required-field validation in
+    // this app (showFieldError/clearFieldError + field-error-text span).
+    const isBlank = val === "" || val === null || val === undefined;
     return `
       <div class="email-digest-field-row">
         <label>${label} <span id="confBadge_${key}">${confBadge(conf)}</span></label>
-        <input type="text" class="form-control form-control-sm" id="normField_${key}" value="${safeVal}" data-original-value="${safeVal}" data-original-conf="${conf}" oninput="handleNormFieldEdit('${key}', this)">
+        <input type="text" class="form-control form-control-sm ${isBlank ? 'is-invalid' : ''}" id="normField_${key}" value="${safeVal}" data-original-value="${safeVal}" data-original-conf="${conf}" oninput="handleNormFieldEdit('${key}', this)">
+        <span class="field-error-text ${isBlank ? '' : 'u-hidden'}">Not found in the email/JSON — enter it manually or leave blank if genuinely not provided.</span>
       </div>`;
   }).join("");
 
@@ -1428,3 +1464,146 @@ window.handleEmailDigestFileSelect = handleEmailDigestFileSelect;
 window.removeEmailDigestFile = removeEmailDigestFile;
 window.loadDemoInboxMessage = loadDemoInboxMessage;
 window.connectRealInboxStub = connectRealInboxStub;
+
+// ============================================================================
+// 8. BULK SUBMISSION JSON UPLOAD (Submission Intake) — creates many real
+// submissions from ONE JSON file at once, instead of one-at-a-time. Each
+// array entry is mapped onto a fresh getBlankSubmissionSkeleton() using the
+// exact same "only set what's actually present" rule as every other
+// ingestion path in this app — nothing is fabricated for entries/fields the
+// file doesn't provide, they stay blank/"Not Provided". Accepts either a
+// bare JSON array, or { "submissions": [ ... ] }.
+// ============================================================================
+function mapBulkFieldsOntoSubmission(sub, item) {
+  if (!item || typeof item !== "object") return;
+
+  if (item.insured) sub.insured = item.insured;
+  if (item.fein) sub.fein = item.fein;
+  if (item.dot) sub.dot = item.dot;
+  if (item.mcNumber) sub.mcNumber = item.mcNumber;
+  if (item.address) sub.address = item.address;
+  if (item.broker) sub.broker = item.broker;
+  if (item.email) sub.email = item.email;
+  if (item.underwriter) sub.underwriter = item.underwriter;
+  if (item.effectiveDate) {
+    sub.effectiveDate = item.effectiveDate;
+    if (!sub.genInfo) sub.genInfo = {};
+    sub.genInfo.effective_date = item.effectiveDate;
+  }
+  if (item.exposureVal !== undefined) {
+    sub.exposureVal = Number(item.exposureVal) || 0;
+    sub.exposure = `$${sub.exposureVal.toLocaleString()}`;
+  }
+  if (item.lobKey) {
+    sub.lobKey = item.lobKey;
+    const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === item.lobKey) : null;
+    if (lobCatalogEntry) sub.lobName = lobCatalogEntry.name;
+  }
+  sub.channelType = item.channelType === "direct" ? "direct" : "broker";
+
+  if (Array.isArray(item.drivers)) {
+    sub.drivers = item.drivers.map((d, i) => Object.assign({
+      id: `DRV-${i + 1}`, given_name: null, last_name: null, age: null, dob: null, sex: null,
+      licenseNumber: null, licensestate: null, licenseclasstype: null, experience: null,
+      tenure: null, status: "Pending Verification", driver_factor: null, violations: undefined
+    }, d));
+  }
+  if (Array.isArray(item.vehicles)) {
+    sub.vehicles = item.vehicles.map((v, i) => Object.assign({ id: Date.now() + i, xid: i + 1 }, v));
+  }
+  if (Array.isArray(item.losses)) sub.losses = item.losses;
+  if (item.operationsProfile) sub.operationsProfile = Object.assign({}, sub.operationsProfile, item.operationsProfile);
+  if (item.coveragesInfo) sub.coveragesInfo = Object.assign({}, sub.coveragesInfo, item.coveragesInfo);
+  if (item.filingInfo) sub.filingInfo = Object.assign({}, sub.filingInfo, item.filingInfo);
+  if (item.uwReviewInfo) sub.uwReviewInfo = Object.assign({}, sub.uwReviewInfo, item.uwReviewInfo);
+  if (item.commoditiesInfo) sub.commoditiesInfo = Object.assign({}, sub.commoditiesInfo, item.commoditiesInfo);
+  if (item.radiusOfOperationsInfo) sub.radiusOfOperationsInfo = Object.assign({}, sub.radiusOfOperationsInfo, item.radiusOfOperationsInfo);
+  if (item.insuredInfo) sub.insuredInfo = Object.assign({}, sub.insuredInfo, item.insuredInfo);
+
+  const activeProduct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
+  if (activeProduct && typeof buildProductAppetiteRules === "function") {
+    sub.appetiteRules = buildProductAppetiteRules(activeProduct, sub);
+  }
+  if (activeProduct && typeof mapQuestionnaireFromProduct === "function") {
+    mapQuestionnaireFromProduct(activeProduct, sub);
+  }
+}
+
+function handleBulkSubmissionJsonUpload(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+
+  const btn = document.getElementById("btnBulkSubmissionUpload");
+  const originalBtnHtml = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph ph-circle-notch ph-spin"></i> Uploading...';
+  }
+  const restoreBtn = () => {
+    if (btn) { btn.disabled = false; btn.innerHTML = originalBtnHtml; }
+  };
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(e.target.result);
+    } catch (err) {
+      showToast("❌ Invalid JSON file: " + err.message, "danger");
+      restoreBtn();
+      return;
+    }
+
+    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.submissions) ? parsed.submissions : null);
+    if (!items || !items.length) {
+      showToast("⚠️ File must contain a JSON array of submissions (or { \"submissions\": [...] }).", "warning");
+      restoreBtn();
+      return;
+    }
+
+    let created = 0;
+    items.forEach((item) => {
+      const newSub = getBlankSubmissionSkeleton();
+      newSub.id = `SUB-BULK${Math.floor(10000 + Math.random() * 90000)}`;
+      newSub.apiSourced = true;
+      newSub.lobKey = item.lobKey || "trucking";
+      const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === newSub.lobKey) : null;
+      newSub.lobName = lobCatalogEntry ? lobCatalogEntry.name : newSub.lobKey;
+      newSub.channelName = "Bulk JSON Upload";
+      newSub.receivedAt = "Just Now";
+      newSub.receivedTimestamp = Date.now();
+      newSub.priority = "P3";
+      // Same as raw email capture — no real score has been calculated for
+      // this submission, so it stays null ("Pending") rather than a
+      // hardcoded placeholder number.
+      newSub.priorityScore = null;
+      newSub.slaText = "Pending Triage";
+      newSub.slaCountdown = "Awaiting Underwriter Assignment";
+      newSub.priorityReason = "Bulk JSON Upload — Awaiting Assignment";
+      newSub.statusText = "Intake Ingested";
+      newSub.statusBadge = "badge-primary";
+      newSub.currentStep = 1;
+      newSub.completedSteps = [];
+      newSub.docs = [];
+      newSub.ocrFields = [];
+      newSub.canonicalJson = { submission_id: newSub.id, source_channel: "Bulk JSON Upload", status: "ingested" };
+      newSub.normalizationStatus = "normalized";
+
+      mapBulkFieldsOntoSubmission(newSub, item);
+
+      SUBMISSIONS_DATASET.unshift(newSub);
+      created++;
+    });
+
+    if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
+    if (typeof renderRoleDashboard === "function") renderRoleDashboard();
+    if (typeof persistAppState === "function") persistAppState();
+
+    showToast(`✅ Bulk upload complete — ${created} submission${created === 1 ? "" : "s"} created from ${file.name}.`, "success");
+    restoreBtn();
+  };
+  reader.onerror = () => { showToast("❌ Could not read the file.", "danger"); restoreBtn(); };
+  reader.readAsText(file);
+}
+window.handleBulkSubmissionJsonUpload = handleBulkSubmissionJsonUpload;

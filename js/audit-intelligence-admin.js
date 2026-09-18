@@ -599,20 +599,19 @@ function openAssignRightsModal(userId) {
   if (!user) return;
   const role = USER_ROLES_CONFIG[user.roleKey] || USER_ROLES_CONFIG.junior;
 
-  const titleEl = document.getElementById("assignRightsModalTitle");
-  if (titleEl) titleEl.textContent = `Assign Rights — ${user.name} (${role.title})`;
+  const subtitleEl = document.getElementById("assignHubSubtitle");
+  if (subtitleEl) subtitleEl.textContent = `Assign Rights — ${user.name} (${role.title})`;
 
   assignRightsHighlightRoleKey = user.roleKey;
   populateResourceSelect();
   renderPermissionMatrixEditor();
 
-  const modal = document.getElementById("assignRightsModal");
-  if (modal) modal.style.display = "flex";
+  if (typeof openAssignHubModal === "function") openAssignHubModal();
+  if (typeof switchAssignHubTab === "function") switchAssignHubTab("rights");
 }
 
 function closeAssignRightsModal() {
-  const modal = document.getElementById("assignRightsModal");
-  if (modal) modal.style.display = "none";
+  if (typeof closeAssignHubModal === "function") closeAssignHubModal();
   assignRightsHighlightRoleKey = null;
 }
 
@@ -1427,6 +1426,12 @@ function goToWorkflowStep(stepNum) {
   // 2. Populate downstream screen data for active sub
   if (sub) renderAllDownstreamScreens(sub);
 
+  // Auto-fetch NHTSA / FMCSA / State DMV registry data the first time this
+  // submission's Data Enrichment & Smart Routing step is opened.
+  if (sub && stepNum === 3 && typeof runSubmissionRegistryFetch === "function") {
+    runSubmissionRegistryFetch(sub);
+  }
+
   // 3. Update Workflow Horizontal Stepper Bar (Completed vs Active vs Upcoming)
   const hItems = document.querySelectorAll("#workflowStepperBar .h-stepper-item");
   const hLines = document.querySelectorAll("#workflowStepperBar .h-stepper-line");
@@ -1534,6 +1539,21 @@ function updateActiveCaseHeaders(sub) {
   if (sideCardProgressBar) sideCardProgressBar.style.width = `${pct}%`;
 
 }
+
+/**
+ * Header/sidebar "Active Case" widget click target — jumps back into
+ * whichever submission's workflow is currently active, resuming at the
+ * step it was last left on rather than always restarting at Step 1.
+ */
+function resumeActiveCaseWorkflow() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  if (!sub) {
+    showToast("⚠️ No active case yet — open a submission from Submission Intake first.", "warning");
+    return;
+  }
+  showWorkflowPage(currentWorkflowStep || sub.currentStep || 1);
+}
+window.resumeActiveCaseWorkflow = resumeActiveCaseWorkflow;
 
 /**
  * Update Bottom Workflow Navigation Footer (Step 1..7)
