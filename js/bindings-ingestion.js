@@ -1033,7 +1033,7 @@ function generateOfficialQuotePayload(sub, ratingData) {
     expiration_date: (sub.genInfo && sub.genInfo.expiration_date) || "2027-09-01",
     term_months: 12,
     validity_window_days: 30,
-    binding_authority: `VeriDex Standard Binding Authority ($${(roleConfig.authorityLimit || 2000000).toLocaleString()} Limit)`
+    binding_authority: `FUT Standard Binding Authority ($${(roleConfig.authorityLimit || 2000000).toLocaleString()} Limit)`
   };
 
   const safeInsuredSlug = (sub.insured || 'apex').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1172,7 +1172,7 @@ function showIntegratingApiPage(tab) {
   
   if (typeof setBreadcrumb === 'function') {
     setBreadcrumb([
-      { label: "VeriDex", onClick: "showIntakePage()" },
+      { label: "FUT", onClick: "showIntakePage()" },
       { label: "Integrations" },
       { label: "Integrating API" }
     ]);
@@ -1311,7 +1311,7 @@ function renderActiveInsuranceProduct() {
   if (nameEl) nameEl.innerHTML = pName + ' <span class="text-xs text-muted font-mono" id="psProductCode">(' + (pInfo.code || "COM-2026-002") + ')</span>';
   if (descEl) descEl.textContent = pInfo.description || "New product configuration.";
   if (lobEl) lobEl.textContent = pLob;
-  if (carrierEl) carrierEl.textContent = (pInfo.productType || "Commercial Auto") + " / " + (pInfo.carrier || "Veridex Insurance");
+  if (carrierEl) carrierEl.textContent = (pInfo.productType || "Commercial Auto") + " / " + (pInfo.carrier || "FUT Insurance");
   if (familyEl) familyEl.textContent = "Family: " + (pInfo.family || "Commercial Auto");
   
   var jArr = pInfo.jurisdictions || ["AL", "AZ", "OR"];
@@ -1693,7 +1693,7 @@ var SAMPLE_PRD021_JSON = {
     "segment": "Auto Liability",
     "productType": "Commercial Auto",
     "lineOfBusiness": "Auto Liability",
-    "carrier": "Veridex Insurance",
+    "carrier": "FUT Insurance",
     "mga": [],
     "code": "COM-2026-002",
     "description": "New product configuration for Commercial Trucking & Auto Liability fleet coverage.",
@@ -2430,7 +2430,7 @@ var SAMPLE_PRD021_JSON = {
       "approver": "Priya Nair",
       "action": "Pending",
       "date": "—",
-      "comment": "VeriDex Engine API endpoint mapping"
+      "comment": "FUT Engine API endpoint mapping"
     }
   ],
   "checklist": [
@@ -2555,7 +2555,7 @@ function deployProductToEngine() {
     showToast("⚠️ Please upload a product schema first.", "warning");
     return;
   }
-  showToast("🚀 Product deployed & active in VeriDex Underwriting Engine!", "success");
+  showToast("🚀 Product deployed & active in FUT Underwriting Engine!", "success");
 }
 
 function openAddCoverModal() {

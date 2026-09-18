@@ -7,7 +7,7 @@
 // refresh must always come back fully blank, never resurrect a previous
 // session's ingested data.
 // ============================================================================
-const VERIDEX_STORAGE_KEY = "veridex_app_state_v1";
+const FUT_STORAGE_KEY = "veridex_app_state_v1";
 
 function persistAppState() {
   try {
@@ -24,14 +24,14 @@ function persistAppState() {
       DISCRETIONARY_TAX_RATE_PCT: DISCRETIONARY_TAX_RATE_PCT,
       savedAt: new Date().toISOString()
     };
-    localStorage.setItem(VERIDEX_STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(FUT_STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     console.warn("Failed to persist app state to localStorage:", e);
   }
 }
 
 function resetPrototypeData() {
-  try { localStorage.removeItem(VERIDEX_STORAGE_KEY); } catch (e) {}
+  try { localStorage.removeItem(FUT_STORAGE_KEY); } catch (e) {}
   showToast("🔄 Saved session cleared. Reloading blank...", "info");
   setTimeout(() => window.location.reload(), 600);
 }
@@ -41,7 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // A page refresh must start fully blank — saved state is never restored
   // across a reload, it's wiped instead, so the app always comes back to
   // "nothing ingested yet" rather than resurrecting the last session's data.
-  try { localStorage.removeItem(VERIDEX_STORAGE_KEY); } catch (e) { /* localStorage unavailable — ignore */ }
+  try { localStorage.removeItem(FUT_STORAGE_KEY); } catch (e) { /* localStorage unavailable — ignore */ }
 
   populateLoginUserSelect();
   // The rest of the app (submissions table, intake page, etc.) is only
@@ -506,13 +506,13 @@ function confirmDeleteSubmissionDocument(subId, docIdx) {
 
 /**
  * Browser tab title, per platform framework §23:
- * "[Page Name] — [Module Name] | VeriDex"
- * Truncates the page-name segment (never the "| VeriDex" suffix) to keep
+ * "[Page Name] — [Module Name] | FUT"
+ * Truncates the page-name segment (never the "| FUT" suffix) to keep
  * the whole title under the 60-character guidance.
  */
 function setPageTitle(pageName) {
   const moduleName = "Underwriting Workflow";
-  const suffix = " | VeriDex";
+  const suffix = " | FUT";
   const sep = " — ";
   const maxTotal = 60;
   const fixedLen = sep.length + moduleName.length + suffix.length;
@@ -557,7 +557,7 @@ function showIntakePage() {
   currentScreenId = "screen-1";
   resetAllTopLevelPages();
   setPageTitle("Submission Intake & Ingestion Queue");
-  setBreadcrumb([{ label: "VeriDex" }, { label: "Submission Intake" }]);
+  setBreadcrumb([{ label: "FUT" }, { label: "Submission Intake" }]);
 
   // 1. Toggle Page Views
   const intakePage = document.getElementById("intakePageView");
@@ -613,7 +613,7 @@ function showWorkflowPage(stepNum = 1) {
   const stepObj = WORKFLOW_STEPS.find(s => s.step === stepNum);
   setPageTitle(stepObj ? stepObj.title : `Step ${stepNum}`);
   setBreadcrumb([
-    { label: "VeriDex", onClick: "showIntakePage()" },
+    { label: "FUT", onClick: "showIntakePage()" },
     { label: "Active Case Workflow", onClick: `goToWorkflowStep(1)` },
     { label: stepObj ? stepObj.title : `Step ${stepNum}` }
   ]);

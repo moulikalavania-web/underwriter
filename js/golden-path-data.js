@@ -80,8 +80,8 @@ var GOLDEN_PATH_INBOX_MESSAGE = {
   // 2a. Never let a previous session's (possibly non-golden-path) saved
   // state resurface.
   try {
-    if (typeof VERIDEX_STORAGE_KEY !== "undefined") {
-      localStorage.removeItem(VERIDEX_STORAGE_KEY);
+    if (typeof FUT_STORAGE_KEY !== "undefined") {
+      localStorage.removeItem(FUT_STORAGE_KEY);
     }
   } catch (e) { /* localStorage unavailable — ignore */ }
 

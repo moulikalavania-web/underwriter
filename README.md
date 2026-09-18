@@ -1,4 +1,4 @@
-# VeriDex — Commercial Underwriting Engine (Prototype)
+# FUT — Commercial Underwriting Engine (Prototype)
 
 Plain HTML/CSS/JS app — no build step, no bundler, no npm install required.
 Open `index.html` directly in a browser, or open this folder in VS Code and

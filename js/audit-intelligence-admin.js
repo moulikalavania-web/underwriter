@@ -233,7 +233,7 @@ function showAuditLogPage() {
   currentPage = "audit-log";
   resetAllTopLevelPages();
   setPageTitle("Audit Log");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Compliance" }, { label: "Audit Log" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Compliance" }, { label: "Audit Log" }]);
 
   const page = document.getElementById("auditLogPageView");
   if (page) { page.style.display = "block"; page.classList.add("active"); }
@@ -269,7 +269,7 @@ function showQuoteIntelligencePage() {
   currentPage = "quote-intel";
   resetAllTopLevelPages();
   setPageTitle("Quote Intelligence");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Quote Intelligence" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Quote Intelligence" }]);
 
   const page = document.getElementById("quoteIntelligencePageView");
   if (page) { page.style.display = "block"; page.classList.add("active"); }
@@ -313,7 +313,7 @@ function showUnifiedAccountPage() {
   currentPage = "unified-account";
   resetAllTopLevelPages();
   setPageTitle("Unified Account View");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Unified Account View" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Unified Account View" }]);
 
   const page = document.getElementById("unifiedAccountPageView");
   if (page) { page.style.display = "block"; page.classList.add("active"); }
@@ -409,7 +409,7 @@ function renderUnifiedAccountView() {
 
 // ============================================================================
 // INTEGRATING API FROM PRODUCT — Standalone product REST API JSON payload viewer
-// Demonstrates live data ingestion from standalone product endpoints into VeriDex.
+// Demonstrates live data ingestion from standalone product endpoints into FUT.
 // ============================================================================
 
 
@@ -427,7 +427,7 @@ function showUserMasterPage() {
   currentPage = "user-master";
   resetAllTopLevelPages();
   setPageTitle("User Master");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Admin" }, { label: "User Master" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Admin" }, { label: "User Master" }]);
 
   const page = document.getElementById("userMasterPageView");
   if (page) { page.style.display = "block"; page.classList.add("active"); }

@@ -229,7 +229,7 @@ function showArchivePage() {
   currentScreenId = "screen-9";
   resetAllTopLevelPages();
   setPageTitle("Archive & Audit");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Archive & Audit" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Archive & Audit" }]);
 
   const archivePage = document.getElementById("archivePageView");
   if (archivePage) { archivePage.style.display = "block"; archivePage.classList.add("active"); }
@@ -270,7 +270,7 @@ function showDeclinePage() {
   currentPage = "decline";
   resetAllTopLevelPages();
   setPageTitle("Decline Center");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Decline Center" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Decline Center" }]);
 
   const declinePage = document.getElementById("declinePageView");
   if (declinePage) { declinePage.style.display = "block"; declinePage.classList.add("active"); }
@@ -294,7 +294,7 @@ function showQuoteVersionsPage() {
   currentPage = "quote-versions";
   resetAllTopLevelPages();
   setPageTitle("Quote Versioning");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Quote Versioning" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Quote Versioning" }]);
 
   // 1. Toggle Page Views
   const intakePage = document.getElementById("intakePageView");
@@ -337,7 +337,7 @@ function showTeamActivityPage() {
   currentPage = "team-activity";
   resetAllTopLevelPages();
   setPageTitle("Team Activity");
-  setBreadcrumb([{ label: "VeriDex", onClick: "showIntakePage()" }, { label: "Admin" }, { label: "Team Activity" }]);
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Admin" }, { label: "Team Activity" }]);
 
   const page = document.getElementById("teamActivityPageView");
   if (page) { page.style.display = "block"; page.classList.add("active"); }

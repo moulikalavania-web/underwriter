@@ -1,5 +1,5 @@
 run<!--
-  VeriDex Platform Framework v3.0 — Recorded Exception (§25)
+  FUT Platform Framework v3.0 — Recorded Exception (§25)
   ------------------------------------------------------------------
   Deviation: Dummy data (§27) does not use the platform's PRD-001–PRD-006
   product set or its full named-user roster (only Anika Sharma is reused,
@@ -20,8 +20,8 @@ run<!--
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title id="pageTitleTag">Submission Intake &amp; Ingestion Queue — Underwriting Workflow | VeriDex</title>
-  <meta name="description" content="VeriDex Underwriting Engine — commercial insurance submission-to-quote lifecycle: intake, clearance, enrichment, underwriting workbench, authority review, rating, and quote &amp; bind.">
+  <title id="pageTitleTag">Submission Intake &amp; Ingestion Queue — Underwriting Workflow | FUT</title>
+  <meta name="description" content="FUT Underwriting Engine — commercial insurance submission-to-quote lifecycle: intake, clearance, enrichment, underwriting workbench, authority review, rating, and quote &amp; bind.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='48' fill='%231A1D23'/%3E%3Cpath fill='%232563eb' d='M128 32l72 28v56c0 56-31 92-72 108-41-16-72-52-72-108V60z'/%3E%3Cpath fill='%23fff' d='M111 158l-30-30 15-15 15 15 45-45 15 15z'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,7 +42,7 @@ run<!--
       <div class="login-logo-box">
         <i class="ph ph-shield-check logo-icon"></i>
         <div class="logo-text">
-          <span class="brand-title">VeriDex <strong>Underwriting Engine</strong></span>
+          <span class="brand-title">FUT <strong>Underwriting Engine</strong></span>
           <span class="brand-subtitle">Commercial Insurance Submission-to-Quote Lifecycle</span>
         </div>
       </div>
@@ -86,7 +86,7 @@ run<!--
       <div class="logo-box">
         <i class="ph ph-shield-check logo-icon"></i>
         <div class="logo-text">
-          <span class="brand-title">VeriDex <strong>Underwriting Engine</strong></span>
+          <span class="brand-title">FUT <strong>Underwriting Engine</strong></span>
           <span class="brand-subtitle">Commercial Insurance Submission-to-Quote Lifecycle</span>
         </div>
       </div>
@@ -118,7 +118,7 @@ run<!--
       </div>
 
       <div class="lob-selector-group">
-        <label for="lobSelect"><i class="ph ph-stack"></i> LOB Switcher:</label>
+        <label for="lobSelect"><i class="ph ph-stack"></i> Product </label>
         <select id="lobSelect" class="lob-dropdown">
           <option value="trucking" selected>🚚 Commercial Auto / Trucking</option>
           <option value="property">🏢 Commercial Property</option>
@@ -129,30 +129,19 @@ run<!--
           <option value="all">🌐 All Lines of Business (Show All)</option>
         </select>
       </div>
-
-      <button type="button" class="btn btn-sm btn-outline" id="demoModeToggleBtn" onclick="toggleDemoMode()"
-        title="Temporarily show sample values for blank fields — for presentations only. Never writes or saves any data.">
-        <i class="ph ph-eye-slash"></i> Demo Fill: OFF
-      </button>
     </div>
   </header>
 
   <!-- Breadcrumb Bar -->
   <nav class="breadcrumb-bar" id="breadcrumbBar" aria-label="Breadcrumb">
     <ol class="breadcrumb-list" id="breadcrumbList">
-      <li class="breadcrumb-item"><span>VeriDex</span></li>
+      <li class="breadcrumb-item"><span>FUT</span></li>
       <li class="breadcrumb-sep">›</li>
       <li class="breadcrumb-item breadcrumb-link u-hidden" id="breadcrumbContext" onclick="showIntakePage()" title="Back to Submission Intake">Case Workflow</li>
       <li class="breadcrumb-sep u-hidden" id="breadcrumbContextSep">›</li>
       <li class="breadcrumb-item breadcrumb-current" id="breadcrumbCurrent" aria-current="page">Submission Intake</li>
     </ol>
   </nav>
-
-  <!-- Demo Mode Banner — only visible while Demo Fill is ON -->
-  <div id="demoModeBanner" style="display:none;" class="demo-mode-banner">
-    <i class="ph ph-warning-circle"></i>
-    <span>Demo Fill is ON — blank fields below are showing sample values for presentation, tagged "(Demo)". Nothing is saved; turn it off to see only real ingested data.</span>
-  </div>
 
   <!-- Main Application Body with Left Sidebar Layout -->
   <div class="app-layout" id="appLayout">
