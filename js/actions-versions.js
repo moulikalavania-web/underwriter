@@ -462,84 +462,21 @@ function issueQuoteAction() {
     recordQuoteVersion(sub, false);
   }
 
-  // Auto-generate and send the Issue Quote email to the broker (Add-On) —
-  // uses the imported rating JSON + any underwriter Post-Rating pricing
-  // override as the single source of truth, per issue-quote-email.js.
-  if (sub && typeof generateAndSendIssueQuoteEmail === "function") {
-    generateAndSendIssueQuoteEmail(sub);
-  }
-
-  // Automatic download of active/imported JSON payload on Issue Quote action
-  try {
-    const jsonPayload = JSON.parse(JSON.stringify(currentImportedRatingData || getSubmissionRatingPayload(sub)));
-
-    // Add the requested Issue Quote metadata — quote/bind identifiers,
-    // parties, full driver details, underwriter, and a clear "awaiting
-    // issuance" status — without touching the existing quote/coverages/etc.
-    // structure above.
-    const driverDetails = (sub.drivers || []).map((d, i) => ({
-      name: (d.given_name || d.last_name) ? `${d.given_name || ''} ${d.last_name || ''}`.trim() : `Driver ${i + 1}`,
-      age: d.age !== undefined ? d.age : null,
-      sex: d.sex || null,
-      dob: d.dob || null,
-      dlNumber: d.licenseNumber || null,
-      licenseState: d.licensestate || null,
-      licenseClass: d.licenseclasstype || null,
-      experience: d.experience || null,
-      status: d.status || null
-    }));
-
-    const issuingRoleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-
-    jsonPayload.issuedQuoteMeta = {
-      quoteNumber: sub.quoteNo || sub.quote_id || null,
-      quoteDate: new Date().toISOString().slice(0, 10),
-      bindDate: null,
-      bindStatus: "Not Yet Bound — Pending Broker/Customer Acceptance",
-      policyStatus: "Awaiting Bind & Accounting Payment Confirmation Before PAS Can Issue the Policy",
-      issuedBy: issuingRoleConfig.name,
-      owner: "Anika Sharma",
-      eSignature: sub.eSignature || null,
-      parties: {
-        carrier: sub.carrier || null,
-        mga: sub.mga || null,
-        broker: sub.broker || null,
-        customer: sub.customerName || sub.insured || null
-      },
-      product: sub.lobName || null,
-      fleetSizeMinimum: (sub.vehicles || []).length || null,
-      radiusOfOperation: (sub.radiusOfOperationsInfo && sub.radiusOfOperationsInfo.radius !== undefined)
-        ? `${sub.radiusOfOperationsInfo.radius} miles (${sub.radiusOfOperationsInfo.Intrastate_interstate || 'N/A'})`
-        : null,
-      drivers: driverDetails
-    };
-
-    const jsonString = JSON.stringify(jsonPayload, null, 2);
-    const blob = new Blob([jsonString], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement("a");
-    
-    const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
-    downloadAnchor.href = url;
-    downloadAnchor.download = `${sub.id || 'SUB-48213-TX'}_${safeInsuredName}_OfficialQuote_Payload.json`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    
-    setTimeout(() => {
-      document.body.removeChild(downloadAnchor);
-      URL.revokeObjectURL(url);
-    }, 150);
-
-    showToast(`📥 Official JSON Quote Payload downloaded: ${downloadAnchor.download}`, "success");
-  } catch (err) {
-    console.error("Failed to auto-download quote JSON:", err);
-  }
-
   updateActiveCaseHeaders(sub);
   renderStep7View(sub);
   renderSubmissionsTable();
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   showToast(`🚀 Commercial Quote Issued Successfully to ${targetVal === 'broker' ? 'Producing Broker' : (targetVal === 'customer' ? 'Direct Insured' : 'Broker & Customer')}!`, "success");
+
+  // Issue Quote Actions popup (Add-On) — Quotation -> Customer Approval ->
+  // Invoice. Sending, approval, and invoice/download are all explicit,
+  // gated actions the underwriter/customer trigger from this table, instead
+  // of an automatic silent email + JSON download. See
+  // js/issue-quote-email.js for the Output-Quote-is-source-of-truth payload
+  // builders and the approval gate.
+  if (sub && typeof openIssueQuoteActionsModal === "function") {
+    openIssueQuoteActionsModal(sub);
+  }
 }
 
 function bindPolicyAction() {

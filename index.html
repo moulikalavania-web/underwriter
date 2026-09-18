@@ -2476,6 +2476,40 @@ run<!--
     </div>
   </div>
 
+  <!-- Modal: Issue Quote Actions — Quotation -> Customer Approval -> Invoice
+       (Add-On). Opens when a quote is issued. Invoice (Send/Download) stays
+       locked until the customer approves the quotation; a reject requires a
+       reason and routes a Quote Change Request to the underwriter. -->
+  <div class="modal-overlay" id="issueQuoteActionsModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3><i class="ph ph-paper-plane-tilt text-primary"></i> Issue Quote — Actions</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeIssueQuoteActionsModal()" style="font-size:20px; line-height:1; font-weight:700;">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">
+          Quote <strong id="issueQuoteActionsSubId"></strong> — the quotation goes to the customer first;
+          the invoice can only be generated, sent to PAS, or downloaded once the customer approves.
+        </p>
+        <div class="table-responsive">
+          <table class="data-table" id="issueQuoteActionsTable">
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Description</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="issueQuoteActionsTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal: Issue Quote -> Auto Email -> Broker (Add-On) -->
   <div class="modal-overlay" id="issueQuoteEmailModal" role="dialog" aria-modal="true">
     <div class="modal-content modal-xl">
