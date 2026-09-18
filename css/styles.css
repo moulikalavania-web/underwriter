@@ -3441,6 +3441,11 @@ body.pre-login .login-page-view {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   font-size: 11px;
 }
+.referral-note textarea.form-control {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
 
 .decision-actions {
   display: flex;
@@ -7713,7 +7718,7 @@ body.has-bottom-footer .app-layout {
   margin-bottom: 6px;
 }
 
-/* Appetite Rules — Submission Value vs MGA Base Value comparison line */
+/* Appetite Rules — Submission Value vs MGU Base Value comparison line */
 .appetite-comparison-line {
   font-size: 10px;
   color: #64748b;

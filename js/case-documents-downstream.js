@@ -626,7 +626,7 @@ function parseRuleNumber(v) {
   return parseFloat(m[0].replace(/,/g, ""));
 }
 
-// The actual Submission Value <-> MGA Base Value / Carrier Guardrail
+// The actual Submission Value <-> MGU Base Value / Carrier Guardrail
 // comparison. This is the single source of truth for PASS/FAIL — nothing
 // hardcoded, nothing left stale: every time this runs, it re-derives pass
 // from the rule's live val/baseValue/operator.
@@ -713,7 +713,7 @@ function renderAppetiteRules(rules) {
 
   // Live comparison: unless a human has explicitly clicked "Override" (the
   // manual bypass button), pass/fail is always freshly derived from
-  // Submission Value vs MGA Base Value / Carrier Guardrail — never a stale
+  // Submission Value vs MGU Base Value / Carrier Guardrail — never a stale
   // or hardcoded flag.
   rules.forEach(r => {
     if (!r.manualPassOverride) r.pass = evaluateAppetiteRule(r);
