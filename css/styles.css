@@ -2508,10 +2508,88 @@ tr.rbac-role-highlight {
   background: linear-gradient(90deg, #2563eb, #16a34a);
 }
 
+/* Full-width Document Ingestion card (replaces the old two-col layout that
+   used to sit alongside the removed Canonical Submission Record card). */
+.ocr-pipeline-card-full {
+  border: 1px solid #e2e8f0;
+  border-top: 3px solid #2563eb;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.ocr-pipeline-card-full .card-header {
+  padding: 16px 20px;
+}
+.ocr-pipeline-card-full .card-header h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ocr-header-scope {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted, #64748b);
+}
+.ocr-pipeline-card-full .card-body {
+  padding: 20px;
+}
+
+/* Stepper gets more breathing room now that it spans the full card width. */
+.ocr-stepper-full {
+  padding: 16px 24px;
+  margin-bottom: 20px;
+}
+.ocr-stepper-full .ocr-step {
+  gap: 10px;
+}
+.ocr-stepper-full .ocr-step-node {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+}
+.ocr-stepper-full .ocr-step-label {
+  font-size: 12.5px;
+  white-space: normal;
+}
+.ocr-stepper-full .ocr-step-status {
+  font-size: 10.5px;
+}
+.ocr-stepper-full .ocr-step-connector {
+  width: 40px;
+}
+
+.extracted-fields-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 10px;
+}
+
 .extracted-fields-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Now that the card is full-width, lay extracted fields out in a
+   multi-column grid instead of one narrow stacked column. */
+.extracted-fields-list-full {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px;
+}
+.extracted-fields-list-full .extract-hidden-group {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px;
+}
+.extracted-fields-list-full .extract-toggle-btn {
+  grid-column: 1 / -1;
 }
 
 .extract-row {
@@ -6536,11 +6614,36 @@ body.has-bottom-footer .app-layout {
   margin-bottom: 12px;
 }
 
+.email-digest-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed #e7e5f5;
+}
+.email-digest-section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 12px;
+}
+.email-digest-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #7c3aed;
+  margin-bottom: 10px;
+}
+.email-digest-required-mark {
+  color: var(--color-danger, #dc2626);
+  font-weight: 700;
+}
+
 .email-digest-field-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px 16px;
-  margin-bottom: 12px;
 }
 .email-digest-field-row {
   background: #fff;

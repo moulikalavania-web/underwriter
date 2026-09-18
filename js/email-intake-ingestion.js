@@ -427,30 +427,29 @@ function renderRawEmailCapturePanel(sub) {
   }
 
   if (sub.normalizationStatus === "normalized" || sub.normalizationStatus === "needs_review") {
-    renderNormalizedSummaryPanel(sub, box);
+    // Document Ingestion Complete summary removed — once normalization is
+    // done there's nothing left to show here.
+    box.innerHTML = "";
     return;
   }
 
   renderIngestionReviewDirect(sub, box);
 }
 
-// The "AI / OCR Extraction Pipeline" and "Canonical Submission Record" cards
-// only make sense once normalization has actually happened. For submissions
-// that arrived via raw Email Intake and are still
-// sub.normalizationStatus === "pending", both are hidden — there's nothing
-// extracted/normalized yet, so showing "100% Normalized" / a canonical
-// record would be misleading. They reappear automatically the moment
-// "Confirm & Apply Standard Data" completes (status becomes "normalized" or
-// "needs_review"). Submissions that didn't come through Email Intake
-// (rawEmailText undefined) never had these hidden in the first place —
-// they're already normalized on ingest.
+// The "AI / OCR Extraction Pipeline" card only makes sense once normalization
+// has actually happened. For submissions that arrived via raw Email Intake
+// and are still sub.normalizationStatus === "pending", it's hidden — there's
+// nothing extracted/normalized yet, so showing "100% Normalized" would be
+// misleading. It reappears automatically the moment "Confirm & Apply
+// Standard Data" completes (status becomes "normalized" or "needs_review").
+// Submissions that didn't come through Email Intake (rawEmailText undefined)
+// never had this hidden in the first place — they're already normalized on
+// ingest.
 function togglePostNormalizationCards(sub) {
   const isPendingRawCapture = sub && sub.rawEmailText !== undefined && sub.normalizationStatus === "pending";
   const display = isPendingRawCapture ? "none" : "";
   const ocrCard = document.getElementById("ocrPipelineCard");
-  const canonicalCard = document.getElementById("canonicalRecordCard");
   if (ocrCard) ocrCard.style.display = display;
-  if (canonicalCard) canonicalCard.style.display = display;
 }
 
 window.togglePostNormalizationCards = togglePostNormalizationCards;
@@ -1137,20 +1136,31 @@ function renderNormalizationReview(subId, draft) {
   if (!reviewBox) return;
 
   const fc = draft.fields_confidence || {};
-  const fieldRows = [
-    ["insured", "Named Insured"],
-    ["fein", "FEIN / Tax ID"],
-    ["dot", "DOT Number"],
-    ["mcNumber", "MC Number"],
-    ["address", "Address"],
-    ["broker", "Broker / Agency"],
-    ["email", "Contact Email"],
-    ["exposureVal", "Requested Limit / TIV ($)"],
-    ["effectiveDate", "Effective Date"]
+  const REQUIRED_KEYS = new Set(["insured", "fein", "address", "email", "exposureVal", "effectiveDate"]);
+  // Grouped into logical sections instead of one flat list — matches how an
+  // underwriter actually scans a submission (who they are, how to reach
+  // them, what they want covered).
+  const fieldSections = [
+    { title: "Business Identity", icon: "ph-buildings", fields: [
+      ["insured", "Named Insured"],
+      ["fein", "FEIN / Tax ID"],
+      ["dot", "DOT Number"],
+      ["mcNumber", "MC Number"],
+      ["address", "Address"]
+    ]},
+    { title: "Broker & Contact", icon: "ph-user-circle", fields: [
+      ["broker", "Broker / Agency"],
+      ["email", "Contact Email"]
+    ]},
+    { title: "Coverage & Financials", icon: "ph-currency-dollar", fields: [
+      ["exposureVal", "Requested Limit / TIV ($)"],
+      ["effectiveDate", "Effective Date"]
+    ]}
   ];
+  const fieldRows = fieldSections.flatMap(s => s.fields);
 
   let blankCount = 0;
-  const rowsHtml = fieldRows.map(([key, label]) => {
+  const fieldRowHtml = ([key, label]) => {
     const val = draft[key] === null || draft[key] === undefined ? "" : draft[key];
     const conf = fc[key] || (val ? "medium" : "low");
     const safeVal = String(val).replace(/"/g, '&quot;');
@@ -1160,13 +1170,21 @@ function renderNormalizationReview(subId, draft) {
     // this app (showFieldError/clearFieldError + field-error-text span).
     const isBlank = val === "" || val === null || val === undefined;
     if (isBlank) blankCount++;
+    const isRequired = REQUIRED_KEYS.has(key);
     return `
       <div class="email-digest-field-row ${isBlank ? 'email-digest-field-row--blank' : ''}">
-        <label>${label} <span id="confBadge_${key}">${confBadge(conf)}</span></label>
+        <label>${label}${isRequired ? ' <span class="email-digest-required-mark">*</span>' : ''} <span id="confBadge_${key}">${confBadge(conf)}</span></label>
         <input type="text" class="form-control form-control-sm ${isBlank ? 'is-invalid' : ''}" id="normField_${key}" value="${safeVal}" data-original-value="${safeVal}" data-original-conf="${conf}" oninput="handleNormFieldEdit('${key}', this)">
         <span class="field-error-text ${isBlank ? '' : 'u-hidden'}">Not found in the email/JSON — enter it manually or leave blank if genuinely not provided.</span>
       </div>`;
-  }).join("");
+  };
+
+  const sectionsHtml = fieldSections.map(section => `
+    <div class="email-digest-section">
+      <div class="email-digest-section-title"><i class="ph ${section.icon}"></i> ${section.title}</div>
+      <div class="email-digest-field-grid">${section.fields.map(fieldRowHtml).join("")}</div>
+    </div>
+  `).join("");
   const filledCount = fieldRows.length - blankCount;
 
   const dedupeMatch = findDuplicateSubmission(draft.insured, draft.fein, subId);
@@ -1224,14 +1242,19 @@ function renderNormalizationReview(subId, draft) {
       </div>
 
       ${reviewFlagHtml}
-      <div class="email-digest-field-grid">${rowsHtml}</div>
-      <div class="email-digest-field-row email-digest-field-row--wide">
-        <label>Coverage Summary</label>
-        <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2">${draft.coverageSummary || ""}</textarea>
-      </div>
-      <div class="email-digest-field-row email-digest-field-row--wide">
-        <label>Loss History Summary</label>
-        <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2">${draft.lossHistorySummary || ""}</textarea>
+
+      ${sectionsHtml}
+
+      <div class="email-digest-section">
+        <div class="email-digest-section-title"><i class="ph ph-note-pencil"></i> Notes</div>
+        <div class="email-digest-field-row email-digest-field-row--wide">
+          <label>Coverage Summary</label>
+          <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2" placeholder="e.g. Auto liability, cargo, and general liability requested...">${draft.coverageSummary || ""}</textarea>
+        </div>
+        <div class="email-digest-field-row email-digest-field-row--wide">
+          <label>Loss History Summary</label>
+          <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2" placeholder="e.g. No losses reported in the last 3 years...">${draft.lossHistorySummary || ""}</textarea>
+        </div>
       </div>
 
       <div class="modal-footer email-digest-review-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">

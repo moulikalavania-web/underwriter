@@ -535,12 +535,12 @@ run<!--
         <!-- Workflow Step Screens Container -->
         <div class="workflow-screens-wrapper">
 
-      <!-- Screen 2: Ingestion Pipeline & Canonical Submission Record -->
+      <!-- Screen 2: Ingestion Pipeline -->
       <section id="screen-2" class="screen-view">
         <div class="screen-header">
           <div>
-            <h2>Document Ingestion Pipeline & Canonical Submission Record</h2>
-            <p class="screen-desc">Cloud storage parsing (S3/OCI), AI-driven OCR extraction, and schema normalization into a single source-of-truth Canonical Record.</p>
+            <h2>Document Ingestion Pipeline</h2>
+            <p class="screen-desc">Cloud storage parsing (S3/OCI), AI-driven OCR extraction, and schema normalization into standard data fields.</p>
           </div>
         </div>
 
@@ -549,77 +549,45 @@ run<!--
              and has not yet been AI-normalized. Untouched otherwise. -->
         <div id="rawEmailCaptureContainer"></div>
 
-        <div class="two-col-grid">
-          <!-- OCR Extraction Visualizer — hidden until AI normalization has
-               actually completed for raw email-captured submissions. Always
-               visible for submissions that didn't arrive via raw email
-               capture (they're already normalized on ingest). -->
-          <div class="card" id="ocrPipelineCard">
-            <div class="card-header">
-              <h3><i class="ph ph-brain"></i> AI / OCR Extraction Pipeline (S3 / OCI)</h3>
-              <span class="badge badge-info"><i class="ph ph-circle-notch fa-spin"></i> Extraction 100% Normalized</span>
-            </div>
-            <div class="card-body">
-              <div class="ocr-stepper">
-                <div class="ocr-step done">
-                  <div class="ocr-step-node"><i class="ph ph-cloud-arrow-up"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+        <!-- OCR Extraction Visualizer — hidden until AI normalization has
+             actually completed for raw email-captured submissions. Always
+             visible for submissions that didn't arrive via raw email
+             capture (they're already normalized on ingest). -->
+        <div class="card ocr-pipeline-card-full" id="ocrPipelineCard">
+          <div class="card-header">
+            <h3><i class="ph ph-brain"></i> AI / OCR Extraction Pipeline <span class="ocr-header-scope">(S3 / OCI)</span></h3>
+            <span class="badge badge-info"><i class="ph ph-circle-notch fa-spin"></i> Extraction 100% Normalized</span>
+          </div>
+          <div class="card-body">
+            <div class="ocr-stepper ocr-stepper-full">
+              <div class="ocr-step done">
+                <div class="ocr-step-node"><i class="ph ph-cloud-arrow-up"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                <div class="ocr-step-text">
                   <div class="ocr-step-label">S3 Cloud Ingestion</div>
                   <div class="ocr-step-status">Complete</div>
                 </div>
-                <div class="ocr-step-connector done"></div>
-                <div class="ocr-step done">
-                  <div class="ocr-step-node"><i class="ph ph-cpu"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+              </div>
+              <div class="ocr-step-connector done"></div>
+              <div class="ocr-step done">
+                <div class="ocr-step-node"><i class="ph ph-cpu"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                <div class="ocr-step-text">
                   <div class="ocr-step-label">OCR Document Parser</div>
                   <div class="ocr-step-status">99.4% Confidence</div>
                 </div>
-                <div class="ocr-step-connector done"></div>
-                <div class="ocr-step done">
-                  <div class="ocr-step-node"><i class="ph ph-magic-wand"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+              </div>
+              <div class="ocr-step-connector done"></div>
+              <div class="ocr-step done">
+                <div class="ocr-step-node"><i class="ph ph-magic-wand"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
+                <div class="ocr-step-text">
                   <div class="ocr-step-label">Schema Normalization</div>
                   <div class="ocr-step-status">Canonical Mapped</div>
                 </div>
               </div>
-
-              <div class="extracted-fields-list" id="extractedFieldsList">
-                <!-- Populated dynamically based on active submission -->
-              </div>
             </div>
-          </div>
 
-          <!-- Canonical Record JSON / Object View — same visibility rule as
-               the OCR pipeline card above. -->
-          <div class="card" id="canonicalRecordCard">
-            <div class="card-header">
-              <h3><i class="ph ph-database"></i> Canonical Submission Record</h3>
-              <span class="badge badge-light font-mono" id="submissionIdBadge"></span>
-            </div>
-            <div class="card-body">
-              <div class="canonical-header-summary">
-                <div class="summary-stat">
-                  <span class="lbl">Applicant</span>
-                  <strong class="val" id="canonInsured">Apex Freight LLC</strong>
-                </div>
-                <div class="summary-stat">
-                  <span class="lbl">Line of Business</span>
-                  <strong class="val" id="canonLOB">—</strong>
-                </div>
-                <div class="summary-stat">
-                  <span class="lbl">Target Exposure</span>
-                  <strong class="val" id="canonExposure">$1,850,000</strong>
-                </div>
-                <div class="summary-stat">
-                  <span class="lbl">Pipeline State</span>
-                  <strong class="val tag-ready">Normalized</strong>
-                </div>
-              </div>
-
-              <div class="code-editor-box">
-                <div class="code-editor-bar">
-                  <span><i class="ph ph-code"></i> canonical_submission_record.json</span>
-                  <span class="badge badge-light">Read Only (Canonical Schema v2.4)</span>
-                </div>
-                <pre class="code-content"><code id="canonicalJsonDisplay">Loading canonical data...</code></pre>
-              </div>
+            <div class="extracted-fields-section-title"><i class="ph ph-list-checks"></i> Extracted Fields</div>
+            <div class="extracted-fields-list extracted-fields-list-full" id="extractedFieldsList">
+              <!-- Populated dynamically based on active submission -->
             </div>
           </div>
         </div>
@@ -627,7 +595,7 @@ run<!--
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
           <div>
-            <strong>Phase 1 Step Flow:</strong> The pipeline reads raw PDF forms and tables without manual re-keying, converts them into standard data fields, and persists the <strong>Canonical Submission Record</strong> which every subsequent clearance and underwriting phase accesses.
+            <strong>Phase 1 Step Flow:</strong> The pipeline reads raw PDF forms and tables without manual re-keying and converts them into standard data fields that every subsequent clearance and underwriting phase accesses.
           </div>
         </div>
       </section>
@@ -671,7 +639,7 @@ run<!--
               <!-- Interactive Duplicate Test Button -->
               <div class="simulation-tool-box">
                 <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Duplicate Scenario</span>
-                <button class="btn btn-sm btn-outline-danger" onclick="triggerDuplicateExit()"><i class="ph ph-prohibit"></i> Simulate Duplicate FEIN Conflict (Exit Path 1)</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="triggerDuplicateExit()"><i class="ph ph-prohibit"></i> Decline</button>
               </div>
             </div>
           </div>
@@ -702,7 +670,7 @@ run<!--
               <!-- Interactive Knockout Test Button -->
               <div class="simulation-tool-box">
                 <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Appetite Failure</span>
-                <button class="btn btn-sm btn-outline-danger" onclick="triggerAppetiteFailureExit()"><i class="ph ph-warning"></i> Simulate Appetite Knockout (Auto-Decline)</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="triggerAppetiteFailureExit()"><i class="ph ph-warning"></i> Decline</button>
               </div>
             </div>
           </div>
