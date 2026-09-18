@@ -6413,19 +6413,86 @@ body.has-bottom-footer .app-layout {
 }
 .email-digest-dupe-banner i { font-size: 18px; margin-top: 1px; }
 
+.email-digest-review-panel {
+  background: linear-gradient(180deg, #faf8ff 0%, #ffffff 90px);
+  border: 1px solid #e4defb;
+  border-radius: 12px;
+  padding: 16px;
+}
+
 .email-digest-review-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
+}
+.email-digest-review-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.email-digest-review-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff;
+  font-size: 16px;
 }
 .email-digest-review-header h4 {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 0;
   font-size: 15px;
+  color: #1e1b3a;
+}
+.email-digest-draft-pill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  padding: 3px 8px;
+}
+.email-digest-review-subtitle {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+.email-digest-lob-field {
+  max-width: 240px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.email-digest-progress-bar {
+  height: 6px;
+  background: #eef0f4;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.email-digest-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7c3aed, #16a34a);
+  border-radius: 999px;
+  transition: width .25s ease;
+}
+.email-digest-progress-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 12px;
 }
 
 .email-digest-needs-review-flag {
@@ -6456,7 +6523,6 @@ body.has-bottom-footer .app-layout {
   font-size: 12px;
   line-height: 1.4;
 }
-}
 .email-digest-clean-flag {
   display: flex;
   align-items: center;
@@ -6472,8 +6538,27 @@ body.has-bottom-footer .app-layout {
 
 .email-digest-field-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px 16px;
+  margin-bottom: 12px;
+}
+.email-digest-field-row {
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.email-digest-field-row:focus-within {
+  border-color: #a855f7;
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.12);
+}
+.email-digest-field-row--blank {
+  border-color: #fecaca;
+  background: #fffafa;
+}
+.email-digest-field-row--wide {
+  margin-bottom: 10px;
 }
 .email-digest-field-row label {
   display: flex;
@@ -6485,9 +6570,27 @@ body.has-bottom-footer .app-layout {
   color: #475569;
   margin-bottom: 4px;
 }
+.email-digest-field-row .form-control {
+  border-color: #e2e8f0;
+}
 .email-digest-conf-badge {
   font-size: 9.5px;
   padding: 2px 6px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.email-digest-review-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  background: transparent;
+  border-top: 1px solid #eef0f4;
+  padding-top: 14px !important;
+}
+.email-digest-review-footer-left {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .email-digest-inbox-list {

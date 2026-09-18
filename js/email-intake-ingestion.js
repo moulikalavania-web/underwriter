@@ -1105,8 +1105,31 @@ function handleNormFieldEdit(key, inputEl) {
   const isBlank = inputEl.value.trim() === "";
   inputEl.classList.toggle("is-invalid", isBlank);
   if (errorEl) errorEl.classList.toggle("u-hidden", !isBlank);
+  if (inputEl.parentElement) inputEl.parentElement.classList.toggle("email-digest-field-row--blank", isBlank);
+
+  updateNormalizationProgress();
 }
 window.handleNormFieldEdit = handleNormFieldEdit;
+
+// Purely cosmetic: keeps the "N of M fields filled" progress bar/label in
+// the review header in sync as the underwriter edits fields, without
+// touching any validation or apply logic.
+function updateNormalizationProgress() {
+  const inputs = document.querySelectorAll('#emailDigestReviewContainer .email-digest-field-grid input[id^="normField_"]');
+  if (!inputs.length) return;
+  const total = inputs.length;
+  const filled = Array.from(inputs).filter(el => el.value.trim() !== "").length;
+
+  const fill = document.querySelector("#emailDigestReviewContainer .email-digest-progress-fill");
+  if (fill) fill.style.width = `${Math.round((filled / total) * 100)}%`;
+
+  const label = document.querySelector("#emailDigestReviewContainer .email-digest-progress-label");
+  if (label) {
+    const blank = total - filled;
+    label.innerHTML = `<i class="ph ph-list-checks"></i> ${filled} of ${total} fields filled` +
+      (blank > 0 ? ` <span class="text-danger">— ${blank} need attention</span>` : ` <span class="text-success">— all set</span>`);
+  }
+}
 
 function renderNormalizationReview(subId, draft) {
   const reviewBox = document.getElementById("emailDigestReviewContainer");
@@ -1126,6 +1149,7 @@ function renderNormalizationReview(subId, draft) {
     ["effectiveDate", "Effective Date"]
   ];
 
+  let blankCount = 0;
   const rowsHtml = fieldRows.map(([key, label]) => {
     const val = draft[key] === null || draft[key] === undefined ? "" : draft[key];
     const conf = fc[key] || (val ? "medium" : "low");
@@ -1135,13 +1159,15 @@ function renderNormalizationReview(subId, draft) {
     // applying, same pattern as every other required-field validation in
     // this app (showFieldError/clearFieldError + field-error-text span).
     const isBlank = val === "" || val === null || val === undefined;
+    if (isBlank) blankCount++;
     return `
-      <div class="email-digest-field-row">
+      <div class="email-digest-field-row ${isBlank ? 'email-digest-field-row--blank' : ''}">
         <label>${label} <span id="confBadge_${key}">${confBadge(conf)}</span></label>
         <input type="text" class="form-control form-control-sm ${isBlank ? 'is-invalid' : ''}" id="normField_${key}" value="${safeVal}" data-original-value="${safeVal}" data-original-conf="${conf}" oninput="handleNormFieldEdit('${key}', this)">
         <span class="field-error-text ${isBlank ? '' : 'u-hidden'}">Not found in the email/JSON — enter it manually or leave blank if genuinely not provided.</span>
       </div>`;
   }).join("");
+  const filledCount = fieldRows.length - blankCount;
 
   const dedupeMatch = findDuplicateSubmission(draft.insured, draft.fein, subId);
   if (dupeBanner) {
@@ -1172,33 +1198,53 @@ function renderNormalizationReview(subId, draft) {
 
   reviewBox.style.display = "block";
   reviewBox.innerHTML = `
-    <div class="email-digest-review-header">
-      <h4><i class="ph ph-magic-wand"></i> AI-Normalized Standard Data (Draft — Not Yet Applied)</h4>
-      <div class="form-group" style="max-width:260px;">
-        <label>Line of Business</label>
-        <select class="form-control form-control-sm" id="normField_lobKey">
-          ${EMAIL_DIGEST_LOB_TEMPLATES.map(l => `<option value="${l}" ${l === draft.lobKey ? "selected" : ""}>${l}</option>`).join("")}
-        </select>
+    <div class="email-digest-review-panel">
+      <div class="email-digest-review-header">
+        <div class="email-digest-review-heading">
+          <span class="email-digest-review-icon"><i class="ph ph-magic-wand"></i></span>
+          <div>
+            <h4>AI-Normalized Standard Data <span class="badge badge-info email-digest-draft-pill">Draft — Not Yet Applied</span></h4>
+            <p class="email-digest-review-subtitle">Review what the AI extracted below, fix anything that's wrong, then apply it to the submission.</p>
+          </div>
+        </div>
+        <div class="form-group email-digest-lob-field">
+          <label>Line of Business</label>
+          <select class="form-control form-control-sm" id="normField_lobKey">
+            ${EMAIL_DIGEST_LOB_TEMPLATES.map(l => `<option value="${l}" ${l === draft.lobKey ? "selected" : ""}>${l}</option>`).join("")}
+          </select>
+        </div>
       </div>
-    </div>
-    ${reviewFlagHtml}
-    <div class="email-digest-field-grid">${rowsHtml}</div>
-    <div class="form-group mt-2">
-      <label>Coverage Summary</label>
-      <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2">${draft.coverageSummary || ""}</textarea>
-    </div>
-    <div class="form-group mt-2">
-      <label>Loss History Summary</label>
-      <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2">${draft.lossHistorySummary || ""}</textarea>
-    </div>
-    <div class="modal-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">
-      <button type="button" class="btn btn-outline" onclick="discardNormalizationDraft('${subId}')">Discard Draft</button>
-      <button type="button" class="btn btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="openMissingFieldsModal('${subId}')">
-        <i class="ph ph-warning-circle"></i> Request Missing Information
-      </button>
-      <button type="button" class="btn btn-primary" onclick="applyNormalizedDataToSubmission('${subId}')">
-        <i class="ph ph-cloud-arrow-up"></i> Confirm & Apply Standard Data
-      </button>
+
+      <div class="email-digest-progress-bar" title="${filledCount} of ${fieldRows.length} fields have a value">
+        <div class="email-digest-progress-fill" style="width:${Math.round((filledCount / fieldRows.length) * 100)}%;"></div>
+      </div>
+      <div class="email-digest-progress-label">
+        <i class="ph ph-list-checks"></i> ${filledCount} of ${fieldRows.length} fields filled
+        ${blankCount > 0 ? `<span class="text-danger">— ${blankCount} need attention</span>` : `<span class="text-success">— all set</span>`}
+      </div>
+
+      ${reviewFlagHtml}
+      <div class="email-digest-field-grid">${rowsHtml}</div>
+      <div class="email-digest-field-row email-digest-field-row--wide">
+        <label>Coverage Summary</label>
+        <textarea class="form-control form-control-sm" id="normField_coverageSummary" rows="2">${draft.coverageSummary || ""}</textarea>
+      </div>
+      <div class="email-digest-field-row email-digest-field-row--wide">
+        <label>Loss History Summary</label>
+        <textarea class="form-control form-control-sm" id="normField_lossHistorySummary" rows="2">${draft.lossHistorySummary || ""}</textarea>
+      </div>
+
+      <div class="modal-footer email-digest-review-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">
+        <div class="email-digest-review-footer-left">
+          <button type="button" class="btn btn-outline" onclick="discardNormalizationDraft('${subId}')"><i class="ph ph-arrow-counter-clockwise"></i> Discard Draft</button>
+          <button type="button" class="btn btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="openMissingFieldsModal('${subId}')">
+            <i class="ph ph-warning-circle"></i> Request Missing Information
+          </button>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="applyNormalizedDataToSubmission('${subId}')">
+          <i class="ph ph-cloud-arrow-up"></i> Confirm & Apply Standard Data
+        </button>
+      </div>
     </div>
   `;
 }
