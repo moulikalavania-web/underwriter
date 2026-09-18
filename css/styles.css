@@ -8084,3 +8084,182 @@ body.has-bottom-footer .app-layout {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ============================================================================
+   Issue Quote — Actions popup: vertical stepper (Quotation -> Customer
+   Approval -> Invoice -> Download). Replaces a cramped 4-row data table with
+   step cards so locked/active/done state and inline controls (Approve/
+   Reject buttons, the change-reason box) each get real room to breathe.
+   ============================================================================ */
+.iqa-stepper {
+  display: flex;
+  flex-direction: column;
+}
+.iqa-step {
+  display: flex;
+  gap: 14px;
+}
+.iqa-step-rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.iqa-step-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: #eef0f4;
+  color: #64748b;
+  border: 2px solid #e2e8f0;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.iqa-step-line {
+  width: 2px;
+  flex: 1 1 auto;
+  min-height: 24px;
+  background: #e2e8f0;
+  margin: 4px 0;
+}
+.iqa-step:last-child .iqa-step-line {
+  display: none;
+}
+.iqa-step-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 22px;
+}
+.iqa-step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.iqa-step-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.iqa-step-desc {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+}
+.iqa-step-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* Step state: done */
+.iqa-step--done .iqa-step-dot {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  border-color: transparent;
+  color: #fff;
+}
+.iqa-step--done .iqa-step-line {
+  background: linear-gradient(180deg, #16a34a, #e2e8f0);
+}
+
+/* Step state: active (needs the underwriter/customer to do something now) */
+.iqa-step--active .iqa-step-dot {
+  background: #fff7ed;
+  border-color: #fb923c;
+  color: #c2410c;
+}
+.iqa-step--active .iqa-step-title {
+  color: #7c2d12;
+}
+
+/* Step state: warn (change requested) */
+.iqa-step--warn .iqa-step-dot {
+  background: var(--warning-bg, #fffbeb);
+  border-color: #f59e0b;
+  color: #b45309;
+}
+
+/* Step state: locked */
+.iqa-step--locked .iqa-step-dot {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #94a3b8;
+}
+.iqa-step--locked .iqa-step-title,
+.iqa-step--locked .iqa-step-desc {
+  color: #94a3b8;
+}
+
+.iqa-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.iqa-confirm-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #475569;
+}
+.iqa-confirm-line--success {
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+}
+.iqa-locked-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.iqa-inline-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--color-danger, #dc2626);
+  font-weight: 600;
+}
+
+.iqa-reason-box {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid #eef0f4;
+  border-radius: 8px;
+  padding: 10px;
+}
+.iqa-reason-callout {
+  background: var(--warning-bg, #fffbeb);
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-width: 460px;
+}
+.iqa-reason-callout-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+.iqa-reason-callout-text {
+  font-size: 12.5px;
+  color: #78350f;
+  font-style: italic;
+}

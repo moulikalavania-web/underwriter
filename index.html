@@ -2489,23 +2489,11 @@ run<!--
         </button>
       </div>
       <div class="modal-body">
-        <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">
-          Quote <strong id="issueQuoteActionsSubId"></strong> — the quotation goes to the customer first;
-          the invoice can only be generated, sent to PAS, or downloaded once the customer approves.
+        <p class="text-xs text-muted u-m0" style="margin-bottom:16px;">
+          Quote <strong id="issueQuoteActionsSubId" class="font-mono"></strong> — the quotation goes to the
+          customer first; the invoice can only be generated, sent to PAS, or downloaded once the customer approves.
         </p>
-        <div class="table-responsive">
-          <table class="data-table" id="issueQuoteActionsTable">
-            <thead>
-              <tr>
-                <th>Step</th>
-                <th>Description</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="issueQuoteActionsTableBody"></tbody>
-          </table>
-        </div>
+        <div id="issueQuoteActionsSteps" class="iqa-stepper"></div>
       </div>
     </div>
   </div>

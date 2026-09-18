@@ -402,93 +402,110 @@ function closeIssueQuoteActionsModal() {
   if (modal) modal.classList.remove("active");
 }
 
-// Re-renders the whole table body from sub.issueQuoteFlow — simplest way to
-// keep every row's enabled/disabled state and conditional controls (the
+// Re-renders the whole stepper from sub.issueQuoteFlow — simplest way to
+// keep every step's enabled/locked state and conditional controls (the
 // Approve/Reject buttons, the reason box) consistent with each other.
 function renderIssueQuoteActionsTable() {
   const sub = getIssueQuoteActionsSub();
-  const tbody = document.getElementById("issueQuoteActionsTableBody");
-  if (!sub || !tbody) return;
+  const container = document.getElementById("issueQuoteActionsSteps");
+  if (!sub || !container) return;
   const flow = ensureIssueQuoteFlow(sub);
 
-  // --- Row 1: Send Quotation to Customer ---
-  const quotationActionCell = flow.quotationStatus === "sent"
-    ? `<button type="button" class="btn btn-sm btn-outline" onclick="sendQuotationToCustomer()"><i class="ph ph-arrow-clockwise"></i> Resend</button>`
-    : `<button type="button" class="btn btn-sm btn-primary" onclick="sendQuotationToCustomer()"><i class="ph ph-paper-plane-tilt"></i> Send</button>`;
+  // --- Step 1: Send Quotation to Customer ---
+  const step1Done = flow.quotationStatus === "sent";
+  const step1Body = flow.quotationStatus === "failed"
+    ? `<div class="iqa-inline-error"><i class="ph ph-warning-circle"></i> Could not send — no active submission data.</div>
+       <button type="button" class="btn btn-sm btn-primary" onclick="sendQuotationToCustomer()"><i class="ph ph-paper-plane-tilt"></i> Retry Send</button>`
+    : step1Done
+      ? `<div class="iqa-confirm-line"><i class="ph ph-check-circle"></i> Sent to the customer/broker as a document.</div>
+         <button type="button" class="btn btn-sm btn-outline" onclick="sendQuotationToCustomer()"><i class="ph ph-arrow-clockwise"></i> Resend</button>`
+      : `<button type="button" class="btn btn-sm btn-primary" onclick="sendQuotationToCustomer()"><i class="ph ph-paper-plane-tilt"></i> Send Quotation</button>`;
 
-  // --- Row 2: Customer Approval — only actionable once the quotation has
-  // actually been sent; before that it's just a locked "Awaiting Quotation"
-  // status with no controls.
-  let approvalStatusHtml;
-  let approvalActionHtml;
+  // --- Step 2: Customer Approval — only actionable once the quotation has
+  // actually been sent; before that it's a locked, greyed-out step.
+  let step2Status = "locked";
+  let step2Body;
   if (flow.quotationStatus !== "sent") {
-    approvalStatusHtml = `<span class="badge badge-light">Awaiting Quotation</span>`;
-    approvalActionHtml = `<span class="text-xs text-muted">Send the quotation first.</span>`;
+    step2Body = `<div class="iqa-locked-hint"><i class="ph ph-lock-simple"></i> Send the quotation first.</div>`;
   } else if (flow.approvalStatus === "approved") {
-    approvalStatusHtml = `<span class="badge badge-success"><i class="ph ph-check"></i> Approved</span>`;
-    approvalActionHtml = `<span class="text-xs text-success">Customer approved — invoice unlocked.</span>`;
+    step2Status = "done";
+    step2Body = `<div class="iqa-confirm-line iqa-confirm-line--success"><i class="ph ph-check-circle"></i> Customer approved the quotation — invoice unlocked below.</div>`;
   } else if (flow.approvalStatus === "changes_requested") {
-    approvalStatusHtml = `<span class="badge badge-warning"><i class="ph ph-arrow-u-up-left"></i> Change Requested</span>`;
-    approvalActionHtml = `
-      <div class="text-xs" style="margin-bottom:6px;"><strong>Reason sent to underwriter:</strong> ${escapeHtmlIssueQuote(flow.changeReason)}</div>
+    step2Status = "warn";
+    step2Body = `
+      <div class="iqa-reason-callout">
+        <div class="iqa-reason-callout-label"><i class="ph ph-quotes"></i> Reason sent to underwriter</div>
+        <div class="iqa-reason-callout-text">${escapeHtmlIssueQuote(flow.changeReason)}</div>
+      </div>
       <button type="button" class="btn btn-sm btn-outline" onclick="resetCustomerApproval()"><i class="ph ph-arrow-counter-clockwise"></i> Reset Approval</button>`;
   } else {
-    approvalStatusHtml = `<span class="badge badge-warning">Awaiting Customer</span>`;
-    approvalActionHtml = `
-      <div class="u-row-gap8" style="margin-bottom:8px;">
-        <button type="button" class="btn btn-sm btn-success" onclick="setCustomerApproval('approved')"><i class="ph ph-check"></i> Customer: Yes / Approve</button>
-        <button type="button" class="btn btn-sm btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="showQuoteChangeReasonBox()"><i class="ph ph-x"></i> Customer: No / Not Approved</button>
+    step2Status = "active";
+    step2Body = `
+      <div class="iqa-choice-row">
+        <button type="button" class="btn btn-sm btn-success" onclick="setCustomerApproval('approved')"><i class="ph ph-check"></i> Yes — Customer Approves</button>
+        <button type="button" class="btn btn-sm btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="showQuoteChangeReasonBox()"><i class="ph ph-x"></i> No — Not Approved</button>
       </div>
-      <div id="issueQuoteChangeReasonBox" class="u-hidden">
+      <div id="issueQuoteChangeReasonBox" class="u-hidden iqa-reason-box">
+        <label class="u-label-sm">Reason for change (required)</label>
         <textarea class="form-control form-control-sm" id="issueQuoteChangeReasonInput" rows="2" placeholder="e.g. Please reduce the quoted premium and update the coverage limit."></textarea>
         <span class="field-error-text u-hidden" id="issueQuoteChangeReasonError">A reason is required to request a quote change.</span>
         <button type="button" class="btn btn-sm btn-warning mt-2" onclick="submitQuoteChangeRequest()"><i class="ph ph-paper-plane-tilt"></i> Request Quote Change</button>
       </div>`;
   }
 
-  // --- Row 3: Send Invoice to PAS — locked until approved. ---
+  // --- Step 3: Send Invoice to PAS — locked until approved. ---
   const invoiceUnlocked = flow.approvalStatus === "approved";
-  const invoiceStatusHtml = invoiceUnlocked ? statusBadgeHtml(flow.invoiceStatus) : `<span class="badge badge-light">Locked</span>`;
-  const invoiceActionHtml = !invoiceUnlocked
-    ? `<button type="button" class="btn btn-sm btn-outline" disabled title="Available once the customer approves the quotation"><i class="ph ph-lock-simple"></i> Send</button>`
-    : (flow.invoiceStatus === "sent"
-        ? `<button type="button" class="btn btn-sm btn-outline" onclick="sendInvoiceToPAS()"><i class="ph ph-arrow-clockwise"></i> Resend</button>`
-        : `<button type="button" class="btn btn-sm btn-primary" onclick="sendInvoiceToPAS()"><i class="ph ph-paper-plane-tilt"></i> Send</button>`);
+  const step3Status = !invoiceUnlocked ? "locked" : (flow.invoiceStatus === "sent" ? "done" : "active");
+  const step3Body = !invoiceUnlocked
+    ? `<div class="iqa-locked-hint"><i class="ph ph-lock-simple"></i> Available once the customer approves the quotation.</div>`
+    : flow.invoiceStatus === "sent"
+      ? `<div class="iqa-confirm-line iqa-confirm-line--success"><i class="ph ph-check-circle"></i> Invoice sent to PAS — values match the Output Quote exactly.</div>
+         <button type="button" class="btn btn-sm btn-outline" onclick="sendInvoiceToPAS()"><i class="ph ph-arrow-clockwise"></i> Resend</button>`
+      : `<button type="button" class="btn btn-sm btn-primary" onclick="sendInvoiceToPAS()"><i class="ph ph-paper-plane-tilt"></i> Send Invoice</button>`;
 
-  // --- Row 4: Download ---
-  const downloadQuotationBtn = flow.quotationStatus === "sent"
-    ? `<button type="button" class="btn btn-sm btn-outline" onclick="downloadQuotationDocument()"><i class="ph ph-download-simple"></i> Quotation (Document)</button>`
-    : `<button type="button" class="btn btn-sm btn-outline" disabled title="Send the quotation first"><i class="ph ph-lock-simple"></i> Quotation (Document)</button>`;
+  // --- Step 4: Download ---
+  const downloadQuotationBtn = step1Done
+    ? `<button type="button" class="btn btn-sm btn-outline" onclick="downloadQuotationDocument()"><i class="ph ph-file-text"></i> Quotation <span class="text-xs text-muted">(Document)</span></button>`
+    : `<button type="button" class="btn btn-sm btn-outline" disabled title="Send the quotation first"><i class="ph ph-lock-simple"></i> Quotation <span class="text-xs text-muted">(Document)</span></button>`;
   const downloadInvoiceBtn = invoiceUnlocked
-    ? `<button type="button" class="btn btn-sm btn-outline" onclick="downloadInvoiceJson()"><i class="ph ph-download-simple"></i> Invoice (JSON)</button>`
-    : `<button type="button" class="btn btn-sm btn-outline" disabled title="Available once the customer approves the quotation"><i class="ph ph-lock-simple"></i> Invoice (JSON)</button>`;
+    ? `<button type="button" class="btn btn-sm btn-outline" onclick="downloadInvoiceJson()"><i class="ph ph-file-code"></i> Invoice <span class="text-xs text-muted">(JSON)</span></button>`
+    : `<button type="button" class="btn btn-sm btn-outline" disabled title="Available once the customer approves the quotation"><i class="ph ph-lock-simple"></i> Invoice <span class="text-xs text-muted">(JSON)</span></button>`;
+  const step4Status = step1Done ? "active" : "locked";
+  const step4Body = `<div class="iqa-choice-row">${downloadQuotationBtn}${downloadInvoiceBtn}</div>`;
 
-  tbody.innerHTML = `
-    <tr>
-      <td><i class="ph ph-user-circle"></i> Send Quotation to Customer</td>
-      <td class="text-xs text-muted">Readable quotation document sent to the customer/broker.</td>
-      <td>${statusBadgeHtml(flow.quotationStatus)}</td>
-      <td>${quotationActionCell}</td>
-    </tr>
-    <tr>
-      <td><i class="ph ph-user-check"></i> Customer Approval</td>
-      <td class="text-xs text-muted" style="max-width:240px;">${approvalActionHtml}</td>
-      <td>${approvalStatusHtml}</td>
-      <td></td>
-    </tr>
-    <tr>
-      <td><i class="ph ph-bank"></i> Send Invoice to PAS</td>
-      <td class="text-xs text-muted">Invoice JSON (from the Output Quote) sent to the Policy Administration System. Requires customer approval.</td>
-      <td>${invoiceStatusHtml}</td>
-      <td>${invoiceActionHtml}</td>
-    </tr>
-    <tr>
-      <td><i class="ph ph-download-simple"></i> Download</td>
-      <td class="text-xs text-muted">Quotation once sent; Invoice only once the customer has approved.</td>
-      <td class="text-muted">—</td>
-      <td><div class="u-row-gap8">${downloadQuotationBtn}${downloadInvoiceBtn}</div></td>
-    </tr>
-  `;
+  const steps = [
+    { num: 1, icon: "ph-user-circle", title: "Send Quotation to Customer", desc: "Readable quotation document sent to the customer/broker.", status: step1Done ? "done" : "active", body: step1Body },
+    { num: 2, icon: "ph-user-check", title: "Customer Approval", desc: "The customer reviews the quotation and either approves it or requests a change.", status: step2Status, body: step2Body },
+    { num: 3, icon: "ph-bank", title: "Send Invoice to PAS", desc: "Invoice JSON, built from the Output Quote, sent to the Policy Administration System.", status: step3Status, body: step3Body },
+    { num: 4, icon: "ph-download-simple", title: "Download", desc: "Quotation once sent; Invoice only once the customer has approved.", status: step4Status, body: step4Body }
+  ];
+
+  container.innerHTML = steps.map(s => `
+    <div class="iqa-step iqa-step--${s.status}">
+      <div class="iqa-step-rail">
+        <div class="iqa-step-dot">${s.status === "done" ? '<i class="ph ph-check"></i>' : (s.status === "locked" ? '<i class="ph ph-lock-simple"></i>' : s.num)}</div>
+        <div class="iqa-step-line"></div>
+      </div>
+      <div class="iqa-step-body">
+        <div class="iqa-step-head">
+          <div class="iqa-step-title"><i class="ph ${s.icon}"></i> ${s.title}</div>
+          ${iqaStatusPill(s.status)}
+        </div>
+        <p class="iqa-step-desc">${s.desc}</p>
+        <div class="iqa-step-controls">${s.body}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function iqaStatusPill(status) {
+  const map = {
+    done: '<span class="badge badge-success"><i class="ph ph-check"></i> Done</span>',
+    active: '<span class="badge badge-warning">Action Needed</span>',
+    warn: '<span class="badge badge-warning"><i class="ph ph-arrow-u-up-left"></i> Change Requested</span>',
+    locked: '<span class="badge badge-light"><i class="ph ph-lock-simple"></i> Locked</span>'
+  };
+  return map[status] || map.locked;
 }
 
 function escapeHtmlIssueQuote(str) {
