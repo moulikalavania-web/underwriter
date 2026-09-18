@@ -148,7 +148,7 @@ function resetEmailCaptureForm() {
   if (textarea) textarea.value = "";
   if (jsonTextarea) jsonTextarea.value = "";
   if (fileList) fileList.innerHTML = "";
-  if (createBtn) { createBtn.disabled = false; createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Add Raw Data & Documents to Submission'; }
+  if (createBtn) { createBtn.disabled = false; createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Submit'; }
 }
 
 // ----------------------------------------------------------------------------
@@ -216,7 +216,7 @@ function loadDemoInboxMessage(msgId) {
   const lobSelect = document.getElementById("emailDigestLobSelect");
   if (textarea) textarea.value = msg.body;
   if (lobSelect && msg.lobKey) lobSelect.value = msg.lobKey;
-  showToast("📥 Raw message copied into the paste pane — review and click \"Add Raw Data & Documents to Submission\" (no AI runs yet).", "info");
+  showToast("📥 Raw message copied into the paste pane — review and click \"Submit\" (no AI runs yet).", "info");
 }
 
 // Stub for wiring a REAL inbox in production. Left here (unused by the demo
@@ -400,7 +400,7 @@ async function createRawSubmissionFromEmail() {
   } finally {
     if (createBtn) {
       createBtn.disabled = false;
-      createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Add Raw Data & Documents to Submission';
+      createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Submit';
     }
   }
 }
@@ -431,7 +431,7 @@ function renderRawEmailCapturePanel(sub) {
     return;
   }
 
-  renderPendingRawPanel(sub, box);
+  renderIngestionReviewDirect(sub, box);
 }
 
 // The "AI / OCR Extraction Pipeline" and "Canonical Submission Record" cards
@@ -455,40 +455,27 @@ function togglePostNormalizationCards(sub) {
 
 window.togglePostNormalizationCards = togglePostNormalizationCards;
 
-function renderPendingRawPanel(sub, box) {
-  const attachmentsHtml = (sub.rawAttachments || []).map(a => `
-    <div class="email-digest-file-chip" title="Raw file, unmodified">
-      <i class="ph ${a.type === 'application/pdf' ? 'ph-file-pdf' : 'ph-image'}"></i>
-      <span>${a.name}</span>
-    </div>
-  `).join("") || `<span class="text-xs text-muted">No documents attached.</span>`;
-
+// Skips the raw-data staging screen entirely: as soon as Document Ingestion
+// is opened for a submission that hasn't been normalized yet, build the AI
+// extraction draft and render the review/edit form directly — the same form
+// that used to require a separate "Run AI Document Ingestion" click first.
+function renderIngestionReviewDirect(sub, box) {
   box.innerHTML = `
     <div class="card raw-capture-card">
       <div class="card-header">
-        <h3><i class="ph ph-clipboard-text"></i> Raw Data Captured From Email</h3>
-        <span class="badge badge-light"><i class="ph ph-lock-simple"></i> Unmodified — As Received</span>
+        <h3><i class="ph ph-magic-wand"></i> AI Document Ingestion</h3>
+        <span class="badge badge-light"><i class="ph ph-lock-simple"></i> Review Before Applying</span>
       </div>
       <div class="card-body">
-        <p class="text-xs text-muted" style="margin-top:0;">
-          <i class="ph ph-info"></i> This is exactly what the worker copy/pasted from the email. Nothing
-          below has been cleaned or altered. Click <strong>Run AI Document Ingestion</strong> to normalize
-          it into the standard schema — the raw copy will still be here afterward, untouched.
-        </p>
-        <div class="raw-email-text-block">${escapeHtml(sub.rawEmailText || "(no text pasted — see attachments)")}</div>
-        <div class="email-digest-file-list mt-2">${attachmentsHtml}</div>
-
-        <div class="modal-footer mt-3" style="margin: 16px 0 0 0; padding: 0; justify-content: flex-start;">
-          <button type="button" class="btn btn-primary" id="docIngestExtractBtn" onclick="runDocIngestionNormalization('${sub.id}')">
-            <i class="ph ph-sparkle"></i> Run AI Document Ingestion (Normalize)
-          </button>
-        </div>
-
         <div class="email-digest-dupe-banner" id="emailDigestDupeBanner"></div>
-        <div id="emailDigestReviewContainer" style="display:none; margin-top:8px;"></div>
+        <div id="emailDigestReviewContainer"></div>
       </div>
     </div>
   `;
+
+  const draft = emailIngestionDraftBySubId[sub.id] || buildLocalNormalizationDraft(sub);
+  emailIngestionDraftBySubId[sub.id] = draft;
+  renderNormalizationReview(sub.id, draft);
 }
 
 function renderNormalizedSummaryPanel(sub, box) {
@@ -1206,12 +1193,103 @@ function renderNormalizationReview(subId, draft) {
     </div>
     <div class="modal-footer mt-3" style="margin: 16px 0 0 0; padding: 0;">
       <button type="button" class="btn btn-outline" onclick="discardNormalizationDraft('${subId}')">Discard Draft</button>
+      <button type="button" class="btn btn-outline text-danger" style="border-color:var(--color-danger,#dc3545);" onclick="openMissingFieldsModal('${subId}')">
+        <i class="ph ph-warning-circle"></i> Request Missing Information
+      </button>
       <button type="button" class="btn btn-primary" onclick="applyNormalizedDataToSubmission('${subId}')">
         <i class="ph ph-cloud-arrow-up"></i> Confirm & Apply Standard Data
       </button>
     </div>
   `;
 }
+
+// ----------------------------------------------------------------------------
+// 6b. REQUEST MISSING INFORMATION — lets the underwriter pick which blank/
+//     low-confidence fields to chase down, and from whom (broker or
+//     customer), without blocking the Confirm & Apply action. Prototype only:
+//     "sending" the request just confirms via toast, no email is dispatched.
+// ----------------------------------------------------------------------------
+const MISSING_FIELD_DEFS = [
+  { key: "insured", label: "Named Insured", required: true, requestTo: "Broker / Agency" },
+  { key: "fein", label: "FEIN / Tax ID", required: true, requestTo: "Customer" },
+  { key: "dot", label: "DOT Number", required: false, requestTo: "Broker / Agency" },
+  { key: "mcNumber", label: "MC Number", required: false, requestTo: "Broker / Agency" },
+  { key: "address", label: "Address", required: true, requestTo: "Customer" },
+  { key: "broker", label: "Broker / Agency Name", required: false, requestTo: "Broker / Agency" },
+  { key: "email", label: "Contact Email", required: true, requestTo: "Broker / Agency" },
+  { key: "exposureVal", label: "Requested Limit / TIV ($)", required: true, requestTo: "Customer" },
+  { key: "effectiveDate", label: "Effective Date", required: true, requestTo: "Customer" },
+  { key: "coverageSummary", label: "Coverage Summary", required: false, requestTo: "Broker / Agency" },
+  { key: "lossHistorySummary", label: "Loss History Summary", required: true, requestTo: "Customer" },
+  { key: "additionalDriverDetails", label: "Additional Driver Details", required: false, requestTo: "Broker / Agency" }
+];
+
+let missingFieldsModalSubId = null;
+
+function getCurrentFieldValue(key) {
+  const el = document.getElementById(`normField_${key}`);
+  if (el) return el.value.trim();
+  const draft = emailIngestionDraftBySubId[missingFieldsModalSubId] || {};
+  const v = draft[key];
+  return v === null || v === undefined ? "" : String(v).trim();
+}
+
+function openMissingFieldsModal(subId) {
+  missingFieldsModalSubId = subId;
+  const missing = MISSING_FIELD_DEFS.filter(f => !getCurrentFieldValue(f.key));
+
+  const body = document.getElementById("missingFieldsTableBody");
+  if (body) {
+    body.innerHTML = missing.length
+      ? missing.map(f => `
+        <tr>
+          <td><input type="checkbox" class="missing-field-checkbox" data-key="${f.key}" data-request-to="${f.requestTo}" ${f.required ? "checked" : ""} onchange="updateMissingFieldsSelectedCount()"></td>
+          <td>${f.label}</td>
+          <td class="text-muted">—</td>
+          <td>${f.required ? '<span class="text-danger" style="font-weight:600;">Yes</span>' : '<span class="text-muted">No</span>'}</td>
+          <td>${f.requestTo}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="5" class="text-center text-muted" style="padding:16px;">No missing fields detected — everything required has a value.</td></tr>`;
+  }
+
+  updateMissingFieldsSelectedCount();
+  const modal = document.getElementById("missingFieldsModal");
+  if (modal) modal.classList.add("active");
+}
+
+function closeMissingFieldsModal() {
+  const modal = document.getElementById("missingFieldsModal");
+  if (modal) modal.classList.remove("active");
+  missingFieldsModalSubId = null;
+}
+
+function updateMissingFieldsSelectedCount() {
+  const count = document.querySelectorAll(".missing-field-checkbox:checked").length;
+  const countEl = document.getElementById("missingFieldsSelectedCount");
+  if (countEl) countEl.textContent = String(count);
+  const btn = document.getElementById("missingFieldsRequestBtn");
+  if (btn) btn.disabled = count === 0;
+}
+
+function sendMissingFieldsRequest() {
+  const checked = Array.from(document.querySelectorAll(".missing-field-checkbox:checked"));
+  if (!checked.length) return;
+
+  const byRecipient = {};
+  checked.forEach(cb => {
+    const to = cb.getAttribute("data-request-to");
+    byRecipient[to] = (byRecipient[to] || 0) + 1;
+  });
+  const summary = Object.entries(byRecipient).map(([to, n]) => `${n} to ${to}`).join(", ");
+
+  showToast(`📨 Missing information request sent — ${summary}.`, "success");
+  closeMissingFieldsModal();
+}
+
+window.openMissingFieldsModal = openMissingFieldsModal;
+window.closeMissingFieldsModal = closeMissingFieldsModal;
+window.updateMissingFieldsSelectedCount = updateMissingFieldsSelectedCount;
+window.sendMissingFieldsRequest = sendMissingFieldsRequest;
 
 function discardNormalizationDraft(subId) {
   delete emailIngestionDraftBySubId[subId];

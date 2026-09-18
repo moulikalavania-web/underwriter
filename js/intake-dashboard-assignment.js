@@ -59,12 +59,7 @@ function renderManagerDashboardHtml() {
   // etc.) expose everyone's individual caseload — restricted to the System
   // Administrator persona only, not every manager-tier role that can see
   // this dashboard (Senior UW, CUO, Binding Ops also land here).
-  const workloadCardsSection = currentUserRole === "admin"
-    ? `<div>
-        <div class="text-xs text-muted font-bold" style="text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px;">Team Workload Overview</div>
-        <div class="metrics-summary-bar">${workloadCards}</div>
-      </div>`
-    : "";
+  const workloadCardsSection = "";
 
   // "Assigned to Me" — every manager-tier persona (Senior UW, CUO, Admin)
   // sees, right here on their own Assignment Dashboard, exactly the
@@ -124,8 +119,7 @@ function renderManagerDashboardHtml() {
         <h3 style="margin:0 0 4px;"><i class="ph ph-rocket-launch"></i> Get Started — No Submissions Yet</h3>
         <p class="text-sm text-muted" style="margin:0 0 12px;">Nothing has been ingested into this desk yet. Bring in your first case one of these ways:</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="showIntegratingApiPage()"><i class="ph ph-cloud-arrow-up"></i> Ingest Product/Schema (Integrating API)</button>
-          <button class="btn btn-outline" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
+          <button class="btn btn-primary" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
           <button class="btn btn-outline" onclick="openEmailDigestModal()"><i class="ph ph-envelope-open"></i> Import from Email</button>
         </div>
       </div>

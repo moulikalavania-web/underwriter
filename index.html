@@ -386,7 +386,7 @@ run<!--
                 <table class="data-table submission-main-table" id="submissionsMasterTable">
                   <thead>
                     <tr>
-                      <th>Priority & SLA</th>
+                      <th>Priority</th>
                       <th>Submission ID</th>
                       <th>Intake Channel</th>
                       <th>Named Insured Entity</th>
@@ -1217,15 +1217,6 @@ run<!--
               <h2>Integrating API</h2>
               <p>Upload and ingest insurance product definition packages (via the Insurance Product Studio schema) to activate covers, rating factors, and rules.</p>
             </div>
-          </div>
-          <div class="u-row-gap8">
-            <button class="btn btn-primary" onclick="openEmailDigestModal()" title="Copy raw email text and documents into a new Submission — AI normalization happens later, at Document Ingestion">
-              <i class="ph ph-envelope-open"></i> Copy Email into Submission
-            </button>
-            <button class="btn btn-outline" id="btnBulkSubmissionUpload" onclick="document.getElementById('bulkSubmissionJsonInput').click()" title="Upload a JSON file containing an array of submissions to create them all at once">
-              <i class="ph ph-stack"></i> Bulk Upload Submissions (JSON)
-            </button>
-            <input type="file" id="bulkSubmissionJsonInput" accept=".json" class="u-hidden" onchange="handleBulkSubmissionJsonUpload(event)">
           </div>
         </div>
 
@@ -2581,19 +2572,8 @@ run<!--
       <div class="modal-body">
         <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">
           Open the email and copy/paste the raw text below, and attach any documents that came with it
-          (ACORD forms, loss runs, SOVs, screenshots). This step only <strong>captures exactly what was
-          sent</strong> — nothing is cleaned, extracted, or changed here. AI normalization happens later,
-          on demand, at the <strong>Document Ingestion</strong> step, and never overwrites this raw copy.
+          (ACORD forms, loss runs, SOVs, screenshots).
         </p>
-
-        <div class="email-digest-tabs">
-          <button class="tab-btn active" id="emailDigestTabPaste" onclick="switchEmailDigestTab('paste')">
-            <i class="ph ph-clipboard-text"></i> Paste Email
-          </button>
-          <button class="tab-btn" id="emailDigestTabInbox" onclick="switchEmailDigestTab('inbox')">
-            <i class="ph ph-tray-arrow-down"></i> Inbox Connector (Demo)
-          </button>
-        </div>
 
         <!-- Panel: Paste raw email + attachments (raw capture only) -->
         <div id="emailDigestPastePanel">
@@ -2614,11 +2594,6 @@ run<!--
           </div>
 
           <div class="form-group mt-2">
-            <label>Structured Submission JSON (optional — supplements the raw email text)</label>
-            <textarea class="form-control font-mono" id="emailDigestSubmissionJsonText" rows="6" placeholder='Paste a structured Submission JSON here if the broker sent one (operations profile, extended fields, etc.) — parsed later at Document Ingestion, never overwrites the raw text above.'></textarea>
-          </div>
-
-          <div class="form-group mt-2">
             <label>Raw Documents from the Email (optional — attached exactly as received)</label>
             <div class="email-digest-dropzone" onclick="document.getElementById('emailDigestFileInput').click()">
               <i class="ph ph-upload-simple"></i> Click to attach PDF or image files exactly as they came in the email
@@ -2629,26 +2604,45 @@ run<!--
 
           <div class="modal-footer mt-3" style="margin: 0 -20px 0 -20px; padding-bottom: 0;">
             <button type="button" class="btn btn-primary" id="emailDigestCreateBtn" onclick="createRawSubmissionFromEmail()">
-              <i class="ph ph-tray-arrow-down"></i> Add Raw Data & Documents to Submission
+              <i class="ph ph-tray-arrow-down"></i> Submit
             </button>
           </div>
-          <p class="text-xs text-muted u-m0" style="margin-top:8px;">
-            <i class="ph ph-info"></i> No AI runs in this step. The submission is created with your raw
-            text/files untouched, status <strong>"Raw Intake — Pending Document Ingestion."</strong>
-          </p>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <!-- Panel: Simulated inbox connector -->
-        <div id="emailDigestInboxPanel" style="display:none;">
-          <div class="email-digest-inbox-connect-box">
-            <div>
-              <strong><i class="ph ph-plugs"></i> Demo Mode — Simulated Inbox</strong>
-              <div class="meta">Real Gmail / Outlook / IMAP sync requires a backend OAuth service (not available in this browser-only prototype). Loading a sample message here still only performs raw capture — no AI runs until Document Ingestion.</div>
-            </div>
-            <button class="btn btn-sm btn-outline" onclick="connectRealInboxStub()"><i class="ph ph-plug"></i> Connect Real Inbox</button>
-          </div>
-          <div class="email-digest-inbox-list" id="emailDigestInboxList"></div>
+  <!-- Modal: Request Missing Information (opened from the Document Ingestion
+       review form's "Request Missing Information" button, next to
+       "Confirm & Apply Standard Data") -->
+  <div class="modal-overlay" id="missingFieldsModal" role="dialog" aria-modal="true">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h3><i class="ph ph-warning-circle text-danger"></i> Missing Fields</h3>
+        <button class="btn-close" aria-label="Close" onclick="closeMissingFieldsModal()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">The following required information is missing from the captured data.</p>
+        <div class="table-responsive">
+          <table class="data-table" id="missingFieldsTable">
+            <thead>
+              <tr>
+                <th style="width:28px;"></th>
+                <th>Field Name</th>
+                <th>Current Value</th>
+                <th>Required</th>
+                <th>Suggest Request To</th>
+              </tr>
+            </thead>
+            <tbody id="missingFieldsTableBody"></tbody>
+          </table>
         </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeMissingFieldsModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" id="missingFieldsRequestBtn" onclick="sendMissingFieldsRequest()">
+          <i class="ph ph-paper-plane-tilt"></i> Request Selected (<span id="missingFieldsSelectedCount">0</span>)
+        </button>
       </div>
     </div>
   </div>
