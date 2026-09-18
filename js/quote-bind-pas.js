@@ -948,7 +948,7 @@ function renderStep7View(sub) {
   if (titleEl) titleEl.textContent = "Commercial Trucking Formal Quote & Binding";
   if (descEl) descEl.textContent = "Generated from imported rating engine output JSON. Actuarial factors decomposed, fees itemized, and terms bindable.";
 
-  container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub) + getPASSyncCardHtml(sub);
+  container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub);
 }
 
 // ============================================================================
@@ -1164,7 +1164,7 @@ function simulatePASBindSync(subId) {
 
       const container = document.getElementById("step7MainContentContainer");
       if (container) {
-        container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub) + getPASSyncCardHtml(sub);
+        container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub);
       }
 
       showToast(`✅ Bound and synced to PAS. Policy Number: ${policyNumber}`, "success");
