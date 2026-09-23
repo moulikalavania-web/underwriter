@@ -356,7 +356,11 @@ function renderSubmissionsTable() {
           })()}
         </td>
         <td>
-          <small class="text-muted"><i class="ph ph-clock"></i> ${sub.receivedAt.split(' ')[1]} ${sub.receivedAt.split(' ')[2]}</small>
+          ${(() => {
+            const parts = String(sub.receivedAt || "").split(' ');
+            const label = parts.length >= 3 ? `${parts[1]} ${parts[2]}` : (sub.receivedAt || "—");
+            return `<small class="text-muted sub-received"><i class="ph ph-clock"></i> ${label}</small>`;
+          })()}
         </td>
         <td onclick="event.stopPropagation();">
           <span class="badge ${sub.statusBadge}">${sub.statusText}</span>
@@ -788,6 +792,7 @@ function viewIssuedQuote(subId) {
   if (!sub || !sub.quoteIssued) return;
   selectSubmission(subId, false);
   showWorkflowPage(7);
+  if (typeof openViewQuoteSidebar === "function") openViewQuoteSidebar(subId);
   showToast(`📄 Viewing issued quote for ${sub.id}`, "info");
 }
 window.viewIssuedQuote = viewIssuedQuote;

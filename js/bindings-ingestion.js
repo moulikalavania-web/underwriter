@@ -718,7 +718,7 @@ function buildProductDocs(productSchema, subIdx, jurisdictions) {
   const docs = [
     { name: `ACORD_137_${pId}_Application.pdf`, type: "pdf", desc: `Application Form • 4 Pages • 1.4 MB` },
     { name: `${pName.replace(/\s+/g, '_')}_Vehicle_SOV_Schedule.xlsx`, type: "xls", desc: `Statement of Values (SOV) • ${state} Fleet • 420 KB` },
-    { name: `Prior_3_Years_Loss_Runs_Official.pdf`, type: "pdf", desc: `Loss Run History • Clean Incurred • 1.8 MB` },
+    { name: `Prior_3_Years_Loss_Runs_Official.pdf`, type: "pdf", desc: `Loss History Summary • Clean Incurred • 1.8 MB` },
     { name: `Driver_CDL_MVR_Audit_Report.pdf`, type: "pdf", desc: `Official MVR Audit • 100% CDL Active Verified • 850 KB` }
   ];
 

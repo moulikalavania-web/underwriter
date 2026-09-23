@@ -468,6 +468,13 @@ function issueQuoteAction() {
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   showToast(`🚀 Commercial Quote Issued Successfully to ${targetVal === 'broker' ? 'Producing Broker' : (targetVal === 'customer' ? 'Direct Insured' : 'Broker & Customer')}!`, "success");
 
+  // Auto-download the official Quote Proposal + Invoice PDF the moment the
+  // quote is issued (js/issue-quote-email.js — Output-Quote-derived figures,
+  // never re-invented here).
+  if (sub && typeof generateIssuedQuotePdf === "function") {
+    generateIssuedQuotePdf(sub);
+  }
+
   // Issue Quote Actions popup (Add-On) — Quotation -> Customer Approval ->
   // Invoice. Sending, approval, and invoice/download are all explicit,
   // gated actions the underwriter/customer trigger from this table, instead

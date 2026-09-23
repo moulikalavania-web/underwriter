@@ -1707,6 +1707,16 @@ function renderWbSummaryStrip(sub) {
 // data source anywhere in the app yet (Industry, Prior Policy Period,
 // Driver Count as a labeled field, Program) render "Not Provided" rather
 // than being invented.
+const WB_POLICY_TYPE_OPTIONS = [
+  "Motor Carrier / Trucking",
+  "For-Hire Trucking",
+  "Private Carrier",
+  "Owner-Operator",
+  "Auto Liability Only",
+  "Physical Damage Only",
+  "Package / Combined Coverage"
+];
+
 function renderWbRiskOverviewGrid(sub) {
   const box = document.getElementById("wbRiskOverviewGridContainer");
   if (!box) return;
@@ -1742,7 +1752,7 @@ function renderWbRiskOverviewGrid(sub) {
     { label: "Requested Limit / TIV", value: fieldVal(sub.exposure), path: "exposure" },
     { label: "Vehicle Count", value: vehicles.length || null, readonly: true },
     { label: "Driver Count", value: drivers.length || null, readonly: true },
-    { label: "Policy Type", value: fieldVal(gen.policytype), path: "genInfo.policytype" },
+    { label: "Policy Type", value: fieldVal(gen.policytype), path: "genInfo.policytype", options: WB_POLICY_TYPE_OPTIONS },
     { label: "Program", value: fieldVal(sub.program), path: "program" }
   ];
 
@@ -1754,7 +1764,12 @@ function renderWbRiskOverviewGrid(sub) {
           <div class="uwp-field">
             <span class="uwp-field-label">${f.label}</span>
             ${editable && !f.readonly
-              ? `<input type="text" class="form-control form-control-sm uwp-field-input" value="${f.value !== null && f.value !== undefined ? String(f.value).replace(/"/g, '&quot;') : ''}" placeholder="Not Provided" onchange="updateWorkbenchNestedField('${sub.id}', '${f.path}', this.value)">`
+              ? (f.options
+                  ? `<select class="form-control form-control-sm uwp-field-input" onchange="updateWorkbenchNestedField('${sub.id}', '${f.path}', this.value)">
+                      <option value="" ${!f.value ? "selected" : ""}>Not Provided</option>
+                      ${f.options.map(o => `<option value="${o.replace(/"/g, '&quot;')}" ${f.value === o ? "selected" : ""}>${o}</option>`).join('')}
+                    </select>`
+                  : `<input type="text" class="form-control form-control-sm uwp-field-input" value="${f.value !== null && f.value !== undefined ? String(f.value).replace(/"/g, '&quot;') : ''}" placeholder="Not Provided" onchange="updateWorkbenchNestedField('${sub.id}', '${f.path}', this.value)">`)
               : (f.value !== null && f.value !== undefined ? `<span class="uwp-field-value">${f.value}</span>` : NP)}
           </div>
         `).join('')}

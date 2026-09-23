@@ -46,7 +46,7 @@ var SEED_SUBMISSIONS_DATASET = [
     docs: [
       { name: "ACORD_137_Commercial_Auto_Application.pdf", type: "pdf", desc: "Application Form • 4 Pages • 1.4 MB" },
       { name: "Apex_Freight_Vehicle_SOV_Schedule.xlsx", type: "xls", desc: "Statement of Values (SOV) • 12 Units • 420 KB" },
-      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss Run History • 2 Claims Logged • 2.1 MB" },
+      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss History Summary • 2 Claims Logged • 2.1 MB" },
       { name: "Driver_MVR_Verification_Report_2026.pdf", type: "pdf", desc: "Official MVR Audit • 100% Active Verified • 850 KB" },
       { name: "FMCSA_Safety_Inspection_Certificate.pdf", type: "pdf", desc: "FMCSA Compliance Audit • Grade A • 1.2 MB" },
       { name: "Handwritten_Broker_Cover_Note.pdf", type: "pdf", desc: "Handwritten Broker Cover Note (Scanned) • 1 Page • 210 KB" }
@@ -385,7 +385,7 @@ var SEED_SUBMISSIONS_DATASET = [
     docs: [
       { name: "ACORD_137_Commercial_Auto_Application.pdf", type: "pdf", desc: "Application Form • 4 Pages • 1.4 MB" },
       { name: "Apex_Freight_Vehicle_SOV_Schedule.xlsx", type: "xls", desc: "Statement of Values (SOV) • 12 Units • 420 KB" },
-      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss Run History • 2 Claims Logged • 2.1 MB" },
+      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss History Summary • 2 Claims Logged • 2.1 MB" },
       { name: "Driver_MVR_Verification_Report_2026.pdf", type: "pdf", desc: "Official MVR Audit • 100% Active Verified • 850 KB" },
       { name: "FMCSA_Safety_Inspection_Certificate.pdf", type: "pdf", desc: "FMCSA Compliance Audit • Grade A • 1.2 MB" },
       { name: "Handwritten_Broker_Cover_Note.pdf", type: "pdf", desc: "Handwritten Broker Cover Note (Scanned) • 1 Page • 210 KB" }
@@ -685,7 +685,7 @@ var SEED_SUBMISSIONS_DATASET = [
     docs: [
       { name: "ACORD_137_Commercial_Auto_Application.pdf", type: "pdf", desc: "Application Form • 4 Pages • 1.4 MB" },
       { name: "Apex_Freight_Vehicle_SOV_Schedule.xlsx", type: "xls", desc: "Statement of Values (SOV) • 12 Units • 420 KB" },
-      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss Run History • 2 Claims Logged • 2.1 MB" },
+      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss History Summary • 2 Claims Logged • 2.1 MB" },
       { name: "Driver_MVR_Verification_Report_2026.pdf", type: "pdf", desc: "Official MVR Audit • 100% Active Verified • 850 KB" },
       { name: "FMCSA_Safety_Inspection_Certificate.pdf", type: "pdf", desc: "FMCSA Compliance Audit • Grade A • 1.2 MB" },
       { name: "Handwritten_Broker_Cover_Note.pdf", type: "pdf", desc: "Handwritten Broker Cover Note (Scanned) • 1 Page • 210 KB" }
@@ -985,7 +985,7 @@ var SEED_SUBMISSIONS_DATASET = [
     docs: [
       { name: "ACORD_137_Commercial_Auto_Application.pdf", type: "pdf", desc: "Application Form • 4 Pages • 1.4 MB" },
       { name: "Apex_Freight_Vehicle_SOV_Schedule.xlsx", type: "xls", desc: "Statement of Values (SOV) • 12 Units • 420 KB" },
-      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss Run History • 2 Claims Logged • 2.1 MB" },
+      { name: "Prior_3_Years_Loss_Runs_Official.pdf", type: "pdf", desc: "Loss History Summary • 2 Claims Logged • 2.1 MB" },
       { name: "Driver_MVR_Verification_Report_2026.pdf", type: "pdf", desc: "Official MVR Audit • 100% Active Verified • 850 KB" },
       { name: "FMCSA_Safety_Inspection_Certificate.pdf", type: "pdf", desc: "FMCSA Compliance Audit • Grade A • 1.2 MB" },
       { name: "Handwritten_Broker_Cover_Note.pdf", type: "pdf", desc: "Handwritten Broker Cover Note (Scanned) • 1 Page • 210 KB" }

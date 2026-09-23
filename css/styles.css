@@ -1578,19 +1578,96 @@ body.sidebar-is-collapsed .btn-mini-sidebar-toggle {
   overflow-x: auto;
 }
 
+/* Submission Intake queue table — card-style rows, sticky header, pinned
+   Action column. Scoped to .submission-main-table so no other data-table
+   is affected. */
+.submission-table-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+.submission-table-scroll {
+  max-height: 68vh;
+  overflow: auto;
+}
+.submission-main-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.submission-main-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  padding: 12px 10px;
+  white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+.submission-main-table tbody td {
+  padding: 14px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+}
+.submission-main-table tbody tr:last-child td { border-bottom: none; }
 .submission-main-table tbody tr {
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color .15s ease;
 }
+.submission-main-table tbody tr:hover td { background-color: #f8fafc; }
+.submission-main-table tbody tr td:first-child { box-shadow: inset 3px 0 0 transparent; }
+.submission-main-table tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 #cbd5e1; }
+.submission-main-table tbody tr.active-row td { background-color: #eff6ff; }
+.submission-main-table tbody tr.active-row td:first-child { box-shadow: inset 3px 0 0 var(--primary-light); }
 
-.submission-main-table tbody tr:hover {
-  background-color: #f1f5f9;
+/* Readability: no balloon-shaped wrapped pills, no mid-label wrapping, and
+   the Action column stays pinned right when the table scrolls sideways. */
+.submission-main-table .badge,
+.submission-main-table .channel-tag,
+.submission-main-table .badge-priority {
+  border-radius: 8px;
+  white-space: normal;
+  line-height: 1.25;
 }
-
-.submission-main-table tbody tr.active-row {
-  background-color: #eff6ff;
-  border-left: 4px solid var(--primary-light);
+.submission-main-table td:nth-child(1) .badge-priority,
+.submission-main-table td:nth-child(3) .channel-tag,
+.submission-main-table td:nth-child(5) .badge { white-space: nowrap; }
+.submission-main-table td:nth-child(2),
+.submission-main-table td:nth-child(6),
+.submission-main-table td:nth-child(7),
+.submission-main-table td:nth-child(8) { white-space: nowrap; }
+.submission-main-table td:nth-child(4) { min-width: 190px; max-width: 260px; }
+.submission-main-table td:nth-child(4) > strong {
+  display: block;
+  font-size: 13px;
+  color: #0f172a;
+  margin-bottom: 2px;
 }
+.submission-main-table td:nth-child(9) { min-width: 170px; }
+.submission-main-table td:nth-child(9) .badge {
+  display: inline-flex;
+  max-width: 190px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.submission-main-table td:nth-child(9) .btn { display: flex; }
+.submission-main-table thead th:last-child,
+.submission-main-table tbody td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.12);
+}
+.submission-main-table thead th:last-child { z-index: 3; background: #f8fafc; }
+.submission-main-table tbody tr:hover td:last-child { background-color: #f8fafc; }
+.submission-main-table tbody tr.active-row td:last-child { background-color: #eff6ff; }
+.submission-main-table tbody tr.referral-row td:last-child { background-color: #fffbeb; }
 
 /* Assign Rights modal — highlights the row of the role whose row was
    clicked in Team Roster, so the admin can orient themselves instantly in
@@ -1675,13 +1752,9 @@ tr.rbac-role-highlight {
   border-bottom-color: var(--primary-light);
 }
 
-.submission-main-table tbody tr.referral-row {
-  background-color: #fffbeb;
-  border-left: 4px solid #f59e0b;
-}
-.submission-main-table tbody tr.referral-row:hover {
-  background-color: #fef3c7;
-}
+.submission-main-table tbody tr.referral-row td { background-color: #fffbeb; }
+.submission-main-table tbody tr.referral-row td:first-child { box-shadow: inset 3px 0 0 #f59e0b; }
+.submission-main-table tbody tr.referral-row:hover td { background-color: #fef3c7; }
 
 .channel-tag {
   display: inline-flex;
@@ -2991,7 +3064,8 @@ body.pre-login .login-page-view {
    Rights into one slide-in panel instead of two separate modals. Reuses
    .modal-overlay for the dimmed backdrop, but the panel itself docks to
    the right edge and slides in, rather than a centered modal-content box. */
-#assignHubModal {
+#assignHubModal,
+#viewQuoteSidebarModal {
   justify-content: flex-end;
   padding: 0;
 }
@@ -3010,6 +3084,198 @@ body.pre-login .login-page-view {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
+#viewQuoteDrawerPanel {
+  max-width: 780px;
+}
+
+/* Quote Document — styled preview rendered inside the View Quote sidebar
+   (renderQuoteDocumentHtml() in js/issue-quote-email.js). */
+.qd-sheet {
+  background: #ffffff;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.05));
+  padding: 28px 30px;
+}
+.qd-letterhead {
+  text-align: center;
+  padding-bottom: 16px;
+  margin-bottom: 18px;
+  border-bottom: 2px solid var(--primary, #2563eb);
+}
+.qd-letterhead-name {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--primary, #2563eb);
+}
+.qd-letterhead-line {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  margin-top: 2px;
+}
+.qd-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+  margin-bottom: 16px;
+}
+.qd-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 20px;
+  padding: 14px 16px;
+  background: var(--bg-subtle, #f8fafc);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 18px;
+}
+.qd-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.qd-meta-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #64748b);
+}
+.qd-meta-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+.qd-parties-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.qd-party-card {
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 16px;
+}
+.qd-party-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--primary, #2563eb);
+  margin-bottom: 8px;
+}
+.qd-party-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary, #1e293b);
+}
+.qd-party-line {
+  font-size: 12.5px;
+  color: var(--text-secondary, #475569);
+  margin-top: 3px;
+}
+.qd-section {
+  margin-bottom: 20px;
+}
+.qd-section-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-primary, #1e293b);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+}
+.qd-kv-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.qd-kv,
+.qd-line-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+.qd-kv span,
+.qd-line-item span {
+  color: var(--text-muted, #64748b);
+}
+.qd-kv strong,
+.qd-line-item strong {
+  color: var(--text-primary, #1e293b);
+  text-align: right;
+}
+.qd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.qd-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #64748b);
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  padding: 6px 8px;
+}
+.qd-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-primary, #1e293b);
+}
+.qd-table .qd-num {
+  text-align: right;
+}
+.qd-table tfoot td {
+  border-top: 1px solid var(--border-color, #e2e8f0);
+  border-bottom: none;
+  font-weight: 700;
+  padding-top: 10px;
+}
+.qd-total-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  border-radius: var(--radius-md, 8px);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+}
+.qd-total-bar span:first-child {
+  font-size: 13px;
+  font-weight: 700;
+  color: #166534;
+}
+.qd-total-amount {
+  font-size: 20px;
+  font-weight: 800;
+  color: #166534;
+}
+.qd-subjectivities {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-primary, #1e293b);
+}
+.qd-subjectivities li {
+  margin-bottom: 6px;
+}
+
 #assignHubPanelSubmission,
 #assignHubPanelRights {
   display: flex;

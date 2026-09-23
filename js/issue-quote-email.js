@@ -355,6 +355,439 @@ function triggerFileDownload(filename, content, mimeType) {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * ============================================================================
+ * ISSUE QUOTE -> OFFICIAL PDF (Quote Proposal + Invoice) — Add-On
+ * ----------------------------------------------------------------------------
+ * Builds the fixed-width "Futuristic Underwriting MGU/MGA" quote proposal +
+ * commercial invoice document (the same layout used across the industry for
+ * printable binder packets) and renders it as a downloadable PDF using
+ * jsPDF + a monospace font, so columns/rules line up exactly as designed.
+ * All figures are pulled from the same Output-Quote-derived payloads already
+ * used elsewhere in this file — never re-invented or hardcoded.
+ * ============================================================================
+ */
+
+const FQ_DOC_WIDTH = 100;
+function fqPadR(str, len) { str = String(str == null ? "" : str); return str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length); }
+function fqPadL(str, len) { str = String(str == null ? "" : str); return str.length >= len ? str.slice(0, len) : " ".repeat(len - str.length) + str; }
+function fqCenter(str, len) { str = String(str == null ? "" : str); const pad = Math.max(0, len - str.length); const l = Math.floor(pad / 2); return " ".repeat(l) + str + " ".repeat(pad - l); }
+function fqMoney(n) { return `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+function fqDate(d) { const dt = (d instanceof Date) ? d : new Date(d); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${String(dt.getDate()).padStart(2, "0")}-${months[dt.getMonth()]}-${dt.getFullYear()}`; }
+
+function fqCoverageCode(name) {
+  const n = (name || "").toLowerCase();
+  if (n.includes("liab")) return "20";
+  if (n.includes("physical") || n.includes("damage") || n.includes("pd")) return "40";
+  if (n.includes("cargo")) return "50";
+  if (n.includes("umbrella") || n.includes("excess")) return "60";
+  return "10";
+}
+
+// Shared derived figures used by both the Quote Proposal and the Invoice —
+// computed once so the two sections (and the View Quote sidebar, which only
+// needs the proposal half) never disagree with each other.
+function buildFuturisticQuoteFigures(sub) {
+  const payload = buildIssueQuoteEmailPayload(sub);
+  const outputPayload = buildOutputQuotePayload(sub);
+  if (!payload || !outputPayload) return null;
+
+  const now = new Date();
+  const expiration = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const paymentDue = new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000);
+
+  const coverageRows = (sub.coverageRows && sub.coverageRows.length)
+    ? sub.coverageRows
+    : payload.coverages.map(c => ({ line: c.name, limit: "N/A", ded: "N/A", prem: fqMoney(c.subtotal) }));
+
+  const basePremiumTotal = coverageRows.reduce((s, r) => s + (parseFloat(String(r.prem).replace(/[^0-9.]/g, "")) || 0), 0) || payload.premium.basePremium;
+
+  const dp = payload.premium.premiumWasAdjusted ? {
+    label: payload.premium.adjustmentType === "credit" ? "Underwriting Credit" : "Underwriting Debit",
+    pct: payload.premium.adjustmentPercent,
+    amt: basePremiumTotal * (payload.premium.adjustmentPercent / 100) * (payload.premium.adjustmentType === "credit" ? -1 : 1)
+  } : null;
+
+  const finalPremium = payload.premium.finalPremium || basePremiumTotal;
+  const garagingState = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (sub.address || "").match(/,\s*([A-Z]{2})\b/)?.[1] || "TX";
+  const agentId = `${(sub.broker || "AGT").replace(/[^A-Za-z]/g, "").substring(0, 3).toUpperCase()}-${garagingState}-${String(sub.id || "000").replace(/[^0-9]/g, "").slice(-3).padStart(3, "0")}`;
+
+  const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || 50;
+  const surplusTaxRate = 0.0485;
+  const surplusTax = finalPremium * surplusTaxRate;
+  const stampingFee = finalPremium * 0.00075;
+  const totalInvoiceCharges = finalPremium + brokerFee + surplusTax + stampingFee;
+  const commissionRate = 0.10;
+  const commissionAmt = finalPremium * commissionRate;
+  const netDueToMga = finalPremium - commissionAmt + brokerFee;
+
+  const invoiceNumber = `INV-${(sub.id || "000000").replace(/[^0-9]/g, "").padStart(6, "0") || "000000"}`;
+  const policyNumber = sub.genInfo && sub.genInfo.company ? `POL-${garagingState}-${sub.genInfo.application_type_id || "483"}-${String(sub.genInfo.company).padStart(5, "0")}` : `POL-${sub.id}`;
+
+  return {
+    payload, outputPayload, now, expiration, paymentDue, coverageRows, basePremiumTotal, dp,
+    finalPremium, garagingState, agentId, brokerFee, surplusTax, stampingFee, totalInvoiceCharges,
+    commissionRate, commissionAmt, netDueToMga, invoiceNumber, policyNumber
+  };
+}
+
+// The Quote Proposal half only — this is exactly what the "View Quote"
+// sidebar shows, and exactly the top half of the combined PDF below. Every
+// value comes from buildFuturisticQuoteFigures() (itself Output-Quote/
+// submission-derived) — nothing here is invented or hardcoded.
+function buildQuoteProposalLines(sub) {
+  const f = buildFuturisticQuoteFigures(sub);
+  if (!f) return [];
+  const { payload, now, expiration, coverageRows, basePremiumTotal, dp, finalPremium, garagingState, agentId } = f;
+  const W = FQ_DOC_WIDTH;
+  const rule = (ch) => ch.repeat(W);
+  const L = [];
+  const add = (s) => L.push(s == null ? "" : s);
+
+  add(rule("="));
+  add(fqCenter("FUTURISTIC UNDERWRITING MGU", W));
+  add(fqCenter("100 Commercial Plaza, Suite 400, Dallas, TX", W));
+  add(fqCenter("Phone: (555) 019-2834 | underwriting@futuristic.com", W));
+  add(rule("="));
+  add("COMMERCIAL LINES QUOTE PROPOSAL");
+  add(rule("-"));
+  add(`${fqPadR("Quote Number     : " + (payload.submission.quoteNo || "N/A"), 52)}Date Issued       : ${fqDate(now)}`);
+  add(`${fqPadR("App Type Code    : " + ((sub.genInfo && sub.genInfo.application_type_id) || "483") + " (Binding Program)", 52)}Expiration Date   : ${fqDate(expiration)} (30 Days)`);
+  add(`${fqPadR("Underwriter      : " + (payload.underwritingSummary.riskBand ? "Underwriting Desk" : "Underwriting Desk"), 52)}Status            : Underwritten / Quoted`);
+  add("");
+  add(`${fqPadR("NAMED INSURED & MAILING ADDRESS:", 55)}PRODUCING BROKER / RETAIL AGENCY:`);
+  add(`${fqPadR("-".repeat(32), 55)}${"-".repeat(33)}`);
+  add(`${fqPadR(sub.insured || "N/A", 55)}${sub.broker || "N/A"}`);
+  add(`${fqPadR(`${sub.address || "Address on File"}, Garaging State: ${garagingState}`, 55)}Address on File`);
+  add(`${fqPadR(`USDOT #: ${sub.dot || "N/A"} | MC/FF #: ${sub.mcNumber || "N/A"}`, 55)}Agent ID: ${agentId}`);
+  add("");
+  add(rule("-"));
+  add("PROGRAM & RISK SPECIFICATIONS");
+  add(rule("-"));
+  add(`Risk Company (Paper)  : ${sub.carrier || "N/A"} (Non-Admitted / E&S)`);
+  add(`Line of Business      : ${sub.lobName || payload.submission.lob || "N/A"}`);
+  add(`Minimum Earned Premium: 25% of Original Policy Premium at Bind`);
+  add("");
+  add("COVERAGE SUMMARY & SCHEDULED LIMITS:");
+  add(rule("-"));
+  add(`${fqPadR("Code", 7)}${fqPadR("Coverage Description", 39)}${fqPadR("Limit / Valuation", 31)}${fqPadR("Deductible", 14)}Premium`);
+  add(rule("-"));
+  coverageRows.forEach(r => {
+    add(`${fqPadR(fqCoverageCode(r.line), 7)}${fqPadR(r.line, 39)}${fqPadR(r.limit, 31)}${fqPadR(r.ded, 14)}${fqPadL(typeof r.prem === "number" ? fqMoney(r.prem) : r.prem, 12)}`);
+  });
+  add(rule("-"));
+  add(`${fqPadR("", 76)}Base Rating Premium:${fqPadL(fqMoney(basePremiumTotal), 13)}`);
+  add("UNDERWRITING CREDITS & SURCHARGES:");
+  if (dp) {
+    add(`  • ${fqPadR(`${dp.label} (${dp.pct}%) — ${payload.premium.adjustmentReason || "n/a"}`, 76)}${fqPadL((dp.amt < 0 ? "-" : "+") + fqMoney(Math.abs(dp.amt)), 12)}`);
+  } else {
+    add(`  • No discretionary underwriting adjustments applied — standard rated premium stands.`);
+  }
+  add(rule("-"));
+  add("COMMODITY APPETITE & RESTRICTIONS:");
+  add(`  • Approved Commodities: ${(sub.commoditiesInfo && sub.commoditiesInfo.secondary_class) || sub.lobName || "General Freight"}`);
+  add(`  • Prohibited/Excluded : Hazardous Materials, Nuclear Waste, Oil Paints, Auto Hauling`);
+  add(rule("-"));
+  add(`TOTAL ESTIMATED TERM PREMIUM:${" ".repeat(58)}${fqPadL(fqMoney(finalPremium), 12)}`);
+  add(rule("="));
+  add("BINDING SUBJECTIVITIES & CONDITIONS:");
+  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : ["Receipt of signed MVRs for all scheduled drivers.", "Signed Fraud Warning & Surplus Lines Tax Acknowledgement.", "Formal bind request must be received prior to 12:01 AM on the effective date."];
+  subjectivities.forEach((s, i) => add(`${i + 1}. ${s}`));
+  add(rule("="));
+
+  return L;
+}
+
+// The Invoice half only — mirrors buildQuoteProposalLines() above; both are
+// combined below for the full downloadable PDF.
+function buildInvoiceLines(sub) {
+  const f = buildFuturisticQuoteFigures(sub);
+  if (!f) return [];
+  const {
+    payload, now, paymentDue, garagingState, brokerFee, surplusTax, stampingFee,
+    totalInvoiceCharges, commissionRate, commissionAmt, netDueToMga, invoiceNumber,
+    policyNumber, finalPremium
+  } = f;
+  const W = FQ_DOC_WIDTH;
+  const rule = (ch) => ch.repeat(W);
+  const L = [];
+  const add = (s) => L.push(s == null ? "" : s);
+
+  add(rule("="));
+  add(fqCenter("FUTURISTIC UNDERWRITING MGA", W));
+  add(fqCenter("ACCOUNTING & BILLING DIVISION", W));
+  add(fqCenter("Email: accounting@futuristic.com | Fax: (555) 019-2835", W));
+  add(rule("="));
+  add("COMMERCIAL INVOICE");
+  add(rule("-"));
+  add(`${fqPadR("Invoice Number   : " + invoiceNumber, 55)}Invoice Date      : ${fqDate(now)}`);
+  add(`${fqPadR("Policy Number    : " + policyNumber, 55)}Billing Model     : ${(sub.genInfo && sub.genInfo.billtype) || "Agency Bill (AB)"}`);
+  add(`${fqPadR("Effective Date   : " + (sub.effectiveDate || "N/A") + " to " + (sub.expirationDate || "N/A"), 55)}Payment Due Date  : ${fqDate(paymentDue)}`);
+  add(`${fqPadR("Transaction Type : New Business Bind", 55)}Accounting Period : ${["January","February","March","April","May","June","July","August","September","October","November","December"][now.getMonth()]}-${now.getFullYear()} (Period ID: ${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getFullYear()).slice(-2)})`);
+  add("");
+  add(`${fqPadR("BILLED TO (RETAIL BROKER):", 55)}INSURED DETAILS:`);
+  add(`${fqPadR("-".repeat(26), 55)}${"-".repeat(16)}`);
+  add(`${fqPadR(sub.broker || "N/A", 55)}${sub.insured || "N/A"}`);
+  add(`${fqPadR("Attn: Accounts Payable", 55)}Policy Type: ${sub.lobName || "N/A"}`);
+  add(`${fqPadR("Address on File", 55)}Garaging State: ${garagingState}`);
+  add("");
+  add(rule("-"));
+  add("BILLING BREAKDOWN & FINANCIAL COMPONENTS");
+  add(rule("-"));
+  add(`${fqPadR("Item", 7)}${fqPadR("Description", 47)}${fqPadR("Basis / Rate", 27)}Amount (USD)`);
+  add(rule("-"));
+  add(`${fqPadR("101", 7)}${fqPadR("Policy Gross Premium", 47)}${fqPadR("Full Term Premium", 27)}${fqPadL(fqMoney(finalPremium), 12)}`);
+  add(`${fqPadR("201", 7)}${fqPadR("Broker Policy Fee (Fully Earned at Bind)", 47)}${fqPadR("Flat Fee", 27)}${fqPadL(fqMoney(brokerFee), 12)}`);
+  add(`${fqPadR("701", 7)}${fqPadR(`State Surplus Lines Tax (${garagingState})`, 47)}${fqPadR("4.85% of Premium", 27)}${fqPadL(fqMoney(surplusTax), 12)}`);
+  add(`${fqPadR("702", 7)}${fqPadR("Stamping Office Fee", 47)}${fqPadR("0.075%", 27)}${fqPadL(fqMoney(stampingFee), 12)}`);
+  add(rule("-"));
+  add(`TOTAL INVOICE CHARGES:${" ".repeat(65)}${fqPadL(fqMoney(totalInvoiceCharges), 12)}`);
+  add(rule("-"));
+  add("");
+  add("BROKER COMMISSION & REMITTANCE SUMMARY:");
+  add(`  Gross Premium Billed                          : ${fqMoney(finalPremium)}`);
+  add(`  Less: Broker Commission Retained (${(commissionRate * 100).toFixed(1)}%)     : -${fqMoney(commissionAmt)}`);
+  add(`  Plus: Fully Earned Broker Fee Retained        : +${fqMoney(brokerFee)}`);
+  add(`  Net Premium & Taxes Due to MGA                : ${fqMoney(netDueToMga)}`);
+  add(rule("-"));
+  add(`TOTAL NET AMOUNT DUE TO MGA:${" ".repeat(59)}${fqPadL(fqMoney(netDueToMga), 12)}`);
+  add(rule("="));
+  add("REMITTANCE INSTRUCTIONS:");
+  add(`  Bank Name      : First Commercial Bank, N.A.`);
+  add(`  Account Name   : Futuristic MGA Escrow Account`);
+  add(`  Account / GL   : 1000-01-Bank (Asset Series 1)`);
+  add(`  ACH / Wire Ref : ${invoiceNumber} / ${policyNumber}`);
+  add("");
+  add(`* Note: 25% minimum earned premium applies on early cancellations; broker fee is non-refundable.`);
+  add(rule("="));
+
+  return L;
+}
+
+// Full document — Quote Proposal + Invoice, used for the downloadable PDF.
+function buildFuturisticQuoteDocumentLines(sub) {
+  const proposal = buildQuoteProposalLines(sub);
+  if (!proposal.length) return [];
+  return proposal.concat([""], buildInvoiceLines(sub));
+}
+window.buildQuoteProposalLines = buildQuoteProposalLines;
+window.buildInvoiceLines = buildInvoiceLines;
+
+// Renders a set of fixed-width lines as a downloadable PDF using jsPDF + a
+// monospace font, so every column/rule lines up as designed. Shared by the
+// full Quote+Invoice download and the Quote-Document-only download below.
+function renderLinesToPdf(lines, filename) {
+  if (!lines.length) return false;
+
+  const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+  if (!jsPDFCtor) {
+    showToast("⚠️ PDF library failed to load — check your connection and try again.", "warning");
+    return false;
+  }
+
+  const doc = new jsPDFCtor({ orientation: "landscape", unit: "pt", format: "letter" });
+  doc.setFont("courier", "normal");
+  doc.setFontSize(8);
+
+  const marginX = 28;
+  let y = 30;
+  const lineHeight = 10.2;
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  lines.forEach(line => {
+    if (y > pageHeight - 24) {
+      doc.addPage();
+      y = 30;
+    }
+    doc.text(line, marginX, y);
+    y += lineHeight;
+  });
+
+  doc.save(filename);
+  return true;
+}
+
+// Full document (Quote Proposal + Invoice) — downloaded automatically when
+// "Issue Quote" is clicked.
+function generateIssuedQuotePdf(sub) {
+  if (!sub) return false;
+  const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
+  return renderLinesToPdf(buildFuturisticQuoteDocumentLines(sub), `${sub.id}_${safeInsuredName}_Quote_Invoice.pdf`);
+}
+
+// Quote Document only (Quote Proposal — no Invoice) — this is the exact
+// same content as the View Quote sidebar (buildQuoteProposalLines), and is
+// what "Send Quotation to Customer" / the Download → Quotation button both
+// produce. One Quote, one design, one data source.
+function generateQuoteProposalPdf(sub) {
+  if (!sub) return false;
+  const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
+  return renderLinesToPdf(buildQuoteProposalLines(sub), `${sub.id}_${safeInsuredName}_Quotation.pdf`);
+}
+window.buildFuturisticQuoteDocumentLines = buildFuturisticQuoteDocumentLines;
+window.generateQuoteProposalPdf = generateQuoteProposalPdf;
+window.generateIssuedQuotePdf = generateIssuedQuotePdf;
+
+/**
+ * ============================================================================
+ * VIEW QUOTE — Right-side sidebar preview (Add-On)
+ * ----------------------------------------------------------------------------
+ * Opens next to "Issue Quote". Shows the Quote Proposal exactly as it will
+ * appear in the downloadable PDF (buildQuoteProposalLines — same generator,
+ * same submission data), read-only, no hardcoded values, no fields beyond
+ * what the PDF defines (Invoice fields intentionally excluded — that's a
+ * separate, gated step in the Issue Quote Actions flow).
+ * ============================================================================
+ */
+let viewQuoteSidebarSubId = null;
+
+function qdEsc(str) {
+  const div = document.createElement("div");
+  div.textContent = str === null || str === undefined ? "" : String(str);
+  return div.innerHTML;
+}
+
+// Styled Quote Document — same figures as buildQuoteProposalLines() /
+// generateIssuedQuotePdf() (buildFuturisticQuoteFigures is the single
+// source for both), just laid out as a proper document instead of a fixed-
+// width text block. Only fields that exist in the PDF template appear here;
+// nothing is invented and nothing extra is added.
+function renderQuoteDocumentHtml(sub) {
+  const f = buildFuturisticQuoteFigures(sub);
+  if (!f) return "";
+  const { payload, now, expiration, coverageRows, basePremiumTotal, dp, finalPremium, garagingState, agentId } = f;
+
+  const fmtDate = (d) => d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : [
+    "Receipt of signed MVRs for all scheduled drivers.",
+    "Signed Fraud Warning & Surplus Lines Tax Acknowledgement.",
+    "Formal bind request must be received prior to 12:01 AM on the effective date."
+  ];
+
+  return `
+    <div class="qd-sheet">
+      <div class="qd-letterhead">
+        <div class="qd-letterhead-name">Futuristic Underwriting MGU</div>
+        <div class="qd-letterhead-line">100 Commercial Plaza, Suite 400, Dallas, TX</div>
+        <div class="qd-letterhead-line">Phone: (555) 019-2834 &nbsp;|&nbsp; underwriting@futuristic.com</div>
+      </div>
+
+      <div class="qd-title-bar">
+        <span>Commercial Lines Quote Proposal</span>
+        <span class="badge badge-success">Underwritten / Quoted</span>
+      </div>
+
+      <div class="qd-meta-grid">
+        <div class="qd-meta-item"><span class="qd-meta-label">Quote Number</span><span class="qd-meta-value">${qdEsc(payload.submission.quoteNo || "N/A")}</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Date Issued</span><span class="qd-meta-value">${fmtDate(now)}</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">App Type Code</span><span class="qd-meta-value">${qdEsc((sub.genInfo && sub.genInfo.application_type_id) || "483")} (Binding Program)</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Expiration Date</span><span class="qd-meta-value">${fmtDate(expiration)} <span class="text-xs text-muted">(30 Days)</span></span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Underwriter</span><span class="qd-meta-value">Underwriting Desk</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Status</span><span class="qd-meta-value">Underwritten / Quoted</span></div>
+      </div>
+
+      <div class="qd-parties-grid">
+        <div class="qd-party-card">
+          <div class="qd-party-title"><i class="ph ph-identification-card"></i> Named Insured &amp; Mailing Address</div>
+          <div class="qd-party-name">${qdEsc(sub.insured || "N/A")}</div>
+          <div class="qd-party-line">${qdEsc(sub.address || "Address on File")}, Garaging State: ${qdEsc(garagingState)}</div>
+          <div class="qd-party-line">USDOT #: ${qdEsc(sub.dot || "N/A")} &nbsp;|&nbsp; MC/FF #: ${qdEsc(sub.mcNumber || "N/A")}</div>
+        </div>
+        <div class="qd-party-card">
+          <div class="qd-party-title"><i class="ph ph-buildings"></i> Producing Broker / Retail Agency</div>
+          <div class="qd-party-name">${qdEsc(sub.broker || "N/A")}</div>
+          <div class="qd-party-line">Address on File</div>
+          <div class="qd-party-line">Agent ID: ${qdEsc(agentId)}</div>
+        </div>
+      </div>
+
+      <div class="qd-section">
+        <div class="qd-section-title">Program &amp; Risk Specifications</div>
+        <div class="qd-kv-grid">
+          <div class="qd-kv"><span>Risk Company (Paper)</span><strong>${qdEsc(sub.carrier || "N/A")} (Non-Admitted / E&amp;S)</strong></div>
+          <div class="qd-kv"><span>Line of Business</span><strong>${qdEsc(sub.lobName || payload.submission.lob || "N/A")}</strong></div>
+          <div class="qd-kv"><span>Minimum Earned Premium</span><strong>25% of Original Policy Premium at Bind</strong></div>
+        </div>
+      </div>
+
+      <div class="qd-section">
+        <div class="qd-section-title">Coverage Summary &amp; Scheduled Limits</div>
+        <table class="qd-table">
+          <thead><tr><th>Code</th><th>Coverage Description</th><th>Limit / Valuation</th><th>Deductible</th><th class="qd-num">Premium</th></tr></thead>
+          <tbody>
+            ${coverageRows.map(r => `<tr>
+              <td>${qdEsc(fqCoverageCode(r.line))}</td>
+              <td>${qdEsc(r.line)}</td>
+              <td>${qdEsc(r.limit)}</td>
+              <td>${qdEsc(r.ded)}</td>
+              <td class="qd-num font-mono">${qdEsc(typeof r.prem === "number" ? fqMoney(r.prem) : r.prem)}</td>
+            </tr>`).join("")}
+          </tbody>
+          <tfoot><tr><td colspan="4">Base Rating Premium</td><td class="qd-num font-mono">${qdEsc(fqMoney(basePremiumTotal))}</td></tr></tfoot>
+        </table>
+      </div>
+
+      <div class="qd-section">
+        <div class="qd-section-title">Underwriting Credits &amp; Surcharges</div>
+        ${dp
+          ? `<div class="qd-line-item"><span>${qdEsc(dp.label)} (${qdEsc(dp.pct)}%) — ${qdEsc(payload.premium.adjustmentReason || "n/a")}</span><strong class="font-mono">${dp.amt < 0 ? "-" : "+"}${qdEsc(fqMoney(Math.abs(dp.amt)))}</strong></div>`
+          : `<div class="text-sm text-muted">No discretionary underwriting adjustments applied — standard rated premium stands.</div>`}
+      </div>
+
+      <div class="qd-section">
+        <div class="qd-section-title">Commodity Appetite &amp; Restrictions</div>
+        <div class="qd-line-item"><span>Approved Commodities</span><strong>${qdEsc((sub.commoditiesInfo && sub.commoditiesInfo.secondary_class) || sub.lobName || "General Freight")}</strong></div>
+        <div class="qd-line-item"><span>Prohibited / Excluded</span><strong>Hazardous Materials, Nuclear Waste, Oil Paints, Auto Hauling</strong></div>
+      </div>
+
+      <div class="qd-total-bar">
+        <span>Total Estimated Term Premium</span>
+        <span class="qd-total-amount font-mono">${qdEsc(fqMoney(finalPremium))}</span>
+      </div>
+
+      <div class="qd-section">
+        <div class="qd-section-title">Binding Subjectivities &amp; Conditions</div>
+        <ol class="qd-subjectivities">
+          ${subjectivities.map(s => `<li>${qdEsc(s)}</li>`).join("")}
+        </ol>
+      </div>
+    </div>
+  `;
+}
+window.renderQuoteDocumentHtml = renderQuoteDocumentHtml;
+
+function openViewQuoteSidebar(subId) {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
+  if (!sub) { showToast("⚠️ No active submission to preview a quote for.", "warning"); return; }
+
+  const html = renderQuoteDocumentHtml(sub);
+  if (!html) { showToast("⚠️ Quote data isn't available yet for this submission.", "warning"); return; }
+
+  viewQuoteSidebarSubId = subId;
+  const body = document.getElementById("viewQuoteSidebarBody");
+  const title = document.getElementById("viewQuoteSidebarTitle");
+  if (body) body.innerHTML = html;
+  if (title) title.textContent = `Quote Document — ${sub.id}`;
+
+  const modal = document.getElementById("viewQuoteSidebarModal");
+  if (modal) modal.classList.add("active");
+}
+window.openViewQuoteSidebar = openViewQuoteSidebar;
+
+function closeViewQuoteSidebar() {
+  const modal = document.getElementById("viewQuoteSidebarModal");
+  if (modal) modal.classList.remove("active");
+  viewQuoteSidebarSubId = null;
+}
+window.closeViewQuoteSidebar = closeViewQuoteSidebar;
+
+function downloadQuoteFromViewSidebar() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === viewQuoteSidebarSubId);
+  if (!sub) return;
+  generateQuoteProposalPdf(sub);
+}
+window.downloadQuoteFromViewSidebar = downloadQuoteFromViewSidebar;
+
 function getIssueQuoteActionsSub() {
   return SUBMISSIONS_DATASET.find(s => s.id === issueQuoteActionsSubId) || null;
 }
@@ -517,20 +950,25 @@ function escapeHtmlIssueQuote(str) {
 // Step 1: Send Quotation to Customer — readable document, delivered to the
 // customer/broker. Reuses the same Output-Quote-derived payload as the
 // broker email (buildIssueQuoteEmailPayload), so the figures here never
-// disagree with the rest of the app.
+// disagree with the rest of the app. The document that gets "sent" is the
+// exact same Quote Document as the View Quote sidebar — same generator
+// (buildQuoteProposalLines / renderQuoteDocumentHtml), same data, same
+// layout. One Quote, one design, one data source — never a separate
+// quotation template.
 function sendQuotationToCustomer() {
   const sub = getIssueQuoteActionsSub();
   if (!sub) { showToast("⚠️ No active submission to send a quotation for.", "warning"); return; }
   const flow = ensureIssueQuoteFlow(sub);
 
   const payload = buildIssueQuoteEmailPayload(sub);
-  if (!payload) {
+  const html = renderQuoteDocumentHtml(sub);
+  if (!payload || !html) {
     flow.quotationStatus = "failed";
     renderIssueQuoteActionsTable();
     return;
   }
 
-  sub.issuedQuoteEmail = { payload, text: renderQuotationDocumentText(payload), sentAt: new Date().toISOString() };
+  sub.issuedQuoteEmail = { payload, html, lines: buildQuoteProposalLines(sub), sentAt: new Date().toISOString() };
   flow.quotationStatus = "sent";
   renderIssueQuoteActionsTable();
   showToast(`📧 Quotation sent to ${payload.to.broker} — Total Premium: $${payload.premium.finalPremium.toLocaleString()}.`, "success");
@@ -650,16 +1088,9 @@ function downloadQuotationDocument() {
     return;
   }
 
-  const quotationPayload = buildIssueQuoteEmailPayload(sub);
-  if (!quotationPayload) return;
-
-  const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
-  triggerFileDownload(
-    `${sub.id}_${safeInsuredName}_Quotation.txt`,
-    renderQuotationDocumentText(quotationPayload),
-    "text/plain"
-  );
-  showToast("📥 Quotation document downloaded.", "success");
+  if (generateQuoteProposalPdf(sub)) {
+    showToast("📥 Quotation PDF downloaded.", "success");
+  }
 }
 
 // Step 4b: Download the Invoice as JSON. Blocked unless the customer

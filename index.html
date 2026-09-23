@@ -27,6 +27,7 @@ run<!--
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body class="pre-login">
@@ -380,9 +381,9 @@ run<!--
           </div>
 
           <!-- Central Submissions Table -->
-          <div class="card mt-2">
+          <div class="card mt-2 submission-table-card">
             <div class="card-body p-0">
-              <div class="table-responsive">
+              <div class="table-responsive submission-table-scroll">
                 <table class="data-table submission-main-table" id="submissionsMasterTable">
                   <thead>
                     <tr>
@@ -1865,6 +1866,33 @@ run<!--
           <button class="btn btn-outline" onclick="resetPermissionsMatrix()"><i class="ph ph-arrow-counter-clockwise"></i> Reset to Defaults</button>
           <button class="btn btn-primary" onclick="savePermissionMatrixEditor()"><i class="ph ph-check"></i> Save Permissions</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- SIDEBAR: VIEW QUOTE — read-only Quote Proposal preview, slides in     -->
+  <!-- from the right. Same generator (buildQuoteProposalLines) as the      -->
+  <!-- downloadable PDF, so the fields shown here never disagree with it.   -->
+  <!-- ================================================================ -->
+  <div class="modal-overlay" id="viewQuoteSidebarModal" role="dialog" aria-modal="true">
+    <div class="drawer-panel" id="viewQuoteDrawerPanel">
+      <div class="modal-header">
+        <div class="u-row-gap10">
+          <i class="ph ph-file-text text-primary u-fs-22"></i>
+          <div>
+            <h3 class="u-title-16" id="viewQuoteSidebarTitle">Quote Document</h3>
+            <p class="text-xs text-muted u-m0">Live preview — generated from the current submission's quote data.</p>
+          </div>
+        </div>
+        <button class="btn-close" aria-label="Close" onclick="closeViewQuoteSidebar()"><i class="ph ph-x"></i></button>
+      </div>
+      <div class="modal-body" style="background: var(--bg-subtle, #f1f5f9); padding: 20px;">
+        <div id="viewQuoteSidebarBody"><!-- rendered dynamically by renderQuoteDocumentHtml() --></div>
+      </div>
+      <div class="modal-footer u-row-between">
+        <button class="btn btn-outline" onclick="closeViewQuoteSidebar()">Close</button>
+        <button class="btn btn-primary" onclick="downloadQuoteFromViewSidebar()"><i class="ph ph-download-simple"></i> Download PDF</button>
       </div>
     </div>
   </div>

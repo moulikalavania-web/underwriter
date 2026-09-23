@@ -1497,9 +1497,12 @@ function getGeneratedQuoteHtml(data, sub) {
               </label>
             </div>
           </div>
-          <div>
+          <div class="u-row-gap10">
             <button type="button" class="btn btn-success btn-lg" id="btnIssueQuote" onclick="issueQuoteAction()" ${sub.quoteIssued ? "disabled" : ""} style="font-weight: 800; padding: 12px 28px; font-size: 15px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);" class="${sub.quoteIssued ? "disabled" : ""}">
               <i class="ph ${sub.quoteIssued ? "ph-check-circle" : "ph-paper-plane-tilt"}"></i> ${sub.quoteIssued ? "QUOTE OFFICIALLY ISSUED" : "Issue Quote"}
+            </button>
+            <button type="button" class="btn btn-outline btn-lg" onclick="openViewQuoteSidebar('${sub.id}')" style="font-weight: 700; padding: 12px 22px; font-size: 15px;">
+              <i class="ph ph-eye"></i> View Quote
             </button>
           </div>
         </div>

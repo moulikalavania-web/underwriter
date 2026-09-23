@@ -953,40 +953,97 @@ function extractSignOffName(raw) {
   return null;
 }
 
+// Word-wrapped prose (a single line-break mid-sentence, as opposed to a
+// blank-line paragraph break, a bulleted/numbered list item, or another
+// "Label:" line) defeats label/value regexes whenever the value happens to
+// wrap onto the next line ("Broker: Gallagher\nCommercial Property Group.").
+// Joins only a genuine mid-sentence wrap into a space; a blank line, a
+// bullet/numbered list item, a new "Label:" line, or a line that already
+// ends in sentence punctuation are all left as real breaks so a structured
+// bullet list (e.g. "- Address: ...\n- Effective Date: ...") is never
+// collapsed into one run-on line.
+function dewrapEmailProse(raw) {
+  if (!raw) return raw;
+  const lines = raw.split("\n");
+  let out = "";
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out += line;
+    if (i === lines.length - 1) break;
+    const trimmedCur = line.trim();
+    const trimmedNext = lines[i + 1].trim();
+    const nextIsBulletOrLabel = /^(?:[-*•]|\d+[.)])\s/.test(trimmedNext) || /^[A-Za-z][A-Za-z /]{1,40}:/.test(trimmedNext);
+    const curEndsSentence = /[.!?:;]$/.test(trimmedCur);
+    if (trimmedCur === "" || trimmedNext === "" || nextIsBulletOrLabel || curEndsSentence) {
+      out += "\n";
+    } else {
+      out += " ";
+    }
+  }
+  return out;
+}
+
 function buildLocalNormalizationDraft(sub) {
   const raw = sub.rawEmailText || "";
+  // The label/value & prose fallbacks below all read from this de-wrapped
+  // copy instead of raw so a mid-sentence line break never truncates a
+  // captured value; the structural parsers (driver/vehicle/loss lists,
+  // section headers) still read the untouched `raw` since those rely on
+  // real line breaks to tell list items apart.
+  const prose = dewrapEmailProse(raw);
   const find = (pattern) => {
-    const match = raw.match(pattern);
+    const match = prose.match(pattern);
     return match ? match[1].trim() : null;
   };
 
-  // Insured: this email template never labels it directly — it's the
-  // sign-off name. Falls back to the old label-based patterns for emails
-  // that don't follow the template.
-  const insured = extractSignOffName(raw)
-    || find(/(?:legal\s+(?:named\s+)?insured|insured\s+legal\s+entity|company\s+name|client)\s*(?:is|:|,)\s*([^\n,.]+(?:\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Co\.?))?)/i)
-    || find(/(?:for\s+coverage|for)\s*:\s*([^\n,.]+)/i);
+  // Generic recipient/greeting words that are never an actual company or
+  // person name — used to stop the greeting-line fallbacks below from
+  // mistaking "Hi Underwriting Desk," / "Hi Team," for a broker/insured name.
+  const FQ_GENERIC_GREETING_WORDS = /^(underwriting\s+desk|team|there|sir|madam|sir\/madam|all|folks|everyone)$/i;
 
-  // Broker: this template addresses them directly in the greeting line
-  // ("Hi Arora & Sons team,"), rather than a labeled "Broker:" field.
+  // Insured: prefer an explicit label/mention first ("our client, X LLC",
+  // "Insured legal entity is X", "company name is X") — this is what a
+  // broker-submitted email actually states. Only when nothing is explicitly
+  // labeled do we fall back to the sign-off name, which is correct just for
+  // the direct-customer template (customer signs their own request) and
+  // wrong whenever a broker/agent is the one signing the email instead.
+  const insured = find(/(?:legal\s+(?:named\s+)?insured|insured\s+legal\s+entity|company\s+name|(?:our|new|the)\s+client)\s*(?:is|:|,)\s*([^\n,.(]+(?:\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Co\.?))?)/i)
+    || find(/(?:for\s+coverage|for)\s*:\s*([^\n,.(]+)/i)
+    || find(/(?:insured|named\s+insured)\s*:\s*([^\n,.(]+)/i)
+    || extractSignOffName(raw);
+
+  // Broker: prefer an explicit "Broker(of record)/Brokerage: X" or "Broker: X
+  // is/was" mention over the greeting line — the greeting only reliably
+  // names the broker in the direct-customer template ("Hi Arora & Sons
+  // team,"), and otherwise just names whoever the email happens to be
+  // addressed to (often the underwriting desk itself).
+  const brokerLabelMatch = find(/(?:broker(?:\s+of\s+record)?|brokerage|producing\s+agency|agency\s+of\s+record)\s*(?:is|:)\s*([^\n,.]+)/i);
   const brokerGreetingMatch = raw.match(/^(?:Hi|Hello|Dear)\s+([^,\n]+?)(?:\s+team)?\s*,/im);
-  const broker = (brokerGreetingMatch ? brokerGreetingMatch[1].trim() : null)
-    || find(/(?:broker(?:\s+of\s+record)?|brokerage)\s*(?:is|:)\s*([^\n,.]+)/i);
+  const brokerGreetingName = brokerGreetingMatch ? brokerGreetingMatch[1].trim() : null;
+  const broker = brokerLabelMatch
+    || (brokerGreetingName && !FQ_GENERIC_GREETING_WORDS.test(brokerGreetingName) ? brokerGreetingName : null);
 
   const email = find(/From:\s*[^<\n]*<([^>]+)>/i) || find(/([\w.+-]+@[\w.-]+\.[A-Za-z]{2,})/);
-  const address = find(/Address\s*:\s*([^\n]+)/i);
-  const effectiveDate = find(/Effective Date\s*:\s*([^\n]+)/i);
-  const expirationDate = find(/Expiration Date\s*:\s*([^\n]+)/i);
+  const address = find(/Address\s*:\s*([^\n]+)/i)
+    || find(/(?:based\s+(?:out\s+of|in)|located\s+(?:in|at)|headquartered\s+in)\s+([A-Za-z .]+,\s*[A-Z]{2})/i)
+    || find(/(?:warehouse|building|facility|center|property|plant)[^\n.]*?\bin\s+([A-Za-z .]+,\s*[A-Z]{2})/i);
+  const effectiveDate = find(/Effective Date\s*:\s*([^\n]+)/i)
+    || find(/effective\s*(?:date\s*)?(?:is\s+|of\s+)?(\d{1,2}\/\d{1,2}\/\d{2,4})/i)
+    || find(/effective\s*(?:date\s*)?(?:is\s+)?((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4})/i);
+  const expirationDate = find(/Expiration Date\s*:\s*([^\n]+)/i)
+    || find(/(?:expir(?:es|ation)|renewal date)\s*(?:date\s*)?(?:is\s+|:\s*)?(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
   const policyType = find(/Policy Type\s*:\s*([^\n]+)/i);
   const program = find(/\bProgram\s*:\s*([^\n]+)/i);
   const priorPolicyPeriod = find(/Prior Policy Period\s*:\s*([^\n]+)/i);
   const assignedUnderwriter = find(/Assigned Underwriter\s*:\s*([^\n]+)/i);
   const primaryCommodity = find(/(?:Primary Commodity|Commodity(?:\s*\/\s*Cargo)?\s*Type|Cargo Type)\s*:\s*([^\n]+)/i);
-  const fein = find(/\bFEIN\b\s*(?:\/\s*Tax\s*ID)?\s*[:#]?\s*([A-Z0-9-]+)/i);
-  const dot = find(/\bDOT\b\s*(?:Number)?\s*#?\s*:?\s*([A-Z0-9-]+)/i);
-  const mcNumber = find(/\bMC\b\s*(?:Number)?\s*#?\s*:?\s*(MC-?\d+|[A-Z0-9-]+)/i);
+  const fein = find(/\b(?:FEIN|EIN|Tax\s*ID)\b\s*(?:\/\s*Tax\s*ID)?\s*(?:No\.?)?\s*[:#]?\s*([0-9]{2}-?[0-9]{7}|[A-Z0-9-]{5,15})/i);
+  const dot = find(/\b(?:US\s*)?DOT\b\s*(?:Number|No\.?)?\s*#?\s*:?\s*([0-9]{5,9})/i);
+  const mcMatch = prose.match(/\bMC(?:[\s\/-]?FF)?\b\s*(?:Number|No\.?)?\s*#?\s*:?\s*-?\s*(\d{4,9})/i);
+  const mcNumber = mcMatch ? `MC-${mcMatch[1]}` : null;
   const limit = find(/Requested Limit\s*\/?\s*TIV\s*\(\$\)\s*:\s*\$?\s*([\d,]+)/i)
-    || find(/\$([\d,]+)\s*(?:requested\s+limit|limit)/i);
+    || find(/\$([\d,]+)\s*(?:requested\s+limit|limit)/i)
+    || find(/(?:requested\s+limit|coverage\s+limit|liability\s+limit)\s*(?:of|is|:)?\s*\$\s*([\d,]+)/i);
   const lobKey = sub.lobKey || (/(?:warehouse|building|contents|property)/i.test(raw) ? "property" : "trucking");
   const driverDetails = extractDriverDetails(raw);
   const lossHistory = extractLossHistory(raw);
