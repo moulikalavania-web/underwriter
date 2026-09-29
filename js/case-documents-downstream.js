@@ -1640,7 +1640,6 @@ function renderUnderwritingWorkbench(sub) {
   renderWbRiskOverviewGrid(sub);
   renderWbLossRunsUwp(sub);
   renderWbUwFactorsUwp(sub);
-  if (typeof renderWbRegistryVerification === "function") renderWbRegistryVerification(sub);
 }
 
 // ============================================================================

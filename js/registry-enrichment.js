@@ -188,7 +188,6 @@ function runSubmissionRegistryFetch(sub) {
       applyAutoDriverLicenseVerification(sub);
       if (typeof persistAppState === "function") persistAppState();
       renderRegistryVerificationCard(sub);
-      renderWbRegistryVerification(sub);
       renderDriverLicenseVerification(sub);
       if (typeof renderVehicleEnrichment === "function") renderVehicleEnrichment(sub);
       if (typeof showToast === "function") {
@@ -243,40 +242,6 @@ function renderRegistryVerificationCard(sub) {
         </div>
       </div>
     </div>`;
-}
-
-// ----------------------------------------------------------------------------
-// RENDER — Underwriting Workbench (Screen 5) read-only carry-forward view
-// ----------------------------------------------------------------------------
-function renderWbRegistryVerification(sub) {
-  const box = document.getElementById("wbRegistryVerificationContainer");
-  if (!box || !sub) return;
-
-  const r = sub.registryEnrichment;
-  if (!r) {
-    box.innerHTML = `<div class="text-xs text-muted" style="padding:8px 0;">Not yet fetched — open Data Enrichment &amp; Smart Routing to run the registry check.</div>`;
-    return;
-  }
-
-  box.innerHTML = `
-    <div class="registry-verify-grid">
-      <div class="registry-verify-card">
-        <div class="title"><i class="ph ph-identification-card text-primary"></i> <strong>NHTSA</strong></div>
-        <span class="badge badge-success">${r.nhtsa.status}</span>
-        <div class="text-xs text-muted">${r.nhtsa.note}</div>
-      </div>
-      <div class="registry-verify-card">
-        <div class="title"><i class="ph ph-shield-check text-primary"></i> <strong>FMCSA</strong></div>
-        <span class="badge badge-success">${r.fmcsa.status}</span>
-        <div class="text-xs text-muted">Safety: ${r.fmcsa.safetyPercentile} · OOS Rate: ${r.fmcsa.oosRate} · ${r.fmcsa.inspections} Inspections / ${r.fmcsa.violations} Violations</div>
-      </div>
-      <div class="registry-verify-card">
-        <div class="title"><i class="ph ph-file-text text-primary"></i> <strong>State DMV</strong> (${r.dmv.state})</div>
-        <span class="badge badge-success">${r.dmv.status}</span>
-        <div class="text-xs text-muted">${r.dmv.note}</div>
-      </div>
-    </div>
-    <div class="text-xs text-muted mt-2"><i class="ph ph-arrow-bend-up-left"></i> Fetched ${r.fetchedAt} at Data Enrichment &amp; Smart Routing — carried forward here.</div>`;
 }
 
 // ----------------------------------------------------------------------------
@@ -353,4 +318,3 @@ window.applyAutoVehicleEnrichment = applyAutoVehicleEnrichment;
 window.applyAutoDriverLicenseVerification = applyAutoDriverLicenseVerification;
 window.runSubmissionRegistryFetch = runSubmissionRegistryFetch;
 window.renderRegistryVerificationCard = renderRegistryVerificationCard;
-window.renderWbRegistryVerification = renderWbRegistryVerification;
