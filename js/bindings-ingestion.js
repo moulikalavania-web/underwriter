@@ -760,9 +760,10 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
   // product with a custom tax rate would only apply it at the underwriter's
   // credit/debit stage and not here, producing two different tax
   // assumptions for the same submission.
-  const effectiveTaxRatePct = (typeof DISCRETIONARY_TAX_RATE_PCT === "number" ? DISCRETIONARY_TAX_RATE_PCT : 4.85);
+  const slR = (typeof slRatesFor === "function" && sub) ? slRatesFor(sub) : null; // js/surplus-lines.js
+  const effectiveTaxRatePct = slR ? slR.taxPct : (typeof DISCRETIONARY_TAX_RATE_PCT === "number" ? DISCRETIONARY_TAX_RATE_PCT : 4.85);
   const surplusTax = Math.round(totalCoveragePrem * (effectiveTaxRatePct / 100));
-  const stampingFee = Math.round(totalCoveragePrem * 0.0015);
+  const stampingFee = Math.round(totalCoveragePrem * (slR ? slR.stampingPct / 100 : 0.0015));
   const discountAmt = Math.round(totalCoveragePrem * 0.08);
   const netPrem = totalCoveragePrem - discountAmt + surplusTax + stampingFee + brokerFee;
 

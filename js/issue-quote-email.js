@@ -413,9 +413,13 @@ function buildFuturisticQuoteFigures(sub) {
   const agentId = `${(sub.broker || "AGT").replace(/[^A-Za-z]/g, "").substring(0, 3).toUpperCase()}-${garagingState}-${String(sub.id || "000").replace(/[^0-9]/g, "").slice(-3).padStart(3, "0")}`;
 
   const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || 50;
-  const surplusTaxRate = 0.0485;
+  // Tax and stamping fee come from the confirmed state basis (js/surplus-lines.js). Admitted placements carry none.
+  const slRates = typeof slRatesFor === "function" ? slRatesFor(sub) : null;
+  const slAdmitted = typeof slIsSurplus === "function" && !slIsSurplus(sub);
+  const surplusTaxRate = slAdmitted ? 0 : (slRates ? slRates.taxPct / 100 : 0.0485);
+  const stampingRate = slAdmitted ? 0 : (slRates ? slRates.stampingPct / 100 : 0.00075);
   const surplusTax = finalPremium * surplusTaxRate;
-  const stampingFee = finalPremium * 0.00075;
+  const stampingFee = finalPremium * stampingRate;
   const totalInvoiceCharges = finalPremium + brokerFee + surplusTax + stampingFee;
   // Commission comes from the producer's agreement (js/broker-commission.js); 10% only if that module is absent.
   const commissionRate = typeof resolveCommissionRate === "function" ? resolveCommissionRate(sub) : 0.10;
@@ -428,7 +432,7 @@ function buildFuturisticQuoteFigures(sub) {
   return {
     payload, outputPayload, now, expiration, paymentDue, coverageRows, basePremiumTotal, dp,
     finalPremium, garagingState, agentId, brokerFee, surplusTax, stampingFee, totalInvoiceCharges,
-    commissionRate, commissionAmt, netDueToMga, invoiceNumber, policyNumber
+    commissionRate, commissionAmt, netDueToMga, invoiceNumber, policyNumber, surplusTaxRate, stampingRate
   };
 }
 
@@ -539,8 +543,8 @@ function buildInvoiceLines(sub) {
   add(rule("-"));
   add(`${fqPadR("101", 7)}${fqPadR("Policy Gross Premium", 47)}${fqPadR("Full Term Premium", 27)}${fqPadL(fqMoney(finalPremium), 12)}`);
   add(`${fqPadR("201", 7)}${fqPadR("Broker Policy Fee (Fully Earned at Bind)", 47)}${fqPadR("Flat Fee", 27)}${fqPadL(fqMoney(brokerFee), 12)}`);
-  add(`${fqPadR("701", 7)}${fqPadR(`State Surplus Lines Tax (${garagingState})`, 47)}${fqPadR("4.85% of Premium", 27)}${fqPadL(fqMoney(surplusTax), 12)}`);
-  add(`${fqPadR("702", 7)}${fqPadR("Stamping Office Fee", 47)}${fqPadR("0.075%", 27)}${fqPadL(fqMoney(stampingFee), 12)}`);
+  add(`${fqPadR("701", 7)}${fqPadR(`State Surplus Lines Tax (${garagingState})`, 47)}${fqPadR(`${+(f.surplusTaxRate*100).toFixed(4)}% of Premium`, 27)}${fqPadL(fqMoney(surplusTax), 12)}`);
+  add(`${fqPadR("702", 7)}${fqPadR("Stamping Office Fee", 47)}${fqPadR(`${+(f.stampingRate*100).toFixed(4)}%`, 27)}${fqPadL(fqMoney(stampingFee), 12)}`);
   add(rule("-"));
   add(`TOTAL INVOICE CHARGES:${" ".repeat(65)}${fqPadL(fqMoney(totalInvoiceCharges), 12)}`);
   add(rule("-"));
