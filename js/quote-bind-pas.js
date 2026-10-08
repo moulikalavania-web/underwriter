@@ -1459,11 +1459,11 @@ function getGeneratedQuoteHtml(data, sub) {
             <h3 style="margin: 0; font-size: 13.5px; color: #92400e;"><i class="ph ph-clipboard-text text-warning"></i> Mandatory Bind Subjectivities</h3>
           </div>
           <div class="card-body py-2 px-3" style="font-size: 11.5px; color: #78350f;">
-            <ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
+            ${typeof renderSubjectivitiesQuoteList === "function" ? renderSubjectivitiesQuoteList(sub) : `<ul style="margin: 0; padding-left: 18px; line-height: 1.5;">
               <li>Receipt & satisfactory review of Motor Vehicle Records (MVRs) for all 4 drivers within 15 days of bind.</li>
               <li>Signed and dated ACORD 125 & ACORD 137 applications on file.</li>
               <li>Satisfactory verification of down payment installment ($3,926.00).</li>
-            </ul>
+            </ul>`}
           </div>
         </div>
 
@@ -1479,6 +1479,7 @@ function getGeneratedQuoteHtml(data, sub) {
         <span class="badge badge-success font-mono" id="quoteIssuanceStatusBadge">30-Day Bind Window Active</span>
       </div>
       <div class="card-body p-4">
+        ${typeof renderSubjectivitiesBindBanner === "function" ? renderSubjectivitiesBindBanner(sub) : ""}
         ${typeof renderNoticesBindBanner === "function" ? renderNoticesBindBanner(sub) : ""}
         ${typeof renderTriaBindBanner === "function" ? renderTriaBindBanner(sub) : ""}
         ${typeof renderProducerBindBanner === "function" ? renderProducerBindBanner(sub) : ""}

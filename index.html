@@ -863,7 +863,7 @@ run<!--
           <summary><i class="ph ph-caret-right wb-collapsible-caret"></i> Subjectivities &amp; Bind Conditions</summary>
           <div class="card mb-3">
             <div class="card-header">
-              <h3><i class="ph ph-clipboard-text text-primary"></i> Pre-Bind Subjectivities</h3>
+              <h3><i class="ph ph-clipboard-text text-primary"></i> Subjectivities (Pre-Bind and Post-Bind)</h3>
               <button class="btn btn-xs btn-outline" onclick="addNewSubjectivity()"><i class="ph ph-plus"></i> Add Subjectivity</button>
             </div>
             <div class="card-body">
@@ -1135,6 +1135,9 @@ run<!--
 
         <!-- Adverse-action notice gate (js/adverse-notices.js) -->
         <div id="noticesContainer"></div>
+
+        <!-- Subjectivities tracker: pre-bind gate and post-bind due dates (js/subjectivities.js) -->
+        <div id="subjectivitiesContainer"></div>
 
         <!-- Dynamic Main Step 7 Content Container — wrapped so the page can
              smooth-scroll to it right after a rating JSON import finishes
@@ -3115,6 +3118,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/tria-offer.js"></script>
   <script src="js/adverse-notices.js"></script>
   <script src="js/submission-completeness.js"></script>
+  <script src="js/subjectivities.js"></script>
   <script src="js/golden-path-data.js"></script>
 </body>
 </html>

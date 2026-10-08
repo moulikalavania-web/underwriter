@@ -2317,7 +2317,8 @@ const RBAC_RESOURCES = [
   { key: "producerLicensing", label: "Producer Licence & Appointment (Check / Record Verification)" },
   { key: "tria", label: "TRIA Offer & Election (Offer / Record Election)" },
   { key: "notices", label: "Declination & Adverse-Action Notices (Draft / Issue)" },
-  { key: "completeness", label: "Submission Completeness (Check / Request / Waive)" }
+  { key: "completeness", label: "Submission Completeness (Check / Request / Waive)" },
+  { key: "subjectivities", label: "Subjectivities (Add / Receive = Edit, Accept = Approve, Waive / Reopen = Override)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2340,7 +2341,8 @@ function defaultPermissionsMatrix() {
       tria: all(true, false, false, false, false),
       notices: all(true, false, false, false, false),
       // Intake is the Assistant's job: they run the check and ask the broker for what is missing.
-      completeness: all(true, true, false, false, false)
+      completeness: all(true, true, false, false, false),
+      subjectivities: all(true, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2357,7 +2359,9 @@ function defaultPermissionsMatrix() {
       producerLicensing: all(true, true, false, false, false),
       tria: all(true, true, false, false, false),
       notices: all(true, true, false, false, false),
-      completeness: all(true, true, false, false, false)
+      completeness: all(true, true, false, false, false),
+      // Underwriters judge whether a received item is acceptable; only senior authority waives one.
+      subjectivities: all(true, true, true, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2374,7 +2378,8 @@ function defaultPermissionsMatrix() {
       producerLicensing: all(true, true, false, false, false),
       tria: all(true, true, true, false, false),
       notices: all(true, true, true, false, false),
-      completeness: all(true, true, true, false, false)
+      completeness: all(true, true, true, false, false),
+      subjectivities: all(true, true, true, true, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2391,7 +2396,8 @@ function defaultPermissionsMatrix() {
       producerLicensing: all(true, true, true, false, false),
       tria: all(true, true, true, false, false),
       notices: all(true, true, true, false, false),
-      completeness: all(true, true, true, false, false)
+      completeness: all(true, true, true, false, false),
+      subjectivities: all(true, true, true, true, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2413,7 +2419,8 @@ function defaultPermissionsMatrix() {
       tria: all(true, false, false, false, false),
       // Admin can read notices but does not draft or issue them.
       notices: all(true, false, false, false, false),
-      completeness: all(true, false, false, false, false)
+      completeness: all(true, false, false, false, false),
+      subjectivities: all(true, false, false, false, false)
     }
   };
 }
