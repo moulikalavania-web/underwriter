@@ -2315,7 +2315,8 @@ const RBAC_RESOURCES = [
   { key: "auditLog", label: "Audit Log (Compliance View)" },
   { key: "sanctions", label: "Sanctions Screening (Run / Clear Matches)" },
   { key: "producerLicensing", label: "Producer Licence & Appointment (Check / Record Verification)" },
-  { key: "tria", label: "TRIA Offer & Election (Offer / Record Election)" }
+  { key: "tria", label: "TRIA Offer & Election (Offer / Record Election)" },
+  { key: "notices", label: "Declination & Adverse-Action Notices (Draft / Issue)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2335,7 +2336,8 @@ function defaultPermissionsMatrix() {
       auditLog: all(false, false, false, false, false),
       sanctions: all(true, false, false, false, false),
       producerLicensing: all(true, false, false, false, false),
-      tria: all(true, false, false, false, false)
+      tria: all(true, false, false, false, false),
+      notices: all(true, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2350,7 +2352,8 @@ function defaultPermissionsMatrix() {
       auditLog: all(false, false, false, false, false),
       sanctions: all(true, true, false, false, false),
       producerLicensing: all(true, true, false, false, false),
-      tria: all(true, true, false, false, false)
+      tria: all(true, true, false, false, false),
+      notices: all(true, true, false, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2365,7 +2368,8 @@ function defaultPermissionsMatrix() {
       auditLog: all(false, false, false, false, false),
       sanctions: all(true, true, false, false, false),
       producerLicensing: all(true, true, false, false, false),
-      tria: all(true, true, true, false, false)
+      tria: all(true, true, true, false, false),
+      notices: all(true, true, true, false, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2380,7 +2384,8 @@ function defaultPermissionsMatrix() {
       auditLog: all(true, false, false, false, false),
       sanctions: all(true, true, true, false, false),
       producerLicensing: all(true, true, true, false, false),
-      tria: all(true, true, true, false, false)
+      tria: all(true, true, true, false, false),
+      notices: all(true, true, true, false, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2399,7 +2404,9 @@ function defaultPermissionsMatrix() {
       // Admin can re-run the check but does not attest to a producer's licence.
       producerLicensing: all(true, true, false, false, false),
       // Admin can see TRIA records but does not offer or elect on a policy.
-      tria: all(true, false, false, false, false)
+      tria: all(true, false, false, false, false),
+      // Admin can read notices but does not draft or issue them.
+      notices: all(true, false, false, false, false)
     }
   };
 }
