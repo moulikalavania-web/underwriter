@@ -60,7 +60,7 @@ var EXTERNAL_ROLES = {
   }
 };
 
-var EXT_VIEW_ALL = ["documents", "submissionData", "workflow", "archival", "reviewRules", "appetiteRules", "premiumAdjustment", "unifiedAccount", "auditLog", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "rateConfig", "authority", "bordereaux"];
+var EXT_VIEW_ALL = ["documents", "submissionData", "workflow", "archival", "reviewRules", "appetiteRules", "premiumAdjustment", "unifiedAccount", "auditLog", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "rateConfig", "authority", "bordereaux", "performance"];
 var EXT_VIEW_PORTAL = ["documents", "submissionData", "workflow", "completeness", "subjectivities", "binders", "policyChanges", "renewals"];
 // internal-only panels hidden from external users even on a submission they may open
 var EXT_HIDDEN_PANELS = ["sanctionsScreeningContainer", "producerLicensingContainer", "marketClearanceContainer", "authorityContainer", "surplusLinesContainer", "noticesContainer", "commissionContainer", "triaOfferContainer"];
@@ -195,7 +195,7 @@ function extReconcileActive() {
   }
 
   // List screens render from the visible set only.
-  ["renderSubmissionsTable", "renderDeclineCenter", "renderAuditLogFeed", "renderUnifiedAccountView", "renderQuoteCompareSelector", "renderRenewalComparison", "renderRenewalPipeline", "renderTeamActivityBoard", "renderBordereaux"].forEach(function (name) {
+  ["renderSubmissionsTable", "renderDeclineCenter", "renderAuditLogFeed", "renderUnifiedAccountView", "renderQuoteCompareSelector", "renderRenewalComparison", "renderRenewalPipeline", "renderTeamActivityBoard", "renderBordereaux", "renderPerformance"].forEach(function (name) {
     if (typeof window[name] === "function") window[name] = extScoped(window[name]);
   });
 

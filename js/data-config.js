@@ -2326,7 +2326,8 @@ const RBAC_RESOURCES = [
   { key: "surplusLines", label: "Surplus Lines (Record Search / Acknowledge = Edit, Confirm Tax Basis = Approve, Manual Rate / Search Exemption = Override)" },
   { key: "rateConfig", label: "Rates, Fees & Limits Configuration (Propose Change = Edit, Approve / Reject a Change = Approve; the proposer cannot approve their own change)" },
   { key: "authority", label: "Underwriting Authority (Raise Referral = Edit, Decide Referral = Approve, Record Carrier Approval = Override; nobody approves a risk they prepared or referred)" },
-  { key: "bordereaux", label: "Carrier Bordereaux (Draft / Export = Edit, Submit to Carrier = Approve)" }
+  { key: "bordereaux", label: "Carrier Bordereaux (Draft / Export = Edit, Submit to Carrier = Approve)" },
+  { key: "performance", label: "Performance Reporting (View = Book-level Measures, Approve = Underwriter-level Measures)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2359,7 +2360,8 @@ function defaultPermissionsMatrix() {
       surplusLines: all(true, true, false, false, false),
       rateConfig: all(true, false, false, false, false),
       authority: all(true, false, false, false, false),
-      bordereaux: all(true, false, false, false, false)
+      bordereaux: all(true, false, false, false, false),
+      performance: all(false, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2386,7 +2388,8 @@ function defaultPermissionsMatrix() {
       surplusLines: all(true, true, true, false, false),
       rateConfig: all(true, false, false, false, false),
       authority: all(true, true, false, false, false),
-      bordereaux: all(true, false, false, false, false)
+      bordereaux: all(true, false, false, false, false),
+      performance: all(false, false, false, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2412,7 +2415,8 @@ function defaultPermissionsMatrix() {
       surplusLines: all(true, true, true, true, false),
       rateConfig: all(true, true, false, false, false),
       authority: all(true, true, true, false, false),
-      bordereaux: all(true, true, false, false, false)
+      bordereaux: all(true, true, false, false, false),
+      performance: all(true, false, false, false, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2438,7 +2442,8 @@ function defaultPermissionsMatrix() {
       surplusLines: all(true, true, true, true, false),
       rateConfig: all(true, true, true, false, false),
       authority: all(true, true, true, true, false),
-      bordereaux: all(true, true, true, false, false)
+      bordereaux: all(true, true, true, false, false),
+      performance: all(true, false, true, false, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2469,7 +2474,8 @@ function defaultPermissionsMatrix() {
       surplusLines: all(true, false, false, false, false),
       rateConfig: all(true, false, false, false, false),
       authority: all(true, false, false, false, false),
-      bordereaux: all(true, false, false, false, false)
+      bordereaux: all(true, false, false, false, false),
+      performance: all(true, false, false, false, false)
     }
   };
 }
