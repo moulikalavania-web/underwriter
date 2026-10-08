@@ -205,7 +205,9 @@ function renderSubmissionsTable() {
   // submissions assigned to them; unassigned work is invisible to a worker
   // until a manager hands it to them.
   const isManagerView = canManageAssignments();
-  const filteredByLOB = isManagerView
+  // External and oversight personas (js/external-access.js) are scoped by agency, program or carrier, not by assignment.
+  const scopedByRole = typeof extIsRestricted === "function" && extIsRestricted(currentUserRole);
+  const filteredByLOB = (isManagerView || scopedByRole)
     ? filteredByLOB0
     : filteredByLOB0.filter(sub => sub.assignedTo === currentUserRole);
 
