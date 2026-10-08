@@ -1703,6 +1703,7 @@ run<!--
         <button class="tab-btn" id="qiTabCompare" onclick="switchQuoteIntelTab('compare')"><i class="ph ph-columns"></i> Multiple Quote Comparison</button>
         <button class="tab-btn" id="qiTabPipeline" onclick="switchQuoteIntelTab('pipeline')"><i class="ph ph-calendar-check"></i> Renewal Pipeline</button>
         <button class="tab-btn" id="qiTabConfig" onclick="switchQuoteIntelTab('config')"><i class="ph ph-sliders-horizontal"></i> Rates &amp; Limits</button>
+        <button class="tab-btn" id="qiTabBdx" onclick="switchQuoteIntelTab('bdx')"><i class="ph ph-table"></i> Bordereaux</button>
       </div>
 
       <!-- Panel: Renewal Pipeline (js/renewals.js) -->
@@ -1710,6 +1711,9 @@ run<!--
 
       <!-- Panel: Rates, fees and limits configuration (js/rate-config.js) -->
       <div id="qiPanelConfig" style="display:none;"><div id="rateConfigRoot"></div></div>
+
+      <!-- Panel: Carrier bordereaux (js/bordereaux.js) -->
+      <div id="qiPanelBdx" style="display:none;"><div id="bordereauxRoot"></div></div>
 
       <!-- Panel: Old vs New (Renewal) Comparison -->
       <div id="qiPanelRenewal">
@@ -3153,6 +3157,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/surplus-lines.js"></script>
   <script src="js/rate-config.js"></script>
   <script src="js/authority.js"></script>
+  <script src="js/bordereaux.js"></script>
   <script src="js/external-access.js"></script>
   <script src="js/golden-path-data.js"></script>
 </body>
