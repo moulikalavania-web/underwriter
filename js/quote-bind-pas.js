@@ -1479,6 +1479,7 @@ function getGeneratedQuoteHtml(data, sub) {
         <span class="badge badge-success font-mono" id="quoteIssuanceStatusBadge">30-Day Bind Window Active</span>
       </div>
       <div class="card-body p-4">
+        ${typeof renderTriaBindBanner === "function" ? renderTriaBindBanner(sub) : ""}
         ${typeof renderProducerBindBanner === "function" ? renderProducerBindBanner(sub) : ""}
         ${typeof renderSanctionsBindBanner === "function" ? renderSanctionsBindBanner(sub) : ""}
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
