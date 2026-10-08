@@ -2312,7 +2312,8 @@ const RBAC_RESOURCES = [
   { key: "premiumAdjustment", label: "Premium Adjustment" },
   { key: "teamActivity", label: "Team Activity (Manager View)" },
   { key: "unifiedAccount", label: "Unified Account View (Cross-LOB)" },
-  { key: "auditLog", label: "Audit Log (Compliance View)" }
+  { key: "auditLog", label: "Audit Log (Compliance View)" },
+  { key: "sanctions", label: "Sanctions Screening (Run / Clear Matches)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2329,7 +2330,8 @@ function defaultPermissionsMatrix() {
       premiumAdjustment: all(true, false, false, false, false),
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(false, false, false, false, false),
-      auditLog: all(false, false, false, false, false)
+      auditLog: all(false, false, false, false, false),
+      sanctions: all(true, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2341,7 +2343,8 @@ function defaultPermissionsMatrix() {
       premiumAdjustment: all(true, true, false, false, false),
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(false, false, false, false, false),
-      auditLog: all(false, false, false, false, false)
+      auditLog: all(false, false, false, false, false),
+      sanctions: all(true, true, false, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2353,7 +2356,8 @@ function defaultPermissionsMatrix() {
       premiumAdjustment: all(true, true, false, false, false),
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(true, false, false, false, false),
-      auditLog: all(false, false, false, false, false)
+      auditLog: all(false, false, false, false, false),
+      sanctions: all(true, true, false, false, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2365,7 +2369,8 @@ function defaultPermissionsMatrix() {
       premiumAdjustment: all(true, true, true, true, false),
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(true, false, false, false, false),
-      auditLog: all(true, false, false, false, false)
+      auditLog: all(true, false, false, false, false),
+      sanctions: all(true, true, true, false, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2377,7 +2382,10 @@ function defaultPermissionsMatrix() {
       premiumAdjustment: all(true, true, true, true, true),
       teamActivity: all(true, true, true, true, true),
       unifiedAccount: all(true, true, true, true, true),
-      auditLog: all(true, true, true, true, true)
+      auditLog: all(true, true, true, true, true),
+      // A system administrator configures the platform; they do not clear
+      // sanctions matches (approve stays off — that is a compliance decision).
+      sanctions: all(true, true, false, false, false)
     }
   };
 }
