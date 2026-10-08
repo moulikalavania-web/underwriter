@@ -203,7 +203,8 @@ function rnSweep(today) {
 var RN_RESET_FIELDS = ["pasSync", "quoteIssued", "customerApproved", "customerApprovedAt", "quoteNo", "currentPremium", "policyState", "policyLedger", "policyChanges", "cancellation", "binders", "certificates",
   "subjectivityItems", "_subjMirror", "subjectivityBindDate", "_subjOverdueKey", "sanctions", "_sanctionsBindScreenAt", "producerCheck", "tria", "notices", "adverseTermsRequiresNotice", "completeness",
   "importedRatingData", "isQuoteImported", "discretionaryPricing", "eSignature", "submissionVersions", "communicationThread", "missingItems", "lifecycleStatus", "lifecycleStatusAt",
-  "declinedBy", "declineReason", "declineTriggerPoint", "isReferral", "registryEnrichment", "riskScore", "riskScoreOverridden", "riskScoreAutoCalculated", "archived", "archivedAt", "archivedBy", "renewal"];
+  "declinedBy", "declineReason", "declineTriggerPoint", "isReferral", "registryEnrichment", "riskScore", "riskScoreOverridden", "riskScoreAutoCalculated", "archived", "archivedAt", "archivedBy", "renewal",
+  "marketClearance", "borRecords", "borHistory", "commission", "commissionOverride"];
 
 function rnPriorPolicyRecord(sub, f) {
   const losses = sub.losses || [];
@@ -222,7 +223,9 @@ function rnCreateRenewalSubmission(sub, today) {
   const f = rnFacts(sub);
   const t = today || rnToday();
   const copy = JSON.parse(JSON.stringify(sub));
+  const pendingBor = (sub.borRecords || []).find(b => b.status === "accepted_at_renewal");
   RN_RESET_FIELDS.forEach(k => { delete copy[k]; });
+  if (pendingBor) copy.broker = pendingBor.toBroker;   // a broker-of-record change that takes effect at renewal
   const n = SUBMISSIONS_DATASET.filter(s => s.renewalOf === sub.id).length + 1;
   copy.id = `${sub.id}-R${n}`;
   copy.renewalOf = sub.id;

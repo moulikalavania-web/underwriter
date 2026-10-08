@@ -417,8 +417,9 @@ function buildFuturisticQuoteFigures(sub) {
   const surplusTax = finalPremium * surplusTaxRate;
   const stampingFee = finalPremium * 0.00075;
   const totalInvoiceCharges = finalPremium + brokerFee + surplusTax + stampingFee;
-  const commissionRate = 0.10;
-  const commissionAmt = finalPremium * commissionRate;
+  // Commission comes from the producer's agreement (js/broker-commission.js); 10% only if that module is absent.
+  const commissionRate = typeof resolveCommissionRate === "function" ? resolveCommissionRate(sub) : 0.10;
+  const commissionAmt = typeof commissionAmountFor === "function" ? commissionAmountFor(sub, finalPremium, commissionRate) : finalPremium * commissionRate;
   const netDueToMga = finalPremium - commissionAmt + brokerFee;
 
   const invoiceNumber = `INV-${(sub.id || "000000").replace(/[^0-9]/g, "").padStart(6, "0") || "000000"}`;
