@@ -2313,7 +2313,8 @@ const RBAC_RESOURCES = [
   { key: "teamActivity", label: "Team Activity (Manager View)" },
   { key: "unifiedAccount", label: "Unified Account View (Cross-LOB)" },
   { key: "auditLog", label: "Audit Log (Compliance View)" },
-  { key: "sanctions", label: "Sanctions Screening (Run / Clear Matches)" }
+  { key: "sanctions", label: "Sanctions Screening (Run / Clear Matches)" },
+  { key: "producerLicensing", label: "Producer Licence & Appointment (Check / Record Verification)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2331,7 +2332,8 @@ function defaultPermissionsMatrix() {
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(false, false, false, false, false),
       auditLog: all(false, false, false, false, false),
-      sanctions: all(true, false, false, false, false)
+      sanctions: all(true, false, false, false, false),
+      producerLicensing: all(true, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2344,7 +2346,8 @@ function defaultPermissionsMatrix() {
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(false, false, false, false, false),
       auditLog: all(false, false, false, false, false),
-      sanctions: all(true, true, false, false, false)
+      sanctions: all(true, true, false, false, false),
+      producerLicensing: all(true, true, false, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2357,7 +2360,8 @@ function defaultPermissionsMatrix() {
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(true, false, false, false, false),
       auditLog: all(false, false, false, false, false),
-      sanctions: all(true, true, false, false, false)
+      sanctions: all(true, true, false, false, false),
+      producerLicensing: all(true, true, false, false, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2370,7 +2374,8 @@ function defaultPermissionsMatrix() {
       teamActivity: all(false, false, false, false, false),
       unifiedAccount: all(true, false, false, false, false),
       auditLog: all(true, false, false, false, false),
-      sanctions: all(true, true, true, false, false)
+      sanctions: all(true, true, true, false, false),
+      producerLicensing: all(true, true, true, false, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2385,7 +2390,9 @@ function defaultPermissionsMatrix() {
       auditLog: all(true, true, true, true, true),
       // A system administrator configures the platform; they do not clear
       // sanctions matches (approve stays off — that is a compliance decision).
-      sanctions: all(true, true, false, false, false)
+      sanctions: all(true, true, false, false, false),
+      // Admin can re-run the check but does not attest to a producer's licence.
+      producerLicensing: all(true, true, false, false, false)
     }
   };
 }
