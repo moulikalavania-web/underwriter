@@ -401,8 +401,8 @@ function renderProducerBindBanner(sub) {
 // ----------------------------------------------------------------------------
 // 5. HOOKS
 // ----------------------------------------------------------------------------
-function producerGuardBind(source) {
-  const sub = producerActiveSub();
+function producerGuardBind(source, subId) {
+  const sub = subId ? (SUBMISSIONS_DATASET.find(s => s.id === subId) || null) : producerActiveSub();
   if (!sub) return true;
   const result = runProducerCheck(sub, "bind");
   if (producerAllowsBind(result.status)) return true;
@@ -455,6 +455,13 @@ function producerGuardBind(source) {
     window.issueQuoteAction = function () {
       if (!producerGuardBind("issue quote")) return;
       return origIssue.apply(this, arguments);
+    };
+  }
+  const origPasBind = window.simulatePASBindSync;
+  if (typeof origPasBind === "function") {
+    window.simulatePASBindSync = function (subId) {
+      if (!producerGuardBind("PAS bind", subId)) return;
+      return origPasBind.apply(this, arguments);
     };
   }
 })();

@@ -352,9 +352,16 @@ function renderTriaCard(sub) {
     </div>`;
 }
 
-function renderTriaBindBanner(sub) {
+function renderTriaBindBanner(sub, stage) {
   if (!sub) return "";
   const st = getTriaStatus(sub);
+  // At the quote stage only a missing OFFER stops the quote going out; the insured's election is needed at bind.
+  if (stage === "quote" && st.state !== "offer_required") {
+    const note = st.state === "awaiting_election"
+      ? "TRIA offer recorded. The insured's election is needed before the policy can be bound."
+      : (st.state === "not_applicable" ? "TRIA: no offer required for this line." : `TRIA: ${TRIA_STATE_UI[st.state].label.toLowerCase()}.`);
+    return `<div class="alert alert-success text-xs" style="margin-bottom:12px;"><i class="ph ph-shield-star"></i> ${note}</div>`;
+  }
   if (!st.blocked) {
     const note = st.state === "not_applicable" ? "TRIA: no offer required for this line." : `TRIA: ${TRIA_STATE_UI[st.state].label.toLowerCase()}, reconciled with the quote.`;
     return `<div class="alert alert-success text-xs" style="margin-bottom:12px;"><i class="ph ph-shield-star"></i> ${note}</div>`;
@@ -368,11 +375,13 @@ function renderTriaBindBanner(sub) {
 // ----------------------------------------------------------------------------
 // 5. HOOKS
 // ----------------------------------------------------------------------------
-function triaGuardBind(source) {
-  const sub = triaActiveSub();
+function triaGuardBind(source, subId, stage) {
+  const sub = subId ? (SUBMISSIONS_DATASET.find(s => s.id === subId) || null) : triaActiveSub();
   if (!sub) return true;
   const st = getTriaStatus(sub);
-  if (!st.blocked) return true;
+  // stage "quote": the offer must exist before the quote goes out. Anything else (the real bind): election and reconciliation too.
+  const blocked = stage === "quote" ? st.state === "offer_required" : st.blocked;
+  if (!blocked) return true;
   const why = st.state === "offer_required" ? "no TRIA offer recorded"
     : st.state === "awaiting_election" ? "TRIA election not recorded"
     : st.issues.filter(i => i.level === "block").map(i => i.text).join(" ");
@@ -411,15 +420,26 @@ function triaGuardBind(source) {
   const origESig = window.openESignatureModal;
   if (typeof origESig === "function") {
     window.openESignatureModal = function () {
-      if (!triaGuardBind("e-signature")) return;
+      if (!triaGuardBind("e-signature", null, "quote")) return;
       return origESig.apply(this, arguments);
     };
   }
   const origIssue = window.issueQuoteAction;
   if (typeof origIssue === "function") {
     window.issueQuoteAction = function () {
-      if (!triaGuardBind("issue quote")) return;
+      if (!triaGuardBind("issue quote", null, "quote")) return;
       return origIssue.apply(this, arguments);
+    };
+  }
+})();
+
+// The real bind: the insured must have elected, and the quote must reconcile with the election.
+(function installTriaBindStage() {
+  const origPasBind = window.simulatePASBindSync;
+  if (typeof origPasBind === "function") {
+    window.simulatePASBindSync = function (subId) {
+      if (!triaGuardBind("PAS bind", subId, "bind")) return;
+      return origPasBind.apply(this, arguments);
     };
   }
 })();

@@ -417,8 +417,8 @@ function renderSanctionsBindBanner(sub) {
 // ----------------------------------------------------------------------------
 /** Re-screen right before bind (re-using a bind-time screen from the last two
  *  minutes whose party list has not changed), then allow or block. */
-function sanctionsGuardBind(source) {
-  const sub = sanctionsActiveSub();
+function sanctionsGuardBind(source, subId) {
+  const sub = subId ? (SUBMISSIONS_DATASET.find(s => s.id === subId) || null) : sanctionsActiveSub();
   if (!sub) return true;
   const store = sanctionsStore(sub);
   const last = store.screens[store.screens.length - 1];
@@ -493,6 +493,14 @@ function sanctionsGuardBind(source) {
     window.issueQuoteAction = function () {
       if (!sanctionsGuardBind("issue quote")) return;
       return origIssue.apply(this, arguments);
+    };
+  }
+  // The actual bind is "Bind & Sync to PAS", a separate step after the customer approves the quote.
+  const origPasBind = window.simulatePASBindSync;
+  if (typeof origPasBind === "function") {
+    window.simulatePASBindSync = function (subId) {
+      if (!sanctionsGuardBind("PAS bind", subId)) return;
+      return origPasBind.apply(this, arguments);
     };
   }
 })();

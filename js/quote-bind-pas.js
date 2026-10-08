@@ -1037,6 +1037,7 @@ function getPASSyncCardHtml(sub) {
       </div>
       <div class="card-body">
         <p class="text-xs text-muted mb-2">Binding this quote submits a bind request to the downstream Policy Admin System, which returns a system-of-record policy number and confirms issuance.</p>
+        ${typeof renderBindStageBanners === "function" ? renderBindStageBanners(sub) : ""}
         <div id="pasSyncStatusArea">${priorFailure ? `<div class="alert alert-danger u-fs-12"><i class="ph ph-warning-circle"></i> <strong>Bind failed (${priorFailure.code}):</strong> ${priorFailure.message}</div>` : ''}</div>
         <button class="btn btn-primary" id="pasSyncBindBtn" onclick="simulatePASBindSync('${sub.id}')">
           <i class="ph ph-arrows-clockwise"></i> ${priorFailure ? 'Retry Bind &amp; Sync to PAS' : 'Bind &amp; Sync to PAS'}
@@ -1479,9 +1480,9 @@ function getGeneratedQuoteHtml(data, sub) {
         <span class="badge badge-success font-mono" id="quoteIssuanceStatusBadge">30-Day Bind Window Active</span>
       </div>
       <div class="card-body p-4">
-        ${typeof renderSubjectivitiesBindBanner === "function" ? renderSubjectivitiesBindBanner(sub) : ""}
+        ${typeof renderSubjectivitiesBindBanner === "function" ? renderSubjectivitiesBindBanner(sub, "quote") : ""}
         ${typeof renderNoticesBindBanner === "function" ? renderNoticesBindBanner(sub) : ""}
-        ${typeof renderTriaBindBanner === "function" ? renderTriaBindBanner(sub) : ""}
+        ${typeof renderTriaBindBanner === "function" ? renderTriaBindBanner(sub, "quote") : ""}
         ${typeof renderProducerBindBanner === "function" ? renderProducerBindBanner(sub) : ""}
         ${typeof renderSanctionsBindBanner === "function" ? renderSanctionsBindBanner(sub) : ""}
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">

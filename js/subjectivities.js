@@ -21,8 +21,11 @@
  * document, ACORD view and issue-quote email read) is kept as a mirror of the
  * items that are still outstanding, so those screens keep working.
  *
- * Bind gate: open, received-but-unaccepted pre-bind items block Sign & Bind and
- * Issue Quote. Post-bind items never block, but are tracked.
+ * Bind gate: open, received-but-unaccepted pre-bind items block the real bind
+ * ("Bind & Sync to PAS"). They do NOT block issuing the quote: the quote has to
+ * go out with its conditions listed so that they can be satisfied. Post-bind
+ * items never block, but are tracked, and their clock starts when the policy is
+ * bound.
  * ============================================================================
  */
 
@@ -168,6 +171,10 @@ function subjAfter(sub, host) {
   subjSync(sub);
   subjPersist();
   renderSubjectivityViews(sub);
+  // keep the bind panel's banners in step
+  if (typeof renderStep7View === "function" && sub.id === (typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null)) {
+    try { renderStep7View(sub); } catch (e) { /* screen not mounted */ }
+  }
 }
 
 function subjReceive(id, host) {
@@ -381,9 +388,10 @@ function renderSubjectivitiesQuoteList(sub) {
          (post.length ? `<div style="font-weight:700;">After binding</div><ul style="margin:2px 0 0; padding-left:18px; line-height:1.5;">${post.map(li).join("")}</ul>` : "");
 }
 
-function renderSubjectivitiesBindBanner(sub) {
+function renderSubjectivitiesBindBanner(sub, stage) {
   if (!sub) return "";
   const st = subjStatus(sub);
+  if (st.blocked && stage === "quote") return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-clipboard-text"></i> ${st.preBlocking.length} pre-bind subjectivity item(s) are open. The quote can be issued with them listed, but the policy cannot be bound until each is received and accepted (or waived).</div>`;
   if (st.blocked) return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${st.preBlocking.length} pre-bind subjectivity item(s) must be received and accepted (or waived): ${subjEsc(st.preBlocking.map(i => i.text).join("; "))}</div>`;
   const od = st.overdue.filter(i => i.timing === "post_bind");
   if (od.length) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-warning"></i> ${od.length} post-bind subjectivity item(s) are overdue. The carrier may cancel for non-compliance; consider a cancellation review.</div>`;
@@ -393,8 +401,8 @@ function renderSubjectivitiesBindBanner(sub) {
 // ----------------------------------------------------------------------------
 // 5. HOOKS
 // ----------------------------------------------------------------------------
-function subjectivitiesGuardBind(source) {
-  const sub = subjActiveSub();
+function subjectivitiesGuardBind(source, subId) {
+  const sub = subId ? subjSub(subId) : subjActiveSub();
   if (!sub) return true;
   const st = subjCheckOverdue(sub);
   if (!st.blocked) return true;
@@ -444,21 +452,21 @@ function subjectivitiesGuardBind(source) {
       return r;
     };
   }
-  const origESig = window.openESignatureModal;
-  if (typeof origESig === "function") {
-    window.openESignatureModal = function () {
-      if (!subjectivitiesGuardBind("e-signature")) return;
-      return origESig.apply(this, arguments);
+  // Pre-bind subjectivities gate the real bind ("Bind & Sync to PAS"), not the issuing of the quote:
+  // the quote has to go out with its conditions listed so they can be satisfied.
+  const origPasBind = window.simulatePASBindSync;
+  if (typeof origPasBind === "function") {
+    window.simulatePASBindSync = function (subId) {
+      if (!subjectivitiesGuardBind("PAS bind", subId)) return;
+      return origPasBind.apply(this, arguments);
     };
   }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      if (!subjectivitiesGuardBind("issue quote")) return;
-      const sub = subjActiveSub();
-      const wasIssued = !!(sub && sub.quoteIssued);
-      const r = origIssue.apply(this, arguments);
-      if (sub && sub.quoteIssued && !wasIssued) startPostBindClock(sub);
+  // The post-bind clock starts when the policy is actually bound (the bound quote version is recorded).
+  const origRecord = window.recordQuoteVersion;
+  if (typeof origRecord === "function") {
+    window.recordQuoteVersion = function (sub, isBound) {
+      const r = origRecord.apply(this, arguments);
+      if (isBound === true && sub) startPostBindClock(sub);
       return r;
     };
   }
