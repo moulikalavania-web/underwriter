@@ -96,16 +96,16 @@ function getTriaStatus(sub) {
   const issues = [];
   const quoted = triaQuotedCharge(sub);
   if (state === "not_applicable" && quoted > 0) {
-    issues.push({ level: "warn", text: `The quote carries a TRIA charge of $${quoted.toLocaleString()} although this line is outside the federal program. Confirm with Compliance or re-rate without it.` });
+    issues.push({ level: "warn", text: `The quote carries a TRIA charge of $${quoted.toLocaleString("en-US")} although this line is outside the federal program. Confirm with Compliance or re-rate without it.` });
   }
   if (state === "rejected" && quoted > 0) {
-    issues.push({ level: "block", text: `The insured rejected terrorism coverage but the quote still carries a TRIA charge of $${quoted.toLocaleString()}. Re-rate without it before binding.` });
+    issues.push({ level: "block", text: `The insured rejected terrorism coverage but the quote still carries a TRIA charge of $${quoted.toLocaleString("en-US")}. Re-rate without it before binding.` });
   }
   if (state === "accepted" && quoted !== null && Math.abs(quoted - Number(t.offer.premium)) > 1) {
-    issues.push({ level: "block", text: `The quote's TRIA charge ($${quoted.toLocaleString()}) does not match the premium that was offered ($${Number(t.offer.premium).toLocaleString()}). The disclosed premium must be the premium charged — withdraw and re-offer.` });
+    issues.push({ level: "block", text: `The quote's TRIA charge ($${quoted.toLocaleString("en-US")}) does not match the premium that was offered ($${Number(t.offer.premium).toLocaleString("en-US")}). The disclosed premium must be the premium charged — withdraw and re-offer.` });
   }
   if (state === "awaiting_election" && quoted !== null && Math.abs(quoted - Number(t.offer.premium)) > 1) {
-    issues.push({ level: "warn", text: `The quote's TRIA charge ($${quoted.toLocaleString()}) differs from the offered premium ($${Number(t.offer.premium).toLocaleString()}). Withdraw and re-offer before the insured elects.` });
+    issues.push({ level: "warn", text: `The quote's TRIA charge ($${quoted.toLocaleString("en-US")}) differs from the offered premium ($${Number(t.offer.premium).toLocaleString("en-US")}). Withdraw and re-offer before the insured elects.` });
   }
   const expiry = triaPolicyExpiry(sub);
   if (app.applies && expiry && expiry > TRIA_PROGRAM_END) {
@@ -116,7 +116,7 @@ function getTriaStatus(sub) {
 }
 
 function triaNoticeText(sub, premium) {
-  const money = Number(premium || 0).toLocaleString(undefined, { style: "currency", currency: "USD" });
+  const money = Number(premium || 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
   const expiry = triaPolicyExpiry(sub);
   const endNote = expiry && expiry > TRIA_PROGRAM_END
     ? ` The Program is scheduled to end on ${TRIA_PROGRAM_END}; coverage for certified acts after that date depends on the Program being reauthorized.` : "";
@@ -141,7 +141,7 @@ function triaActor() {
 function triaEsc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function triaMoney(n) { return "$" + Number(n || 0).toLocaleString(); }
+function triaMoney(n) { return "$" + Number(n || 0).toLocaleString("en-US"); }
 function triaLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
   sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: triaActor(), at: triaNow(), notes });
