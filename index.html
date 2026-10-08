@@ -1145,6 +1145,9 @@ run<!--
         <!-- Endorsements, cancellation and reinstatement (js/policy-changes.js) -->
         <div id="policyChangesContainer"></div>
 
+        <!-- Renewal status (js/renewals.js) -->
+        <div id="renewalStatusContainer"></div>
+
         <!-- Dynamic Main Step 7 Content Container — wrapped so the page can
              smooth-scroll to it right after a rating JSON import finishes
              (see handleApplyImportedJson()/handleSystemJsonFileSelect()). -->
@@ -1688,7 +1691,11 @@ run<!--
       <div class="filter-tabs mb-3" id="qiTabNav">
         <button class="tab-btn active" id="qiTabRenewal" onclick="switchQuoteIntelTab('renewal')"><i class="ph ph-arrows-clockwise"></i> Old vs New (Renewal)</button>
         <button class="tab-btn" id="qiTabCompare" onclick="switchQuoteIntelTab('compare')"><i class="ph ph-columns"></i> Multiple Quote Comparison</button>
+        <button class="tab-btn" id="qiTabPipeline" onclick="switchQuoteIntelTab('pipeline')"><i class="ph ph-calendar-check"></i> Renewal Pipeline</button>
       </div>
+
+      <!-- Panel: Renewal Pipeline (js/renewals.js) -->
+      <div id="qiPanelPipeline" style="display:none;"><div id="renewalPipelineRoot"></div></div>
 
       <!-- Panel: Old vs New (Renewal) Comparison -->
       <div id="qiPanelRenewal">
@@ -3127,6 +3134,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/subjectivities.js"></script>
   <script src="js/binders-certificates.js"></script>
   <script src="js/policy-changes.js"></script>
+  <script src="js/renewals.js"></script>
   <script src="js/golden-path-data.js"></script>
 </body>
 </html>

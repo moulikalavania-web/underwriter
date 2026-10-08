@@ -2320,7 +2320,8 @@ const RBAC_RESOURCES = [
   { key: "completeness", label: "Submission Completeness (Check / Request / Waive)" },
   { key: "subjectivities", label: "Subjectivities (Add / Receive = Edit, Accept = Approve, Waive / Reopen = Override)" },
   { key: "binders", label: "Binders & Certificates (Certificate = Edit, Issue Binder / Revoke Certificate = Approve, Void Binder = Override)" },
-  { key: "policyChanges", label: "Policy Changes (Endorse / Cancel / Reinstate = Approve; Backdate, Flat Cancel, Large Change = Override)" }
+  { key: "policyChanges", label: "Policy Changes (Endorse / Cancel / Reinstate = Approve; Backdate, Flat Cancel, Large Change = Override)" },
+  { key: "renewals", label: "Renewals (Review / Request Info = Edit, Renew / Conditional Renewal = Approve, Non-Renew / Late Notice = Override)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2347,7 +2348,8 @@ function defaultPermissionsMatrix() {
       subjectivities: all(true, false, false, false, false),
       // Certificates are routine servicing work; the Assistant may issue them once a binder is active.
       binders: all(true, true, false, false, false),
-      policyChanges: all(true, false, false, false, false)
+      policyChanges: all(true, false, false, false, false),
+      renewals: all(true, true, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2368,7 +2370,8 @@ function defaultPermissionsMatrix() {
       // Underwriters judge whether a received item is acceptable; only senior authority waives one.
       subjectivities: all(true, true, true, false, false),
       binders: all(true, true, true, false, false),
-      policyChanges: all(true, true, true, false, false)
+      policyChanges: all(true, true, true, false, false),
+      renewals: all(true, true, true, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2388,7 +2391,8 @@ function defaultPermissionsMatrix() {
       completeness: all(true, true, true, false, false),
       subjectivities: all(true, true, true, true, false),
       binders: all(true, true, true, true, false),
-      policyChanges: all(true, true, true, true, false)
+      policyChanges: all(true, true, true, true, false),
+      renewals: all(true, true, true, true, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2408,7 +2412,8 @@ function defaultPermissionsMatrix() {
       completeness: all(true, true, true, false, false),
       subjectivities: all(true, true, true, true, false),
       binders: all(true, true, true, true, false),
-      policyChanges: all(true, true, true, true, false)
+      policyChanges: all(true, true, true, true, false),
+      renewals: all(true, true, true, true, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2433,7 +2438,8 @@ function defaultPermissionsMatrix() {
       completeness: all(true, false, false, false, false),
       subjectivities: all(true, false, false, false, false),
       binders: all(true, false, false, false, false),
-      policyChanges: all(true, false, false, false, false)
+      policyChanges: all(true, false, false, false, false),
+      renewals: all(true, false, false, false, false)
     }
   };
 }
