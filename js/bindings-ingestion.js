@@ -753,7 +753,7 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
   const totalCoveragePrem = coverageRows.reduce((sum, c) => sum + (c.premVal || parseFloat((c.prem || "0").replace(/[^0-9.]/g, '')) || 0), 0);
 
   const state = (sub && sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (pInfo.jurisdictions && pInfo.jurisdictions[0]) || "AL";
-  const brokerFee = (sub && sub.broker_fee && sub.broker_fee.amount) || 1500;
+  const brokerFee = (sub && sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValue === "function" ? cfgValue("broker_fee_quote_default") : 1500);
   // Use the same schema-driven tax rate as the discretionary pricing stage
   // (DISCRETIONARY_TAX_RATE_PCT, set from the ingested product's pricing.taxRatePct)
   // rather than an independently hardcoded 4.85% — otherwise ingesting a
@@ -1245,9 +1245,9 @@ function ingestProductSchema(schemaObj) {
   // 1c. Discretionary pricing caps — read from the ingested schema's pricing
   // block when provided, otherwise keep the platform defaults.
   var pricingBlock = schemaObj.pricing || {};
-  DISCRETIONARY_MAX_CREDIT_PCT = (typeof pricingBlock.maxCreditPct === "number") ? pricingBlock.maxCreditPct : 15;
-  DISCRETIONARY_MAX_DEBIT_PCT = (typeof pricingBlock.maxDebitPct === "number") ? pricingBlock.maxDebitPct : 25;
-  DISCRETIONARY_TAX_RATE_PCT = (typeof pricingBlock.taxRatePct === "number") ? pricingBlock.taxRatePct : 3.2;
+  DISCRETIONARY_MAX_CREDIT_PCT = (typeof pricingBlock.maxCreditPct === "number") ? pricingBlock.maxCreditPct : (typeof cfgValue === "function" ? cfgValue("discretionary_max_credit") : 15);
+  DISCRETIONARY_MAX_DEBIT_PCT = (typeof pricingBlock.maxDebitPct === "number") ? pricingBlock.maxDebitPct : (typeof cfgValue === "function" ? cfgValue("discretionary_max_debit") : 25);
+  DISCRETIONARY_TAX_RATE_PCT = (typeof pricingBlock.taxRatePct === "number") ? pricingBlock.taxRatePct : (typeof cfgValue === "function" ? cfgValue("discretionary_tax_pct") : 3.2);
   window.DISCRETIONARY_MAX_CREDIT_PCT = DISCRETIONARY_MAX_CREDIT_PCT;
   window.DISCRETIONARY_MAX_DEBIT_PCT = DISCRETIONARY_MAX_DEBIT_PCT;
   window.DISCRETIONARY_TAX_RATE_PCT = DISCRETIONARY_TAX_RATE_PCT;

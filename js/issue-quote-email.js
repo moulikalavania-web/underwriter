@@ -412,7 +412,7 @@ function buildFuturisticQuoteFigures(sub) {
   const garagingState = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (sub.address || "").match(/,\s*([A-Z]{2})\b/)?.[1] || "TX";
   const agentId = `${(sub.broker || "AGT").replace(/[^A-Za-z]/g, "").substring(0, 3).toUpperCase()}-${garagingState}-${String(sub.id || "000").replace(/[^0-9]/g, "").slice(-3).padStart(3, "0")}`;
 
-  const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || 50;
+  const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValue === "function" ? cfgValue("broker_fee_invoice_default") : 50);
   // Tax and stamping fee come from the confirmed state basis (js/surplus-lines.js). Admitted placements carry none.
   const slRates = typeof slRatesFor === "function" ? slRatesFor(sub) : null;
   const slAdmitted = typeof slIsSurplus === "function" && !slIsSurplus(sub);

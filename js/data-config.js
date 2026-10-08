@@ -2323,7 +2323,8 @@ const RBAC_RESOURCES = [
   { key: "policyChanges", label: "Policy Changes (Endorse / Cancel / Reinstate = Approve; Backdate, Flat Cancel, Large Change = Override)" },
   { key: "renewals", label: "Renewals (Review / Request Info = Edit, Renew / Conditional Renewal = Approve, Non-Renew / Late Notice = Override)" },
   { key: "brokerRelations", label: "Broker of Record & Commission (Record BOR Letter = Edit, Accept BOR = Approve, Override Commission / Release Lock / BOR on In-Force Policy = Override)" },
-  { key: "surplusLines", label: "Surplus Lines (Record Search / Acknowledge = Edit, Confirm Tax Basis = Approve, Manual Rate / Search Exemption = Override)" }
+  { key: "surplusLines", label: "Surplus Lines (Record Search / Acknowledge = Edit, Confirm Tax Basis = Approve, Manual Rate / Search Exemption = Override)" },
+  { key: "rateConfig", label: "Rates, Fees & Limits Configuration (Propose Change = Edit, Approve / Reject a Change = Approve; the proposer cannot approve their own change)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
 
@@ -2353,7 +2354,8 @@ function defaultPermissionsMatrix() {
       policyChanges: all(true, false, false, false, false),
       renewals: all(true, true, false, false, false),
       brokerRelations: all(true, true, false, false, false),
-      surplusLines: all(true, true, false, false, false)
+      surplusLines: all(true, true, false, false, false),
+      rateConfig: all(true, false, false, false, false)
     },
     junior: {
       documents: all(true, true, false, false, false),
@@ -2377,7 +2379,8 @@ function defaultPermissionsMatrix() {
       policyChanges: all(true, true, true, false, false),
       renewals: all(true, true, true, false, false),
       brokerRelations: all(true, true, true, false, false),
-      surplusLines: all(true, true, true, false, false)
+      surplusLines: all(true, true, true, false, false),
+      rateConfig: all(true, false, false, false, false)
     },
     senior_uw: {
       documents: all(true, true, false, false, false),
@@ -2400,7 +2403,8 @@ function defaultPermissionsMatrix() {
       policyChanges: all(true, true, true, true, false),
       renewals: all(true, true, true, true, false),
       brokerRelations: all(true, true, true, true, false),
-      surplusLines: all(true, true, true, true, false)
+      surplusLines: all(true, true, true, true, false),
+      rateConfig: all(true, true, false, false, false)
     },
     senior: {
       documents: all(true, true, true, true, false),
@@ -2423,7 +2427,8 @@ function defaultPermissionsMatrix() {
       policyChanges: all(true, true, true, true, false),
       renewals: all(true, true, true, true, false),
       brokerRelations: all(true, true, true, true, false),
-      surplusLines: all(true, true, true, true, false)
+      surplusLines: all(true, true, true, true, false),
+      rateConfig: all(true, true, true, false, false)
     },
     admin: {
       documents: all(true, true, true, true, true),
@@ -2451,7 +2456,8 @@ function defaultPermissionsMatrix() {
       policyChanges: all(true, false, false, false, false),
       renewals: all(true, false, false, false, false),
       brokerRelations: all(true, false, false, false, false),
-      surplusLines: all(true, false, false, false, false)
+      surplusLines: all(true, false, false, false, false),
+      rateConfig: all(true, false, false, false, false)
     }
   };
 }
