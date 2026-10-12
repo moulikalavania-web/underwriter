@@ -1,0 +1,208 @@
+<!-- Suite G15: bind-gates. Run with: python tests/run.py --suite g15 -->
+<script>
+(function(){
+  var out = [], errs = []; window.slGuardQuote=function(){return true;}; window.slGuardBind=function(){return true;}; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;}; /* G06 is covered by its own suite */
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seed(lob, broker){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.lobKey === lob && (!broker || s.broker === broker); })[0]); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return sub.decisionLog.filter(function(x){return x.decision===d;}); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; if (/^bnd_(ai|wos|pnc)$/.test(id)) e.type = 'checkbox'; document.body.appendChild(e); }
+      if (e.type === 'checkbox') e.checked = !!map[id]; else if (e.tagName === 'SELECT') { e.innerHTML = '<option>' + map[id] + '</option>'; e.value = map[id]; } else e.value = map[id]; }); }
+  function finish(){
+    out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+    var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  }
+  var realRandom = Math.random;
+  try {
+    // ---------- config and permissions
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='binders';}));
+    t('assistant: certificates only', PERMISSIONS_MATRIX.assistant.binders.edit && !PERMISSIONS_MATRIX.assistant.binders.approve);
+    t('junior can issue a binder but not void it', PERMISSIONS_MATRIX.junior.binders.approve && !PERMISSIONS_MATRIX.junior.binders.override);
+    t('senior UW and CUO can void', PERMISSIONS_MATRIX.senior_uw.binders.override && PERMISSIONS_MATRIX.senior.binders.override);
+    t('admin read only', PERMISSIONS_MATRIX.admin.binders.view && !PERMISSIONS_MATRIX.admin.binders.edit);
+    t('audit meta added', !!AUDIT_ACTION_META.binder_issued && !!AUDIT_ACTION_META.certificate_revoked);
+
+    // ---------- certificate validation (pure)
+    function cv(over){ var c = { holderName:'Acme Lending LLC', holderAddress:'1 Main Street, Dallas, TX 75201', holderType:'Certificate holder', description:'', additionalInsured:false, additionalInsuredForm:'', waiverOfSubrogation:false, waiverOfSubrogationForm:'', primaryNonContributory:false, primaryNonContributoryForm:'' }; for (var k in (over||{})) c[k]=over[k]; return c; }
+    function has(arr, re){ return arr.some(function(x){return re.test(x);}); }
+    t('a plain certificate validates', bndValidateCertificate(cv()).length === 0);
+    t('holder name and address required', has(bndValidateCertificate(cv({holderName:'', holderAddress:'x'})), /name/) && has(bndValidateCertificate(cv({holderName:'', holderAddress:'x'})), /address/));
+    t('wording that claims additional insured status is rejected without the endorsement', has(bndValidateCertificate(cv({description:'Acme is an additional insured.'})), /additional insured/));
+    t('waiver wording rejected without the endorsement', has(bndValidateCertificate(cv({description:'Waiver of subrogation applies.'})), /waiver of subrogation/));
+    t('primary and non-contributory wording rejected without the endorsement', has(bndValidateCertificate(cv({description:'Coverage is primary and non-contributory.'})), /primary and non-contributory/));
+    t('ticking additional insured needs a form number', has(bndValidateCertificate(cv({additionalInsured:true})), /endorsement form number/));
+    t('endorsement with form number validates', bndValidateCertificate(cv({description:'Acme is an additional insured.', additionalInsured:true, additionalInsuredForm:'CG 20 10 04 13'})).length === 0);
+    t('over-long description rejected', has(bndValidateCertificate(cv({description:new Array(700).join('x')})), /600/));
+
+    // ---------- facts
+    var gal0 = seed('gl_cpc', 'Gallagher Commercial Brokers');
+    var f0 = bndFacts(gal0);
+    t('facts: liability kind and coverage schedule', f0.kind === 'liability' && f0.coverages.length > 0 && f0.carrier);
+    t('facts: property kind', bndFacts(seed('property')).kind === 'property');
+    t('facts: effective date parsed from MM/DD/YYYY', bndParseDate('09/01/2026') === '2026-09-01');
+    t('not bound before the PAS returns a policy number', bndIsBound(gal0) === false);
+
+    // ---------- staging: what stops the quote and what stops the BIND
+    SUBMISSIONS_DATASET.length = 0;
+    var gal = clone(gal0); gal.subjectivities = []; SUBMISSIONS_DATASET.push(gal); activeSubmissionId = gal.id;
+    var modal = el('eSignatureModal'); modal.style.display = 'none';
+    currentUserRole = 'junior';
+    window.openESignatureModal();
+    t('quote cannot go out with no TRIA offer on a covered line', modal.style.display !== 'flex');
+    gal.tria = { history:[], offer:{premium:0, offeredAt:'x', offeredBy:'x', deliveryMethod:'x', federalSharePct:80, capText:'x', noticeText:'x'}, election:null };
+    window.openESignatureModal();
+    t('quote CAN go out once the offer is recorded (election still pending)', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    t('TRIA guard at quote stage passes, at bind stage blocks', triaGuardBind('t', null, 'quote') === true && triaGuardBind('t', null, 'bind') === false);
+    t('TRIA banner: quote stage is informational', /election is needed before/.test(renderTriaBindBanner(gal, 'quote')) && /Bind blocked/.test(renderTriaBindBanner(gal, 'bind')));
+
+    gal.quoteIssued = true; gal.customerApproved = true;
+    window.simulatePASBindSync(gal.id);
+    t('PAS bind refused while the TRIA election is missing', !gal.pasSync && logs(gal, 'tria_bind_blocked').length >= 1);
+    gal.tria.election = { decision:'accepted' };
+
+    gal.sanctions = { screens:[], reviews:[], extraParties:[{name:'Test Blocked Person', role:'Principal / Owner'}] };
+    runSanctionsScreening(gal, 'manual');
+    window.simulatePASBindSync(gal.id);
+    t('PAS bind refused with an unresolved sanctions match', !gal.pasSync && logs(gal, 'sanctions_bind_blocked').length >= 1);
+    gal.sanctions = { screens:[], reviews:[], extraParties:[] }; runSanctionsScreening(gal, 'manual');
+
+    var realBroker = gal.broker; gal.broker = 'Zeta Unknown Brokers'; gal.producerCheck = null;
+    window.simulatePASBindSync(gal.id);
+    t('PAS bind refused when the producer is not licensed or appointed', !gal.pasSync && logs(gal, 'producer_bind_blocked').length >= 1);
+    gal.broker = realBroker; gal.producerCheck = null;
+
+    gal.subjectivityItems = [{id:'SJ-1', text:'Signed SOV.', timing:'pre_bind', status:'open', source:'manual', createdBy:'t', createdAt:'t'}];
+    window.simulatePASBindSync(gal.id);
+    t('PAS bind refused while a pre-bind subjectivity is open', !gal.pasSync && logs(gal, 'subjectivity_bind_blocked').length >= 1);
+    gal.subjectivityItems[0].status = 'accepted';
+
+    // ---------- nothing issued before the bind
+    currentUserRole = 'junior';
+    renderBindersCard(gal);
+    t('card says binder is available after bind', /Available after bind/.test(el('binderCertificatesContainer').innerHTML));
+    bndIssueBinder();
+    t('binder refused before the policy is bound', bndBinders(gal).length === 0);
+    bndIssueCertificate();
+    t('certificate refused before the policy is bound', bndCerts(gal).length === 0);
+
+    // ---------- the real bind, asynchronously (randomness stubbed so the 15% simulated PAS failure cannot occur)
+    Math.random = function(){ return 0.5; };
+    currentImportedRatingData = (typeof getSubmissionRatingPayload === 'function') ? getSubmissionRatingPayload(gal) : null;
+    window.simulatePASBindSync(gal.id);
+  } catch (e) { out.push('EXCEPTION (sync phase) ' + e.message + ' ' + (e.stack||'').split('\n')[1]); finish(); return; }
+
+  setTimeout(function(){
+    Math.random = realRandom;
+    try {
+      var gal = SUBMISSIONS_DATASET[0];
+      t('PAS bind succeeds once every gate is satisfied', !!gal.pasSync && gal.pasSync.status === 'success' && !!gal.pasSync.policyNumber, JSON.stringify(gal.pasSync || null).slice(0, 120));
+      t('bound -> bndIsBound', bndIsBound(gal) === true);
+      t('post-bind clock started by the real bind', !!gal.subjectivityBindDate);
+
+      // ---------- binder
+      currentUserRole = 'assistant'; renderBindersCard(gal);
+      bndIssueBinder();
+      t('assistant cannot issue a binder', bndBinders(gal).length === 0);
+      currentUserRole = 'junior'; renderBindersCard(gal);
+      bndIssueBinder();
+      var b1 = bndBinders(gal)[0];
+      t('junior issues a binder', !!b1 && b1.status === 'active' && b1.id === 'BND-' + gal.id + '-1');
+      t('binder carries policy number, period and coverage snapshot', b1.policyNumber === gal.pasSync.policyNumber && b1.coverages.length === gal.coverageRows.length && !!b1.effective && b1.expires > b1.effective);
+      t('binder expires within the configured days', b1.expires <= bndAddDays(bndToday(), BINDER_VALID_DAYS));
+      t('binder html: title, policy number, template warning', /BINDER OF INSURANCE/.test(b1.html) && b1.html.indexOf(b1.policyNumber) > -1 && /not approved by Compliance/.test(b1.html));
+      t('binder html names the NAIC gap while unconfigured', /NAIC number not configured/.test(b1.html));
+      t('binder audit entry', logs(gal, 'binder_issued').length === 1);
+      renderBindersCard(gal);
+      bndIssueBinder();
+      t('reissue while one is active needs a reason', bndBinders(gal).length === 1);
+      setf({bnd_reissueReason:'Coverage schedule corrected'});
+      bndIssueBinder();
+      t('reissue supersedes the earlier binder', bndBinders(gal).length === 2 && bndBinders(gal)[0].status === 'superseded' && bndBinders(gal)[1].status === 'active');
+      var b2 = bndBinders(gal)[1];
+
+      // ---------- certificates
+      currentUserRole = 'assistant'; renderBindersCard(gal);
+      setf({bnd_holderName:'', bnd_holderAddr:'', bnd_holderType:'Certificate holder', bnd_loan:'', bnd_desc:'', bnd_ai:false, bnd_aiForm:'', bnd_wos:false, bnd_wosForm:'', bnd_pnc:false, bnd_pncForm:''});
+      bndIssueCertificate();
+      t('certificate refused without holder details', bndCerts(gal).length === 0);
+      setf({bnd_holderName:'Acme Lending LLC', bnd_holderAddr:'1 Main Street, Dallas, TX 75201', bnd_desc:'Acme is an additional insured.'});
+      bndIssueCertificate();
+      t('certificate refused when the wording claims an unendorsed right', bndCerts(gal).length === 0);
+      setf({bnd_desc:'', bnd_ai:true, bnd_aiForm:''});
+      bndIssueCertificate();
+      t('additional insured needs a form number', bndCerts(gal).length === 0);
+      setf({bnd_aiForm:'CG 20 10 04 13', bnd_wos:true, bnd_wosForm:'CG 24 04'});
+      bndIssueCertificate();
+      var c1 = bndCerts(gal)[0];
+      t('assistant issues a certificate with endorsement references', !!c1 && c1.status === 'issued' && c1.binderId === b2.id && c1.kind === 'liability');
+      t('certificate html: disclaimer, endorsement forms, holder', c1.html.indexOf(COI_DISCLAIMER) > -1 && /CG 20 10 04 13/.test(c1.html) && /CG 24 04/.test(c1.html) && /Acme Lending LLC/.test(c1.html) && /CERTIFICATE OF LIABILITY INSURANCE/.test(c1.html));
+      t('certificate coverages are copied from the binder, no premium shown', c1.html.indexOf(b2.coverages[0].line) > -1 && !/premium/i.test(c1.html.replace(/Estimated premium/g,'')) );
+      t('certificate audit entry cites the forms', logs(gal, 'certificate_issued').some(function(d){return /CG 20 10 04 13/.test(d.notes);}));
+      renderBindersCard(gal);
+      setf({bnd_holderName:'acme lending llc', bnd_holderAddr:'1 Main Street, Dallas, TX 75201', bnd_desc:'', bnd_ai:false, bnd_aiForm:'', bnd_wos:false, bnd_wosForm:''});
+      bndIssueCertificate();
+      t('a new certificate to the same holder supersedes the old one', bndCerts(gal).length === 2 && bndCerts(gal)[0].status === 'superseded' && bndCerts(gal)[1].status === 'issued' && bndCerts(gal)[1].supersedes === bndCerts(gal)[0].id);
+      var c2 = bndCerts(gal)[1];
+
+      // revoke
+      renderBindersCard(gal);
+      bndRevokeCertificate(c2.id);
+      t('assistant cannot revoke', c2.status === 'issued');
+      currentUserRole = 'junior'; renderBindersCard(gal);
+      setf({['bnd_revokeReason_' + c2.id]:'x'}); bndRevokeCertificate(c2.id);
+      t('revoke needs a real reason', c2.status === 'issued');
+      setf({['bnd_revokeReason_' + c2.id]:'Issued to the wrong holder'}); bndRevokeCertificate(c2.id);
+      t('junior revokes with a reason', c2.status === 'revoked' && logs(gal, 'certificate_revoked').length === 1);
+
+      // issue another, then void the binder -> cascade
+      currentUserRole = 'assistant'; renderBindersCard(gal);
+      setf({bnd_holderName:'Delta Landlord Inc', bnd_holderAddr:'9 Elm Road, Austin, TX 78701', bnd_desc:'', bnd_ai:false, bnd_aiForm:'', bnd_wos:false, bnd_wosForm:'', bnd_holderType:'Additional interest (lender / landlord)'});
+      bndIssueCertificate();
+      var c3 = bndCerts(gal)[2];
+      t('third certificate issued', !!c3 && c3.status === 'issued' && c3.holderType === 'Additional interest (lender / landlord)');
+      currentUserRole = 'junior'; renderBindersCard(gal);
+      setf({['bnd_voidReason_' + b2.id]:'Wrong effective date on binder'}); bndVoidBinder(b2.id);
+      t('junior cannot void a binder', b2.status === 'active');
+      currentUserRole = 'senior_uw'; renderBindersCard(gal);
+      setf({['bnd_voidReason_' + b2.id]:'x'}); bndVoidBinder(b2.id);
+      t('void needs a real reason', b2.status === 'active');
+      setf({['bnd_voidReason_' + b2.id]:'Wrong effective date on binder'}); bndVoidBinder(b2.id);
+      t('senior UW voids the binder', b2.status === 'void');
+      t('voiding revokes the certificates issued under it', c3.status === 'revoked' && /Binder .* voided/.test(c3.revokeReason));
+      t('void audit entry mentions the revoked certificates', logs(gal, 'binder_voided').some(function(d){return /certificate\(s\) issued under it were revoked/.test(d.notes);}));
+      currentUserRole = 'assistant'; renderBindersCard(gal);
+      setf({bnd_holderName:'Echo Customer Co', bnd_holderAddr:'4 Oak Lane, Plano, TX 75024'});
+      bndIssueCertificate();
+      t('no certificate without an active binder', bndCerts(gal).length === 3);
+      t('card prompts for a binder', /no active binder/.test(el('binderCertificatesContainer').innerHTML));
+
+      // expired binder
+      currentUserRole = 'junior'; renderBindersCard(gal); bndIssueBinder();
+      var b3 = bndBinders(gal).filter(function(b){return b.status==='active';})[0];
+      t('a new binder can be issued after a void', !!b3);
+      b3.expires = '2026-01-01';
+      t('a binder past its expiry reads as expired', bndBinderState(b3, bndToday()) === 'expired' && bndActiveBinder(gal) === null);
+      currentUserRole = 'assistant'; renderBindersCard(gal); bndIssueCertificate();
+      t('no certificate on an expired binder', bndCerts(gal).length === 3);
+
+      // property evidence
+      var prop = seed('property'); prop.pasSync = { status:'success', policyNumber:'CPP-2026-123456', effectiveDate:'2026-10-08' };
+      SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(prop); activeSubmissionId = prop.id;
+      currentUserRole = 'junior'; renderBindersCard(prop); bndIssueBinder();
+      currentUserRole = 'assistant'; renderBindersCard(prop);
+      setf({bnd_holderName:'First Lender Bank', bnd_holderAddr:'100 Bank Plaza, Dallas, TX 75202', bnd_holderType:'Mortgagee', bnd_loan:'LN-99887', bnd_desc:'', bnd_ai:false, bnd_wos:false, bnd_pnc:false});
+      bndIssueCertificate();
+      var pc = bndCerts(prop)[0];
+      t('property line issues evidence of property insurance for a mortgagee', !!pc && pc.kind === 'property' && /EVIDENCE OF COMMERCIAL PROPERTY INSURANCE/.test(pc.html) && /LN-99887/.test(pc.html) && /Mortgagee/.test(pc.html));
+
+      // views
+      t('bind-stage banners function returns html', typeof renderBindStageBanners(prop) === 'string');
+      t('XSS-safe', bndEsc('<script>') === '&lt;script&gt;');
+    } catch (e) { out.push('EXCEPTION (async phase) ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+    finish();
+  }, 2600);
+})();
+</script>

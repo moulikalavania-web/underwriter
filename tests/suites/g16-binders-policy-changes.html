@@ -1,0 +1,272 @@
+<!-- Suite G16: binders-policy-changes. Run with: python tests/run.py --suite g16 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return sub.decisionLog.filter(function(x){return x.decision===d;}); }
+  function has(arr, re){ return arr.some(function(x){return re.test(x);}); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement(/^pc_(endType|cxBy|cxReason|riType)$/.test(id) ? 'select' : 'input'); e.id = id; if (/NoLoss$/.test(id)) e.type = 'checkbox'; document.body.appendChild(e); }
+      if (e.type === 'checkbox') e.checked = !!map[id]; else if (e.tagName === 'SELECT') { if (!Array.prototype.some.call(e.options, function(o){return o.value===map[id];})) e.innerHTML += '<option value="'+map[id]+'">'+map[id]+'</option>'; e.value = map[id]; } else e.value = map[id]; }); }
+  function mkSub(){
+    var s = clone(SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0]);
+    s.pasSync = { status:'success', policyNumber:'GLC-2026-111111', pasRecordId:'PAS-1', effectiveDate:'2026-01-01' };
+    s.effectiveDate = '01/01/2026'; s.expirationDate = '01/01/2027';
+    s.discretionaryPricing = { finalPremium: 12000 };
+    s.importedRatingData = { quote: { finalPremium: 12000, fees: [{code:'FEE_POLICY',amt:150},{code:'FEE_BROKER',amt:750},{code:'FEE_TRIA',amt:300}] } };
+    s.certificates = [{ id:'COI-1', status:'issued', holderName:'First Lender Bank', holderType:'Mortgagee' }, { id:'COI-2', status:'issued', holderName:'Acme Customer', holderType:'Certificate holder' }];
+    s.binders = [{ id:'BND-1', status:'active', expires:'2027-01-01' }];
+    s.subjectivities = [];
+    return s;
+  }
+  var TODAY = new Date().toISOString().slice(0,10);
+  try {
+    // ---------- config
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='policyChanges';}));
+    t('junior approves, cannot override', PERMISSIONS_MATRIX.junior.policyChanges.approve && !PERMISSIONS_MATRIX.junior.policyChanges.override);
+    t('senior UW and CUO can override', PERMISSIONS_MATRIX.senior_uw.policyChanges.override && PERMISSIONS_MATRIX.senior.policyChanges.override);
+    t('assistant and admin view only', !PERMISSIONS_MATRIX.assistant.policyChanges.edit && !PERMISSIONS_MATRIX.admin.policyChanges.edit);
+    t('audit meta added', !!AUDIT_ACTION_META.policy_cancelled && !!AUDIT_ACTION_META.policy_reinstated);
+
+    // ---------- notice periods
+    t('nonpayment default is 10 days', pcNoticeDays('NONPAYMENT', null) === 10);
+    t('other reasons default to 30 days', pcNoticeDays('COND_VIOL', null) === 30 && pcNoticeDays('MISREP', 'TX') === 30);
+    PC_NOTICE_STATE_RULES.TX = { nonpayment: 7, other: 45 };
+    t('state rules override the defaults', pcNoticeDays('NONPAYMENT', 'TX') === 7 && pcNoticeDays('SUBJECTIVITY', 'TX') === 45 && pcNoticeDays('NONPAYMENT', 'OH') === 10);
+    delete PC_NOTICE_STATE_RULES.TX;
+
+    // ---------- refund maths (worked by hand: base 10,000; 2026-01-01 to 2027-01-01 = 365 days)
+    var P = { base:10000, effective:'2026-01-01', expiration:'2027-01-01' };
+    var r1 = pcRefund(Object.assign({cancelEff:'2026-07-02', initiator:'insurer'}, P));
+    t('insurer pro-rata, 182 of 365 days', r1.earnedDays === 182 && r1.proRataEarned === 4986.3 && r1.refund === 5013.7 && r1.penalty === 0, JSON.stringify(r1));
+    var r2 = pcRefund(Object.assign({cancelEff:'2026-07-02', initiator:'insured'}, P));
+    t('insured: 10% short-rate penalty on the unearned premium', r2.penalty === 501.37 && r2.earned === 5487.67 && r2.refund === 4512.33 && !r2.mepApplied, JSON.stringify(r2));
+    var r3 = pcRefund(Object.assign({cancelEff:'2026-01-11', initiator:'insured'}, P));
+    t('insured early cancel: 25% minimum earned premium applies', r3.mepApplied && r3.earned === 2500 && r3.refund === 7500, JSON.stringify(r3));
+    var r4 = pcRefund(Object.assign({cancelEff:'2026-01-11', initiator:'insurer'}, P));
+    t('insurer early cancel: no minimum earned premium, pure pro-rata', !r4.mepApplied && r4.refund === 9726.03, JSON.stringify(r4));
+    t('flat cancellation refunds everything', pcRefund(Object.assign({cancelEff:'2026-01-01', initiator:'insurer'}, P)).refund === 10000 && pcRefund(Object.assign({cancelEff:'2026-01-01', initiator:'insured'}, P)).refund === 10000);
+    t('cancel at expiry earns everything', pcRefund(Object.assign({cancelEff:'2027-01-01', initiator:'insurer'}, P)).refund === 0);
+    t('cancel date past expiry is capped', pcRefund(Object.assign({cancelEff:'2028-01-01', initiator:'insurer'}, P)).earnedDays === 365);
+    t('minimum earned follows the submission factor', (function(){ var s = mkSub(); s.uwReviewInfo = { min_earn_factor: 40 }; return pcMepPct(s) === 40; })());
+
+    // ---------- validation (pure)
+    var ctx = { today:'2026-10-08', policyEffective:'2026-01-01', expiration:'2027-01-01', annual:12000, canOverride:false, state:'TX', overdueSubjectivities:false };
+    var ctxO = Object.assign({}, ctx, { canOverride:true });
+    function ev(over){ var f = { type:'vehicle', effective:'2026-10-08', description:'Add a 2025 Ford F-150 to the schedule.', annualPremiumChange:'600', premiumReason:'Rated at schedule rate', formNumber:'', noKnownLoss:false }; for (var k in (over||{})) f[k]=over[k]; return f; }
+    t('a normal endorsement validates', pcValidateEndorsement(ctx, ev()).length === 0);
+    t('endorsement: short description', has(pcValidateEndorsement(ctx, ev({description:'x'})), /describe the change/));
+    t('endorsement cannot precede the policy', has(pcValidateEndorsement(ctx, ev({effective:'2025-12-01'})), /before the policy does/));
+    t('endorsement cannot take effect at or after expiry', has(pcValidateEndorsement(ctx, ev({effective:'2027-01-01'})), /before the policy expires/));
+    t('backdating needs senior authority and the no-known-loss statement', has(pcValidateEndorsement(ctx, ev({effective:'2026-09-01', noKnownLoss:true})), /senior authority/) && has(pcValidateEndorsement(ctxO, ev({effective:'2026-09-01'})), /no-known-loss/) && pcValidateEndorsement(ctxO, ev({effective:'2026-09-01', noKnownLoss:true})).length === 0);
+    t('a premium change needs a stated basis', has(pcValidateEndorsement(ctx, ev({premiumReason:''})), /how the premium change/));
+    t('a large premium change needs senior authority', has(pcValidateEndorsement(ctx, ev({annualPremiumChange:'4000'})), /senior authority/) && pcValidateEndorsement(ctxO, ev({annualPremiumChange:'4000'})).length === 0);
+    t('premium cannot go below zero', has(pcValidateEndorsement(ctxO, ev({annualPremiumChange:'-13000'})), /below zero/));
+    t('additional-insured changes need the form number', has(pcValidateEndorsement(ctx, ev({type:'additional_insured'})), /form number/) && pcValidateEndorsement(ctx, ev({type:'additional_insured', formNumber:'CG 20 10'})).length === 0);
+
+    function cx(over){ var f = { initiator:'insurer', reason:'NONPAYMENT', effective:'2026-10-20', mailedOn:'2026-10-08', proofRef:'USPS-12345', notes:'' }; for (var k in (over||{})) f[k]=over[k]; return f; }
+    t('nonpayment notice with 12 days validates', pcValidateCancellation(ctx, cx()).length === 0);
+    t('nonpayment needs 10 days', has(pcValidateCancellation(ctx, cx({effective:'2026-10-15'})), /10 days' notice is required.*2026-10-18/));
+    t('other reasons need 30 days', has(pcValidateCancellation(ctx, cx({reason:'COND_VIOL', notes:'Operating outside the radius stated in the policy.', effective:'2026-10-20'})), /30 days' notice/));
+    t('insurer cancellation needs proof of mailing and a mailing date', has(pcValidateCancellation(ctx, cx({proofRef:'', mailedOn:''})), /proof-of-mailing/) && has(pcValidateCancellation(ctx, cx({proofRef:'', mailedOn:''})), /mailed/));
+    t('state rule changes the required notice', (function(){ PC_NOTICE_STATE_RULES.TX = { nonpayment: 20, other: 30 }; var r = has(pcValidateCancellation(ctx, cx()), /20 days' notice.*in TX/); delete PC_NOTICE_STATE_RULES.TX; return r; })());
+    t('underwriting reason only inside the new-business window', has(pcValidateCancellation(ctx, cx({reason:'UW_PERIOD', notes:'Loss history revealed after binding.', effective:'2026-11-20'})), /within 60 days of inception/));
+    t('subjectivity reason needs an overdue item', has(pcValidateCancellation(ctx, cx({reason:'SUBJECTIVITY', notes:'Premium finance agreement never supplied.', effective:'2026-11-20'})), /overdue post-bind subjectivity/) && !has(pcValidateCancellation(Object.assign({}, ctx, {overdueSubjectivities:true}), cx({reason:'SUBJECTIVITY', notes:'Premium finance agreement never supplied.', effective:'2026-11-20'})), /overdue/));
+    t('reason must match who is cancelling', has(pcValidateCancellation(ctx, cx({reason:'SOLD'})), /reason that fits/) && has(pcValidateCancellation(ctx, cx({initiator:'insured', reason:'NONPAYMENT'})), /reason that fits/));
+    t('insured cancellation needs no notice period', pcValidateCancellation(ctx, { initiator:'insured', reason:'SOLD', effective:'2026-10-08', notes:'' }).length === 0);
+    t('insured cancellation backdated needs senior authority', has(pcValidateCancellation(ctx, { initiator:'insured', reason:'SOLD', effective:'2026-10-01', notes:'' }), /backdated/) && pcValidateCancellation(ctxO, { initiator:'insured', reason:'SOLD', effective:'2026-10-01', notes:'' }).length === 0);
+    t('flat cancellation needs senior authority and an explanation', has(pcValidateCancellation(ctx, { initiator:'insured', reason:'SOLD', effective:'2026-01-01', notes:'' }), /flat/) && has(pcValidateCancellation(ctxO, { initiator:'insured', reason:'SOLD', effective:'2026-01-01', notes:'' }), /explain the flat/));
+    t('cancellation cannot be after expiry', has(pcValidateCancellation(ctx, { initiator:'insured', reason:'SOLD', effective:'2027-06-01', notes:'' }), /after the policy expires/));
+
+    var rctx = Object.assign({}, ctx, { cancelEffective:'2026-10-08' });
+    function ri(over){ var f = { type:'with_lapse', effective:'2026-10-09', reason:'Payment received after the cancellation date.', noKnownLoss:false, payment:'' }; for (var k in (over||{})) f[k]=over[k]; return f; }
+    t('reinstatement with lapse validates', pcValidateReinstatement(rctx, ri()).length === 0);
+    t('with lapse cannot start before the cancellation', has(pcValidateReinstatement(rctx, ri({effective:'2026-10-01'})), /cannot take effect before the cancellation/));
+    t('without lapse needs authority, statement and payment', has(pcValidateReinstatement(rctx, ri({type:'without_lapse'})), /senior authority/) && has(pcValidateReinstatement(Object.assign({}, rctx, {canOverride:true}), ri({type:'without_lapse'})), /no-known-loss/) && has(pcValidateReinstatement(Object.assign({}, rctx, {canOverride:true}), ri({type:'without_lapse', noKnownLoss:true})), /payment reference/) && pcValidateReinstatement(Object.assign({}, rctx, {canOverride:true}), ri({type:'without_lapse', noKnownLoss:true, payment:'ACH-77'})).length === 0);
+    t('late reinstatement needs senior authority', has(pcValidateReinstatement(Object.assign({}, rctx, {today:'2026-12-01'}), ri()), /more than 30 days/));
+
+    // ---------- unbound policy
+    SUBMISSIONS_DATASET.length = 0;
+    var sub = mkSub(); delete sub.pasSync; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    currentUserRole = 'junior';
+    renderPolicyChangesCard(sub);
+    t('card is locked before bind', /Available after bind/.test(el('policyChangesContainer').innerHTML));
+    setf({pc_endType:'vehicle', pc_endEff:TODAY, pc_endDesc:'Add a vehicle to the schedule.', pc_endPrem:'0', pc_endPremWhy:'', pc_endForm:'', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('no endorsement before bind', pcChanges(sub).length === 0);
+
+    // ---------- endorsements on a bound policy
+    sub.pasSync = { status:'success', policyNumber:'GLC-2026-111111', pasRecordId:'PAS-1', effectiveDate:'2026-01-01' };
+    var facts = pcFacts(sub);
+    t('facts: policy period and premium', facts.effective === '2026-01-01' && facts.expiration === '2027-01-01' && facts.premium === 12000, JSON.stringify(facts));
+    t('ledger: non-refundable fees found', pcLedger(sub).nonRefundableFees === 900 && pcLedger(sub).currentAnnual === 12000, JSON.stringify(pcLedger(sub)));
+    currentUserRole = 'assistant'; renderPolicyChangesCard(sub);
+    t('assistant sees no forms', !/Issue an endorsement/.test(el('policyChangesContainer').innerHTML) && !/Cancel the policy/.test(el('policyChangesContainer').innerHTML));
+    pcIssueEndorsement();
+    t('assistant cannot issue an endorsement', pcChanges(sub).length === 0);
+
+    currentUserRole = 'junior'; renderPolicyChangesCard(sub);
+    var n0 = Number(sub.endorsement_number) || 0;
+    setf({pc_endType:'vehicle', pc_endEff:TODAY, pc_endDesc:'x', pc_endPrem:'600', pc_endPremWhy:'Rated at schedule rate', pc_endForm:'', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('invalid endorsement refused', pcChanges(sub).length === 0);
+    setf({pc_endDesc:'Add a 2025 Ford F-150 to the schedule.'});
+    pcIssueEndorsement();
+    var e1 = pcChanges(sub)[0];
+    t('junior issues an endorsement', !!e1 && e1.type === 'endorsement' && e1.number === n0 + 1 && sub.endorsement_number === n0 + 1);
+    var daysLeft = Math.round((new Date('2027-01-01') - new Date(TODAY)) / 86400000);
+    t('premium change is pro-rated to the end of the term', e1.annualChange === 600 && Math.abs(e1.proRata - Math.round(600 * daysLeft / 365 * 100) / 100) < 0.011, 'proRata=' + e1.proRata + ' daysLeft=' + daysLeft);
+    t('annual premium ledger updated', pcLedger(sub).currentAnnual === 12600);
+    t('endorsement document shows before and after', /POLICY ENDORSEMENT NO\./.test(e1.html) && /\$12,000\.00/.test(e1.html) && /\$12,600\.00/.test(e1.html) && /GLC-2026-111111/.test(e1.html));
+    t('endorsement audit entry', logs(sub, 'endorsement_issued').length === 1 && /12,000\.00 → \$12,600\.00/.test(logs(sub, 'endorsement_issued')[0].notes));
+
+    renderPolicyChangesCard(sub);
+    setf({pc_endEff:'2026-09-01', pc_endDesc:'Backdated addition of a vehicle.', pc_endPrem:'100', pc_endPremWhy:'Rated', pc_endNoLoss:true});
+    pcIssueEndorsement();
+    t('junior cannot backdate', pcChanges(sub).length === 1);
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(sub);
+    setf({pc_endEff:'2026-09-01', pc_endDesc:'Backdated addition of a vehicle.', pc_endPrem:'100', pc_endPremWhy:'Rated', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('senior UW needs the no-known-loss statement to backdate', pcChanges(sub).length === 1);
+    setf({pc_endNoLoss:true}); pcIssueEndorsement();
+    t('senior UW backdates with the statement', pcChanges(sub).length === 2 && pcChanges(sub)[1].backdated === true && /BACKDATED/.test(logs(sub, 'endorsement_issued')[1].notes));
+    currentUserRole = 'junior'; renderPolicyChangesCard(sub);
+    setf({pc_endEff:TODAY, pc_endDesc:'Change the limit substantially.', pc_endPrem:'5000', pc_endPremWhy:'Re-rated', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('junior cannot make a large premium change', pcChanges(sub).length === 2);
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(sub);
+    setf({pc_endEff:TODAY, pc_endDesc:'Change the limit substantially.', pc_endPrem:'5000', pc_endPremWhy:'Re-rated', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('senior UW can', pcChanges(sub).length === 3 && pcLedger(sub).currentAnnual === 12600 + 100 + 5000);
+
+    // ---------- cancellation by the insurer: notice period and recipients
+    currentUserRole = 'junior'; renderPolicyChangesCard(sub);
+    function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+    setf({pc_cxBy:'insurer', pc_cxReason:'NONPAYMENT', pc_cxEff:plus(5), pc_cxMailed:TODAY, pc_cxProof:'USPS-99001', pc_cxNotes:''});
+    pcSubmitCancellation();
+    t('nonpayment notice too short is refused', pcState(sub) === 'in_force');
+    setf({pc_cxEff:plus(10)});
+    pcSubmitCancellation();
+    t('insurer cancellation scheduled', pcState(sub) === 'pending_cancellation' && sub.cancellation.effective === plus(10));
+    var cev = pcChanges(sub).filter(function(c){return c.type==='cancellation';})[0];
+    t('notice goes to the insured, producer and lender but not to a plain certificate holder', cev.copiesTo.length === 3 && cev.copiesTo.some(function(c){return c.name==='First Lender Bank';}) && !cev.copiesTo.some(function(c){return c.name==='Acme Customer';}));
+    t('notice text: reason, effective date, refund, copies', /NOTICE OF CANCELLATION/.test(cev.html) && /Nonpayment of premium/.test(cev.html) && cev.html.indexOf(plus(10)) > -1 && /Estimated return premium/.test(cev.html) && /First Lender Bank/.test(cev.html) && /pay the amount due/.test(cev.html));
+    t('refund uses the refundable base (fees excluded)', cev.refund.refund > 0 && cev.refund.refund < 17700 - 900, JSON.stringify(cev.refund));
+    t('schedule audit entry has the notice facts', /USPS-99001/.test(logs(sub, 'cancellation_scheduled')[0].notes) && /10 days required/.test(logs(sub, 'cancellation_scheduled')[0].notes));
+    t('certificates stay valid while the cancellation is pending', sub.certificates.every(function(c){return c.status==='issued';}));
+    renderPolicyChangesCard(sub);
+    t('card shows pending state and the rescind control', /Cancellation pending/.test(el('policyChangesContainer').innerHTML) && el('pc_rescindWhy') !== null);
+
+    setf({pc_cxBy:'insured', pc_cxReason:'SOLD', pc_cxEff:TODAY});
+    pcSubmitCancellation();
+    t('a second cancellation is refused while one is pending', pcChanges(sub).filter(function(c){return c.type==='cancellation';}).length === 1);
+
+    // rescind
+    setf({pc_rescindWhy:'x'}); pcRescind();
+    t('rescind needs a reason', pcState(sub) === 'pending_cancellation');
+    setf({pc_rescindWhy:'Premium received in full on the 9th; notice withdrawn.'}); pcRescind();
+    t('rescinded: back in force, event marked, audit entry', pcState(sub) === 'in_force' && cev.status === 'rescinded' && logs(sub, 'cancellation_rescinded').length === 1);
+
+    // other reasons
+    renderPolicyChangesCard(sub);
+    setf({pc_cxBy:'insurer', pc_cxReason:'UW_PERIOD', pc_cxEff:plus(40), pc_cxMailed:TODAY, pc_cxProof:'USPS-2', pc_cxNotes:'Loss history revealed after binding.'});
+    pcSubmitCancellation();
+    t('underwriting reason refused outside the new-business window', pcState(sub) === 'in_force');
+    setf({pc_cxReason:'SUBJECTIVITY', pc_cxNotes:'Premium finance agreement never supplied.'});
+    pcSubmitCancellation();
+    t('subjectivity reason refused without an overdue item', pcState(sub) === 'in_force');
+    sub.subjectivityItems = [{ id:'SJ-1', text:'Signed premium finance agreement.', timing:'post_bind', dueDays:30, dueDate:'2026-09-01', status:'open', source:'manual', createdBy:'t', createdAt:'t' }];
+    renderPolicyChangesCard(sub);
+    setf({pc_cxBy:'insurer', pc_cxReason:'SUBJECTIVITY', pc_cxEff:plus(40), pc_cxMailed:TODAY, pc_cxProof:'USPS-3', pc_cxNotes:'Premium finance agreement never supplied.'});
+    pcSubmitCancellation();
+    t('subjectivity reason accepted when an item is overdue (30 days notice)', pcState(sub) === 'pending_cancellation' && sub.cancellation.reason === 'SUBJECTIVITY');
+    // simulate the date arriving
+    t('not yet effective', pcApplyDue(sub, TODAY) === false && pcState(sub) === 'pending_cancellation');
+    t('effective once the date arrives', pcApplyDue(sub, plus(41)) === true && pcState(sub) === 'cancelled');
+    t('certificates revoked and binders voided on effect', sub.certificates.every(function(c){return c.status==='revoked' && /Policy cancelled/.test(c.revokeReason);}) && sub.binders[0].status === 'void');
+    t('status shows cancelled', sub.statusText === 'Policy Cancelled' && logs(sub, 'policy_cancelled').length === 1 && /2 certificate\(s\) revoked/.test(logs(sub, 'policy_cancelled')[0].notes));
+    renderPolicyChangesCard(sub);
+    pcApplyDue(sub, plus(41));
+    t('applying twice does nothing more', logs(sub, 'policy_cancelled').length === 1);
+
+    // endorsement refused on a cancelled policy
+    setf({pc_endType:'vehicle', pc_endEff:TODAY, pc_endDesc:'Add a vehicle after cancellation.', pc_endPrem:'0', pc_endPremWhy:'', pc_endNoLoss:false});
+    var cnt = pcChanges(sub).length; pcIssueEndorsement();
+    t('no endorsement on a cancelled policy', pcChanges(sub).length === cnt);
+
+    // ---------- reinstatement
+    currentUserRole = 'junior';
+    sub.cancellation.effective = plus(-3);   // pretend it took effect three days ago
+    renderPolicyChangesCard(sub);
+    setf({pc_riType:'with_lapse', pc_riEff:TODAY, pc_riWhy:'Short', pc_riPay:'', pc_riNoLoss:false});
+    pcReinstate();
+    t('reinstatement needs a real reason', pcState(sub) === 'cancelled');
+    setf({pc_riWhy:'Payment received; broker confirmed the insured continued operating.'});
+    pcReinstate();
+    var rin = pcChanges(sub).filter(function(c){return c.type==='reinstatement';})[0];
+    t('junior reinstates with a lapse', pcState(sub) === 'in_force' && !!rin && rin.lapseDays === 3 && /3 day/.test(rin.html + ' ' + logs(sub, 'policy_reinstated')[0].notes), rin && String(rin.lapseDays));
+    t('reinstatement document states the gap', /no coverage from/.test(rin.html));
+    t('certificates are not silently restored', sub.certificates.every(function(c){return c.status==='revoked';}));
+
+    // cancel again, then reinstate without a lapse
+    sub.policyState = 'cancelled'; sub.cancellation = { eventId:'x', initiator:'insured', reason:'SOLD', effective:plus(-3), status:'effective' };
+    currentUserRole = 'junior'; renderPolicyChangesCard(sub);
+    t('junior is not offered "without lapse"', !/Without lapse/.test(el('policyChangesContainer').innerHTML));
+    setf({pc_riType:'without_lapse', pc_riEff:plus(-3), pc_riWhy:'Payment cleared on the cancellation date.', pc_riPay:'ACH-77', pc_riNoLoss:true});
+    pcReinstate();
+    t('junior cannot reinstate without a lapse', pcState(sub) === 'cancelled');
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(sub);
+    t('senior UW is offered "without lapse"', /Without lapse/.test(el('policyChangesContainer').innerHTML));
+    setf({pc_riType:'without_lapse', pc_riEff:plus(-3), pc_riWhy:'Payment cleared on the cancellation date.', pc_riPay:'', pc_riNoLoss:true});
+    pcReinstate();
+    t('without lapse needs the payment reference', pcState(sub) === 'cancelled');
+    setf({pc_riPay:'ACH-77'});
+    pcReinstate();
+    t('senior UW reinstates without a lapse', pcState(sub) === 'in_force' && pcChanges(sub).filter(function(c){return c.type==='reinstatement';}).length === 2 && /WITHOUT lapse/.test(logs(sub, 'policy_reinstated')[1].notes));
+
+    // late reinstatement
+    sub.policyState = 'cancelled'; sub.cancellation = { eventId:'x', initiator:'insurer', reason:'NONPAYMENT', effective:plus(-40), status:'effective' };
+    currentUserRole = 'junior'; renderPolicyChangesCard(sub);
+    setf({pc_riType:'with_lapse', pc_riEff:TODAY, pc_riWhy:'Insured paid after 40 days, wants cover again.', pc_riPay:'', pc_riNoLoss:false});
+    pcReinstate();
+    t('junior cannot reinstate after the window', pcState(sub) === 'cancelled');
+    currentUserRole = 'senior'; renderPolicyChangesCard(sub);
+    setf({pc_riType:'with_lapse', pc_riEff:TODAY, pc_riWhy:'Insured paid after 40 days, wants cover again.', pc_riPay:'', pc_riNoLoss:false});
+    pcReinstate();
+    t('CUO can', pcState(sub) === 'in_force');
+
+    // ---------- insured-requested cancellation, effective today, and flat cancellation
+    var s2 = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s2); activeSubmissionId = s2.id;
+    currentUserRole = 'junior'; renderPolicyChangesCard(s2);
+    setf({pc_cxBy:'insured', pc_cxReason:'REPLACED', pc_cxEff:TODAY, pc_cxNotes:'Moved to another carrier.'});
+    pcPreviewRefund();
+    t('refund preview shows short-rate and minimum earned wording', /Estimated refund/.test(el('pc_cxPreview').innerHTML) && /short-rate penalty/.test(el('pc_cxPreview').innerHTML));
+    pcSubmitCancellation();
+    t('insured cancellation effective today takes effect at once', pcState(s2) === 'cancelled' && s2.certificates.every(function(c){return c.status==='revoked';}));
+    var ce = pcChanges(s2)[0];
+    t('confirmation, not notice, for an insured request', /CONFIRMATION OF CANCELLATION/.test(ce.html) && ce.copiesTo.length === 0 && ce.noticeDays === 0);
+    var expect = pcRefund({ base:11100, effective:'2026-01-01', expiration:'2027-01-01', cancelEff:TODAY, initiator:'insured', mepPct:25 });
+    t('refund equals the pure calculation on the refundable base', ce.refund.refund === expect.refund && ce.refund.penalty === expect.penalty, ce.refund.refund + ' vs ' + expect.refund);
+
+    var s3 = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s3); activeSubmissionId = s3.id;
+    currentUserRole = 'junior'; renderPolicyChangesCard(s3);
+    setf({pc_cxBy:'insured', pc_cxReason:'OTHER', pc_cxEff:'2026-01-01', pc_cxNotes:'Cancelled ab initio: policy was bound in error.'});
+    pcSubmitCancellation();
+    t('junior cannot cancel flat', pcState(s3) === 'in_force');
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(s3);
+    setf({pc_cxBy:'insured', pc_cxReason:'OTHER', pc_cxEff:'2026-01-01', pc_cxNotes:'Cancelled ab initio: policy was bound in error.'});
+    pcSubmitCancellation();
+    var fe = pcChanges(s3)[0];
+    t('senior UW cancels flat; whole refundable premium returned', pcState(s3) === 'cancelled' && fe.flat === true && fe.refund.refund === 11100, fe && String(fe.refund.refund));
+
+    // ---------- rendering for the read-only role and XSS
+    currentUserRole = 'admin'; renderPolicyChangesCard(s3);
+    t('admin sees the ledger but no forms', /Policy Changes/.test(el('policyChangesContainer').innerHTML) && !/Reinstate policy/.test(el('policyChangesContainer').innerHTML));
+    t('XSS-safe', pcEsc('<x onclick=1>') === '&lt;x onclick=1&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

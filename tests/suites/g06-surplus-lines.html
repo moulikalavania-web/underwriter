@@ -1,0 +1,158 @@
+<!-- Suite G06: surplus-lines. Run with: python tests/run.py --suite g06 -->
+<script>
+(function(){
+  var out = [], errs = []; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;};
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return (sub.decisionLog||[]).filter(function(x){return x.decision===d;}); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; if (id==='sl_ackBox') e.type='checkbox'; document.body.appendChild(e); }
+      if (e.type === 'checkbox') e.checked = !!map[id]; else e.value = map[id]; }); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0];
+  function mk(id, broker, addr, over){
+    var s = clone(seedG); s.id = id; s.broker = broker; s.channelType = 'broker'; s.address = addr || '9 Elm Road, Dallas, TX 75201';
+    delete s.pasSync; delete s.slTaxBasis; delete s.diligentSearch; delete s.slDisclosure; delete s.slFiling; delete s.placementType; delete s.quoteIssued; s.decisionLog = [];
+    delete s.insuredInfo;
+    s.discretionaryPricing = { finalPremium: 10000 };
+    s.importedRatingData = { quote: { finalPremium: 10485, tax: 485, countyTax: 0, fees: [{code:'FEE_STAMP',amt:4}] } };
+    for (var k in (over||{})) s[k] = over[k]; return s; }
+  try {
+    t('RBAC resource', RBAC_RESOURCES.some(function(r){return r.key==='surplusLines';}));
+    t('assistant edits only; junior approves; senior_uw overrides', PERMISSIONS_MATRIX.assistant.surplusLines.edit && !PERMISSIONS_MATRIX.assistant.surplusLines.approve && PERMISSIONS_MATRIX.junior.surplusLines.approve && !PERMISSIONS_MATRIX.junior.surplusLines.override && PERMISSIONS_MATRIX.senior_uw.surplusLines.override && !PERMISSIONS_MATRIX.admin.surplusLines.edit);
+    t('audit meta', !!AUDIT_ACTION_META.sl_tax_confirmed && !!AUDIT_ACTION_META.sl_bind_blocked && !!AUDIT_ACTION_META.sl_filed);
+
+    t('every table entry unverified, with source and date', Object.keys(SL_STATE_TABLE).every(function(k){var e=SL_STATE_TABLE[k]; return e.verified===false && e.source && /^\d{4}-/.test(e.asOf);}));
+    var S = mk('S1', 'Marsh & McLennan Commercial Brokerage');
+    var b = slBasisFor(S, 'TX');
+    t('TX is in the table but not usable until confirmed', b.taxPct===4.85 && b.stampingPct===0.04 && !b.usable);
+    var bo = slBasisFor(S, 'OH');
+    t('state not in table: no rate, no silent default', bo.taxPct===null && !bo.usable && /No surplus lines schedule/.test(bo.reason));
+    t('unknown home state is reported', !slBasisFor(S, null).usable && /could not be determined/.test(slBasisFor(S, null).reason));
+    t('slRatesFor returns null while unconfirmed', slRatesFor(S) === null);
+    var pb = slPremiumBase(S);
+    t('premium base: the priced premium is already before tax', pb.final===10000 && pb.base===10000, JSON.stringify(pb));
+    var onlyQuote = clone(S); delete onlyQuote.discretionaryPricing;
+    t('premium base: with only the rating engine figure, its tax is taken out', slPremiumBase(onlyQuote).final===10485 && slPremiumBase(onlyQuote).base===10000);
+    var ex = slExpected(10000, {taxPct:4.85, stampingPct:0.04});
+    t('expected tax and stamping', ex.tax===485 && ex.stamping===4);
+    t('form validation', slValidateBasisForm({taxPct:'',stampingPct:'1',reference:'abc',asOf:'x'}).length===3 && slValidateBasisForm({taxPct:'3',stampingPct:'0',reference:'TDI bulletin 12',asOf:'2026-01-01'}).length===0);
+
+    var ss = slSearchStatus(S, 'TX', plus(0));
+    t('search starts 0 of 3', ss.count===0 && ss.required===3 && !ss.satisfied);
+    var D = { entries:[
+      {insurer:'Acme Mutual', contactedOn:plus(-10), response:'declined', reference:'e1'},
+      {insurer:'ACME  mutual', contactedOn:plus(-9), response:'declined', reference:'e2'},
+      {insurer:'Beta Ins', contactedOn:plus(-120), response:'declined', reference:'e3'},
+      {insurer:'Gamma Ins', contactedOn:plus(-5), response:'quoted', reference:'e4'},
+      {insurer:'Delta Ins', contactedOn:plus(-5), response:'no_appetite', reference:'e5'}], exemption:null };
+    var S2 = mk('S2','Marsh & McLennan Commercial Brokerage'); S2.diligentSearch = D;
+    var s2 = slSearchStatus(S2, 'TX', plus(0));
+    t('duplicates, stale and offered-cover entries do not count', s2.count===2 && s2.entries[1].duplicate && s2.entries[2].stale && !s2.entries[3].qualifying, JSON.stringify(s2.entries.map(function(x){return x.qualifying;})));
+    D.entries.push({insurer:'Eps Ins', contactedOn:plus(-3), response:'declined', reference:'e6'});
+    t('three qualifying satisfies the search', slSearchStatus(S2,'TX',plus(0)).satisfied);
+    var S3 = mk('S3','Marsh & McLennan Commercial Brokerage'); S3.diligentSearch = { entries:[], exemption:{kind:'export_list'} };
+    t('exemption satisfies the search', slSearchStatus(S3,'TX',plus(0)).satisfied);
+    t('declination validation', slValidateDeclination({today:plus(0),existing:[{insurer:'Acme'}]},{insurer:'acme',contactedOn:plus(2),response:'x',reference:''}).length===4);
+
+    t('licensed SL broker passes', slPlacingBrokerStatus(mk('B1','Marsh & McLennan Commercial Brokerage'),'TX').ok);
+    t('broker without surplus lines authority fails', !slPlacingBrokerStatus(mk('B2','Arora & Sons'),'TX').ok);
+    t('broker unlicensed in the state fails', !slPlacingBrokerStatus(mk('B3','Marsh & McLennan Commercial Brokerage'),'WY').ok);
+    t('unknown broker fails', !slPlacingBrokerStatus(mk('B4','Zeta Unknown'),'TX').ok);
+    var B5 = mk('B5','Arora & Sons'); B5.slPlacingBroker = 'Marsh & McLennan Commercial Brokerage';
+    t('a designated SL broker can place for another submitter', slPlacingBrokerStatus(B5,'TX').ok);
+
+    SUBMISSIONS_DATASET.length = 0;
+    var Q = mk('SUB-Q','Marsh & McLennan Commercial Brokerage'); SUBMISSIONS_DATASET.push(Q); activeSubmissionId = Q.id;
+    currentUserRole = 'junior'; renderSurplusCard(Q);
+    t('card renders', /Surplus Lines/.test(el('surplusLinesContainer').innerHTML) && /Tax basis needed/.test(el('surplusLinesContainer').innerHTML));
+    var origToast = window.showToast; window.showToast = function(m){};
+    t('quote guard blocks without a confirmed basis', slGuardQuote('test') === false && logs(Q,'sl_quote_blocked').length===1);
+    t('wrapped issueQuoteAction blocked too', (function(){ var n = logs(Q,'sl_quote_blocked').length; window.issueQuoteAction(); return logs(Q,'sl_quote_blocked').length===n+1; })());
+    renderSurplusCard(Q);
+    setf({sl_confRef:'', sl_confAsOf:''}); slConfirmTableBasis();
+    t('confirming needs a cited schedule and date', !Q.slTaxBasis);
+    setf({sl_confRef:'TDI SL tax bulletin 2026', sl_confAsOf:'2026-01-02'}); slConfirmTableBasis();
+    t('junior confirms the table basis', !!Q.slTaxBasis && Q.slTaxBasis.taxPct===4.85 && logs(Q,'sl_tax_confirmed').length===1);
+    t('rates now available', slRatesFor(Q) && slRatesFor(Q).taxPct===4.85 && slRatesFor(Q).stampingPct===0.04);
+    t('quote guard passes', slGuardQuote('test') === true);
+    t('reconciliation: tax 485 on 10000 and stamping 4 reconcile', slReconcile(Q, slBasisFor(Q,'TX')).length===0);
+    var Qm = clone(Q); Qm.importedRatingData.quote.tax = 800;
+    t('reconciliation flags a mismatching quote', slReconcile(Qm, slBasisFor(Qm,'TX')).length>=1);
+    var blk = slGuardBind('test', Q.id);
+    var bl = logs(Q,'sl_bind_blocked')[0];
+    t('bind blocked: no search, no disclosure', blk === false && bl && /diligent search/.test(bl.notes) && /disclosure/.test(bl.notes));
+    currentUserRole = 'assistant'; renderSurplusCard(Q);
+    ['Acme Mutual','Beta Ins','Gamma Ins'].forEach(function(n,i){ setf({sl_dsInsurer:n, sl_dsDate:plus(-3-i), sl_dsResponse:'declined', sl_dsRef:'ref'+i}); slAddDeclination(); });
+    t('assistant records declinations', Q.diligentSearch.entries.length===3 && slSearchStatus(Q,'TX').satisfied);
+    setf({sl_dsInsurer:'Acme Mutual', sl_dsDate:plus(-1), sl_dsResponse:'declined', sl_dsRef:'x1'}); slAddDeclination();
+    t('duplicate insurer refused', Q.diligentSearch.entries.length===3);
+    setf({sl_ackBox:false, sl_ackRef:'email 10/1'}); slAckDisclosure();
+    t('disclosure needs the box ticked', !Q.slDisclosure);
+    setf({sl_ackBox:true, sl_ackRef:'email 10/1'}); slAckDisclosure();
+    t('disclosure acknowledged', !!Q.slDisclosure && logs(Q,'sl_disclosure').length===1);
+    t('bind guard passes with everything in place', slGuardBind('test', Q.id) === true);
+
+    var X = mk('SUB-X','Marsh & McLennan Commercial Brokerage'); SUBMISSIONS_DATASET.push(X); activeSubmissionId = X.id;
+    currentUserRole = 'junior'; setf({sl_exKind:'export_list', sl_exRef:'TX export list entry 4', sl_exWhy:'Class on the export list so no search is needed'}); slSetExemption();
+    t('junior cannot grant an exemption', !X.diligentSearch || !X.diligentSearch.exemption);
+    currentUserRole = 'senior_uw'; slSetExemption();
+    t('senior UW grants an exemption', X.diligentSearch && X.diligentSearch.exemption && logs(X,'sl_search_exempt').length===1);
+
+    var O = mk('SUB-O','Gallagher Commercial Brokers','5 Lake St, Columbus, OH 43004'); SUBMISSIONS_DATASET.push(O); activeSubmissionId = O.id;
+    currentUserRole = 'junior'; setf({sl_manTax:'5', sl_manStamp:'0', sl_manRef:'OH bulletin 7', sl_manAsOf:'2026-02-01'}); slSetManualBasis();
+    t('junior cannot enter a manual rate', !O.slTaxBasis);
+    currentUserRole = 'senior_uw'; slSetManualBasis();
+    t('senior UW enters and sources a rate for an unconfigured state', O.slTaxBasis && O.slTaxBasis.state==='OH' && O.slTaxBasis.taxPct===5 && slRatesFor(O).taxPct===5);
+
+    var A = mk('SUB-A','Arora & Sons', null, { placementType:'admitted' }); SUBMISSIONS_DATASET.push(A); activeSubmissionId = A.id;
+    t('admitted placement: no blockers', slGuardQuote('t')===true && slGuardBind('t',A.id)===true && slRatesFor(A)===null);
+    currentUserRole = 'junior'; renderSurplusCard(A);
+    t('admitted card warns that a tax is on the quote', /admitted placement/.test(el('surplusLinesContainer').innerHTML));
+
+    activeSubmissionId = Q.id; slSetPlacement('admitted');
+    t('placement switch logged', Q.placementType==='admitted' && logs(Q,'sl_placement_set').length===1);
+    slSetPlacement('surplus');
+
+    Q.pasSync = { status:'success', policyNumber:'GLC-2026-777001', pasRecordId:'PAS-1', effectiveDate:'2026-01-01' };
+    recordQuoteVersion(Q, true);
+    t('filing record created at bind', Q.slFiling && Q.slFiling.status==='pending' && Q.slFiling.taxDue===485 && Q.slFiling.stampingDue===4 && logs(Q,'sl_filing_created').length===1, JSON.stringify(Q.slFiling));
+    t('no filing deadline configured: stated plainly', Q.slFiling.dueDate===null && /not configured/.test(logs(Q,'sl_filing_created')[0].notes));
+    recordQuoteVersion(Q, true);
+    t('filing not duplicated', logs(Q,'sl_filing_created').length===1);
+    slSetPlacement('admitted');
+    t('placement locked after bind', Q.placementType==='surplus');
+    currentUserRole = 'assistant'; setf({sl_fileRef:'', sl_fileOn:plus(0)}); slMarkFiled();
+    t('filing needs a reference', Q.slFiling.status==='pending');
+    setf({sl_fileRef:'TX-SLS-5521', sl_fileOn:plus(0)}); slMarkFiled();
+    t('marked filed', Q.slFiling.status==='filed' && logs(Q,'sl_filed').length===1);
+    var aff = slAffidavitHtml(Q);
+    t('affidavit document', /SURPLUS LINES PLACEMENT AFFIDAVIT/.test(aff) && /GLC-2026-777001/.test(aff));
+
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(Q); activeSubmissionId = Q.id;
+    if (typeof buildFuturisticQuoteFigures === 'function') {
+      var f = buildFuturisticQuoteFigures(Q);
+      if (f) {
+        t('invoice uses confirmed rates', Math.abs(f.surplusTaxRate - 0.0485) < 1e-9 && Math.abs(f.stampingRate - 0.0004) < 1e-9, f.surplusTaxRate + '/' + f.stampingRate);
+        var Ad = clone(Q); Ad.placementType = 'admitted'; SUBMISSIONS_DATASET[0] = Ad; var fa = buildFuturisticQuoteFigures(Ad);
+        t('admitted invoice carries no surplus lines tax', fa && fa.surplusTax===0 && fa.stampingFee===0);
+        SUBMISSIONS_DATASET[0] = Q;
+      } else out.push('SKIP invoice (no figures)');
+    }
+    t('pricing no longer carries a tax load or a broker load', typeof DISCRETIONARY_TAX_RATE_PCT === 'undefined' && computeFinalQuotedPremium(1000, 'credit', 10) === 900 && computeFinalQuotedPremium(1000, 'debit', 25) === 1250 && computeFinalQuotedPremium(1000, null, 0) === 1000);
+    var tf = slTaxFor(Q);
+    t('the one tax line: state tax and stamping from the confirmed basis', tf.applicable && tf.usable && tf.tax===485 && tf.stamping===4 && tf.total===489 && /TX surplus lines tax 4.85%/.test(tf.note), JSON.stringify(tf));
+    var Adm = clone(Q); Adm.placementType = 'admitted';
+    t('admitted: no surplus lines tax', slTaxFor(Adm).applicable === false && slTaxFor(Adm).total === 0);
+    var Unc = clone(Q); delete Unc.slTaxBasis;
+    t('no confirmed basis: no tax is invented', slTaxFor(Unc).usable === false && slTaxFor(Unc).total === 0 && /not been verified/.test(slTaxFor(Unc).note));
+    var Cty = clone(Q); Cty.importedRatingData.quote.countyTax = 55;
+    t('county tax from the rating data is added to the total', slTaxFor(Cty).county === 55 && slTaxFor(Cty).total === 544);
+    t('XSS-safe', slEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+    window.showToast = origToast;
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

@@ -1,0 +1,55 @@
+<!-- Suite C03: the Discretionary Pricing card carries only the underwriter's credit or debit.
+     No broker-fee percentage load and no tax line there: broker compensation is the commission card, tax is the surplus lines basis. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  var toasts = []; var origToast = window.showToast; window.showToast = function(m){ toasts.push(m); };
+  try {
+    var S = clone(seedT); S.id = 'PR-1'; S.address = '9 Elm Road, Dallas, TX 75201'; S.decisionLog = []; S.apiSourced = true;
+    ['pasSync','discretionaryPricing','importedRatingData','slTaxBasis','placementType'].forEach(function(k){ delete S[k]; });
+    S.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: null, appliedBy: null, appliedAt: null, finalPremium: 10000 };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id; currentUserRole = 'senior';
+
+    // ---------- the card
+    var card = renderDiscretionaryPricingCard(S);
+    t('the card has no Broker Fee row and no Taxes & Fees row', !/Broker Fee/.test(card) && !/Taxes &amp;|Taxes &/.test(card) && /1\. Base Premium/.test(card) && /2\. Underwriter Credit \/ Debit/.test(card) && /Final Quoted Premium/.test(card));
+    t('an unapplied card shows the base premium as the final', /\$10,000/.test(card));
+    t('the removed settings are gone', typeof BROKER_DISCOUNT_DEFAULT_PCT === 'undefined' && typeof BROKER_DISCOUNT_MAX_PCT === 'undefined' && typeof canEditBrokerDiscount === 'undefined' && typeof DISCRETIONARY_TAX_RATE_PCT === 'undefined');
+
+    // ---------- the dialog and save
+    openDiscretionaryPricingModal(S.id);
+    t('the dialog has no broker fee input', !el('dpBrokerDiscountInput') && !/Broker Fee/.test(el('discretionaryPricingModalBody').innerHTML));
+    el('dpAdjustmentType').value = 'credit'; el('dpPercentInput').value = '8'; el('dpReason').value = 'Telematics fleet-wide, clean inspections';
+    updateDiscretionaryPricingPreview();
+    t('the preview is base and credit only', /Base \$10,000 .* 8% credit = /.test(el('dpPreviewArea').textContent) && !/broker|tax/i.test(el('dpPreviewArea').textContent), el('dpPreviewArea').textContent);
+    saveDiscretionaryPricing();
+    t('Final Quoted Premium is base less the credit, nothing added', S.discretionaryPricing.finalPremium === 9200 && S.currentPremium === 9200 && !('brokerDiscountPercent' in S.discretionaryPricing));
+    var log = S.decisionLog.filter(function(d){return d.decision === 'discretionary_credit';})[0];
+    t('the decision log and toast no longer mention a broker fee', log && !/Broker/.test(log.notes) && !toasts.some(function(m){return /Broker Fee/.test(m);}), log && log.notes);
+    t('the caps still apply', (function(){ openDiscretionaryPricingModal(S.id); el('dpAdjustmentType').value = 'credit'; el('dpPercentInput').value = '99'; updateDiscretionaryPricingPreview(); return el('dpPercentInput').value === String(DISCRETIONARY_MAX_CREDIT_PCT); })());
+
+    // ---------- tax lives in one place: the surplus lines basis
+    S.placementType = 'surplus';
+    var tx = slTaxFor(S);
+    t('without a confirmed basis there is no tax figure, and it says why', tx.usable === false && tx.total === 0 && /not been verified/.test(tx.note));
+    S.slTaxBasis = { state:'TX', taxPct:4.85, stampingPct:0.04, basedOn:'manual entry', reference:'ref12345', asOf:'2026-01-01' };
+    tx = slTaxFor(S);
+    t('with a confirmed basis: tax and stamping on the priced premium', tx.usable && tx.tax === 446.2 && tx.stamping === 3.68 && tx.total === 449.88, JSON.stringify([tx.tax, tx.stamping, tx.total]));
+    var html = getGeneratedQuoteHtml({ quote: { finalPremium: 39260, coveragePremium: 35062, tax: 1590, countyTax: 0, fees: [], discounts: [], coverages: [], creditsNotApplied: [] }, eligibility: { declines: [], refers: [] }, adapter: {} }, S);
+    t('the quote screen shows that same tax, and a total of premium plus tax', /TX surplus lines tax 4.85% \+ stamping fee 0.04%/.test(html) && /\$449\.88|\$450|449\.88/.test(html.replace(/,/g,'')) && /Final Annual Total \(premium \+ taxes\)/.test(html) && /\$9,650|9,649\.88|9,649/.test(html), (html.match(/qkpi-val[^>]*>[^<]*/g) || []).join(' | '));
+    S.placementType = 'admitted';
+    t('admitted: no tax is shown', slTaxFor(S).total === 0);
+
+    // ---------- broker compensation: the commission card only
+    t('commission is on the priced premium as it stands', comCommissionable(S).commissionable === 9200 && comCommissionable(S).deducted === 0);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

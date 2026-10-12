@@ -1,0 +1,90 @@
+<!-- Suite C01: consolidation of duplicated features. Run with: python tests/run.py --suite c01
+     Guards the clean-up that kept one version of each duplicated feature: one way to change price, one risk measure,
+     one definition of "needs referral", one way to request missing information, one subjectivity tracking board. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.lobKey = 'trucking'; s.channelType = 'broker'; s.apiSourced = true; s.address = '9 Elm Road, Dallas, TX 75201'; s.priority = 'P3'; s.statusText = 'UW Review';
+    ['pasSync','lifecycleStatus','authorityRef','assignedTo','riskScore','riskLevel','discretionaryPricing','importedRatingData','premiumAdjustments','insuredInfo'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.exposureVal = 1000000; s.authorityLimit = 2000000; s.exposure = '$1,000,000'; s.currentStep = 5;
+    for (var k in (over||{})) s[k] = over[k]; return s; }
+  var toasts = []; var origToast = window.showToast; window.showToast = function(m){ toasts.push(m); };
+  try {
+    // ---------- one way to change the price
+    t('the dead "adjust premium by trust score" feature is gone', typeof openPremiumAdjustModal === 'undefined' && typeof submitPremiumAdjustment === 'undefined' && !el('premiumAdjustModal'));
+    t('discretionary pricing (credit / debit) remains the way to change price', typeof openDiscretionaryPricingModal === 'function' && typeof saveDiscretionaryPricing === 'function' && !!el('discretionaryPricingModal'));
+
+    // ---------- one risk measure
+    t('the placeholder trust score is gone', typeof getSubmissionTrustScore === 'undefined' && !('trustScoreThreshold' in REVIEW_ROUTING_RULES) && !el('ruleTrustScoreThreshold'));
+    var R = mk('R1');
+    t('effective risk score is the override if set, else the calculated score', getEffectiveRiskScore(R) === calculateRiskScore(R).score && (R.riskScore = 80, getEffectiveRiskScore(R) === 80));
+    t('risk level comes from the score bands', riskLevelFromScore(20) === 'low' && riskLevelFromScore(50) === 'medium' && riskLevelFromScore(80) === 'high');
+    var hi = mk('R2', { riskScore: 80 }), lo = mk('R3', { riskScore: 10 });
+    var rh = determineReviewRequirement(hi), rl = determineReviewRequirement(lo);
+    t('review routing: a high risk score forces senior review and says why', rh.required && rh.level !== 'none' && rh.reasons.some(function(x){return /Risk score 80\/100/.test(x);}), JSON.stringify(rh.reasons));
+    t('review routing: a low score on an in-authority risk needs no review', !rl.required, JSON.stringify(rl.reasons));
+    t('review routing no longer mentions trust score', !rh.reasons.concat(rl.reasons).some(function(x){return /trust/i.test(x);}));
+
+    // ---------- one definition of "needs referral"
+    var a1 = mk('A1', { exposureVal: 3000000, exposure: '$3,000,000' });                      // over the junior limit
+    var a2 = mk('A2');                                                                        // inside
+    var a3 = mk('A3', { exposureVal: 6000000, authorityLimit: 10000000 });                    // desk is senior UW: inside
+    var a4 = mk('A4', { discretionaryPricing: { finalPremium: 300000 } });                    // premium over junior ceiling
+    var a5 = mk('A5', { assignedTo: 'senior_uw', discretionaryPricing: { finalPremium: 300000 } });
+    var a6 = mk('A6', { address: 'nowhere in particular', exposureVal: 3000000 });            // unknown state does not make it a referral by itself... but the limit does
+    t('referral rule: over the limit', authNeedsReferral(a1) && !authNeedsReferral(a2));
+    t('referral rule: desk role follows the record\'s authority', !authNeedsReferral(a3) && authDeskRole(a3) === 'senior_uw');
+    t('referral rule: premium counts as well as the limit (new)', authNeedsReferral(a4) && !authNeedsReferral(a5));
+    t('referral rule: an unknown state alone is not a referral', !authNeedsReferral(mk('A7', { address: 'nowhere in particular' })) && authNeedsReferral(a6));
+    SUBMISSIONS_DATASET.length = 0; [a1, a2, a3, a4].forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = a2.id;
+    currentTableFilter = 'referral'; currentUserRole = 'admin'; renderSubmissionsTable();
+    var html = el('submissionsTableBody').innerHTML;
+    t('the queue\'s referral filter uses the same rule', /A1/.test(html) && /A4/.test(html) && !/>A2</.test(html) && !/>A3</.test(html), (html.match(/openCaseAtCurrentStep\('[^']+'\)/g) || []).join(' '));
+    currentTableFilter = 'all';
+    // the authority desk screen
+    currentUserRole = 'junior'; renderAuthorityScreen(a1);
+    t('authority screen flags the over-authority case for the acting role', /Senior Referral Required/.test(el('authCheckBadge').innerHTML));
+    t('exactly one "Refer to Senior" button exists', document.querySelectorAll('#btnJuniorEscalate').length === 1);
+    renderAuthorityScreen(a2);
+    t('authority screen clear for an in-authority case; no referral button', /Within Assigned Authority/.test(el('authCheckBadge').innerHTML) && document.querySelectorAll('#btnJuniorEscalate').length === 0);
+    // four eyes counts whoever priced it with the live pricing tool
+    var p = mk('P1', { discretionaryPricing: { finalPremium: 1000, appliedBy: 'Dana Pricer (Senior UW)' } });
+    t('four-eyes: whoever applied discretionary pricing cannot approve the referral', authPreparers(p).indexOf('Dana Pricer (Senior UW)') > -1);
+
+    // ---------- one way to request missing information
+    t('the second "missing fields" modal is gone', !el('missingFieldsModal') && typeof closeMissingFieldsModal === 'undefined' && typeof sendMissingFieldsRequest === 'undefined');
+    var M = mk('M1', { email: 'broker@example.com', insured: 'Missing Co' }); SUBMISSIONS_DATASET.push(M); activeSubmissionId = a2.id;
+    emailIngestionDraftBySubId['M1'] = { insured: 'Missing Co', fein: '', address: '', email: 'broker@example.com', exposureVal: '', effectiveDate: '', lossHistorySummary: '' };
+    currentUserRole = 'junior'; openMissingFieldsModal('M1');
+    var msg = el('rfiMessageText').value;
+    t('"Request Missing Information" drafts the shared RFI with the required blanks, grouped by recipient', el('rfiModal').classList.contains('active') && /FEIN/.test(msg) && /Address/.test(msg) && /From the Customer/.test(msg) && el('rfiRecipientEmail').value === 'broker@example.com' && /M1/.test(el('rfiSubject').value));
+    t('...and does not list fields that are filled', !/Named Insured/.test(msg) && !/Contact Email/.test(msg));
+    sendRFIAction();
+    t('sending it logs on the case it was drafted for, not the active case', M.decisionLog.some(function(d){return d.decision==='rfi_sent';}) && !a2.decisionLog.some(function(d){return d.decision==='rfi_sent';}));
+    emailIngestionDraftBySubId['M2'] = { insured:'x', fein:'1', address:'a', email:'e', exposureVal:'1', effectiveDate:'d', lossHistorySummary:'l' };
+    el('rfiModal').classList.remove('active'); openMissingFieldsModal('M2');
+    t('nothing missing: no RFI opened', !el('rfiModal').classList.contains('active'));
+
+    // ---------- one subjectivity tracking board
+    var S = mk('S1', { subjectivities: ['Receipt of signed MVRs for all drivers'] }); SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id; currentUserRole = 'junior';
+    renderSubjectivityViews(S);
+    var wb = el('subjectivityList').innerHTML, qb = el('subjectivitiesContainer').innerHTML;
+    t('the workbench lists the conditions but carries no tracking controls', /signed MVRs/.test(wb) && !/Mark received/.test(wb) && !/Waive/.test(wb) && /tracked on the Quote/.test(wb));
+    t('Quote & Bind is where they are tracked', /Mark received/.test(qb) && /Add subjectivity/.test(qb));
+    t('the workbench can still add a condition', /addNewSubjectivity/.test(document.body.innerHTML) && typeof subjOpenAddDialog === 'function');
+
+    // ---------- one definition of each helper that was defined twice
+    toasts.length = 0; activeSubmissionId = null; resumeActiveCaseWorkflow();
+    t('resume-case helper: one version, warns when there is no active case', toasts.some(function(m){return /No active case/.test(m);}));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

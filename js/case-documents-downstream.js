@@ -311,6 +311,7 @@ function proceedToCaseFromDocsModal() {
 
 // Modal: New Submission Creation
 function openNewIntakeModal() {
+  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
   const modal = document.getElementById("newIntakeModal");
   if (modal) modal.classList.add("active");
 }
@@ -328,69 +329,63 @@ function toggleModalBrokerField() {
   }
 }
 
+/**
+ * Create New Submission: a BLANK case holding only what the form asks for. Nothing is copied from another submission
+ * (an earlier version cloned a template case, so a new customer arrived with someone else's address, vehicles and
+ * documents) and nothing is invented: every other field stays empty and shows up as missing in the completeness check.
+ */
 function handleCreateNewIntake(e) {
   e.preventDefault();
-  const channel = document.getElementById("newIntakeChannel")?.value || "broker";
-  const lobKey = document.getElementById("newIntakeLOB")?.value || "trucking";
-  const insured = document.getElementById("newIntakeInsured")?.value || "New Entity LLC";
-  const fein = document.getElementById("newIntakeFEIN")?.value || "12-3456789";
-  const broker = channel === "broker" ? (document.getElementById("newIntakeBroker")?.value || "Marsh & McLennan") : "Direct Customer Portal";
+  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
+  const val = id => ((document.getElementById(id) || {}).value || "").trim();
+  const channel = val("newIntakeChannel") || "broker";
+  const lobKey = val("newIntakeLOB") || "trucking";
+  const insured = val("newIntakeInsured");
+  const feinRaw = val("newIntakeFEIN");
+  const brokerIn = val("newIntakeBroker");
 
-  const newId = `SUB-${Math.floor(10000 + Math.random() * 90000)}-${fein.slice(0,2)}`;
-  
-  const template = SUBMISSIONS_DATASET.find(s => s.lobKey === lobKey) || SUBMISSIONS_DATASET[0];
-  const newSub = JSON.parse(JSON.stringify(template));
-  newSub.id = newId;
-  newSub.insured = insured;
-  newSub.fein = fein;
-  newSub.channelType = channel;
-  newSub.broker = broker;
-  newSub.priority = "P1";
-  newSub.priorityScore = 95;
-  newSub.slaText = "4h Fast-Track SLA";
-  newSub.slaCountdown = "4h 00m remaining";
-  newSub.priorityReason = "New Incoming Intake • Fast-Track FIFO Position #1";
-  newSub.channelName = channel === "broker" ? `Broker Intake: ${broker}` : "Direct Customer Portal (Self-Service)";
-  newSub.receivedAt = "Just Now";
-  newSub.receivedTimestamp = Date.now();
-  newSub.statusText = "Intake Ingested";
-  newSub.statusBadge = "badge-primary";
-  newSub.currentStep = 1;
-  newSub.completedSteps = [];
+  if (!insured) { showToast("⛔ Enter the named insured.", "danger"); return; }
+  const digits = feinRaw.replace(/\D/g, "");
+  if (digits.length !== 9) { showToast("⛔ The FEIN must have 9 digits (for example 74-9842109).", "danger"); return; }
+  if (channel === "broker" && !brokerIn) { showToast("⛔ Enter the broker or agency that sent this.", "danger"); return; }
+  const fein = digits.slice(0, 2) + "-" + digits.slice(2);
 
-  SUBMISSIONS_DATASET.unshift(newSub);
+  let newId;
+  do { newId = `SUB-${Math.floor(10000 + Math.random() * 90000)}-${digits.slice(0, 2)}`; } while (SUBMISSIONS_DATASET.some(s => s.id === newId));
+
+  const sub = getBlankSubmissionSkeleton();
+  const lobEntry = typeof LOB_CATALOG !== "undefined" ? LOB_CATALOG.find(l => l.key === lobKey) : null;
+  const broker = channel === "broker" ? brokerIn : "Direct Customer Portal";
+  Object.assign(sub, {
+    id: newId, lobKey, lobName: lobEntry ? lobEntry.name : lobKey, apiSourced: true,
+    insured, fein, channelType: channel, broker,
+    channelName: channel === "broker" ? `Broker Intake: ${broker}` : "Direct Customer Portal (Self-Service)",
+    address: "", email: "", dot: null, mcNumber: null, exposureVal: 0, exposure: "Not provided",
+    docs: [], ocrFields: [],
+    receivedAt: "Just Now", receivedTimestamp: Date.now(),
+    assignedTo: null, assignedBy: null, assignedAt: null,
+    priority: "P3", priorityScore: null, slaText: "Standard FIFO", slaCountdown: "Awaiting triage",
+    priorityReason: "New manual intake — not yet analysed",
+    statusText: "Intake Ingested", statusBadge: "badge-primary", currentStep: 1, completedSteps: []
+  });
+
+  SUBMISSIONS_DATASET.unshift(sub);
+  const form = document.getElementById("newIntakeForm");
+  if (form && typeof form.reset === "function") form.reset();
   closeNewIntakeModal();
   selectSubmission(newId, false);
   renderSubmissionsTable();
-  showToast(`✅ New Submission [${newId}] created & added to Intake Queue!`, "success");
+  showToast(`✅ New submission [${newId}] created. It is blank apart from what you entered; add the application, loss runs and other details.`, "success");
+  persistAppState();
 }
-
 // ============================================================================
 // 6. RENDERING ALL DOWNSTREAM SCREENS (SCREENS 2 TO 9)
 // ============================================================================
 function renderAllDownstreamScreens(sub) {
-  // Demo Mode (OFF by default): renders a throwaway sample-filled clone
-  // instead of the real submission for this pass only — never touches
-  // SUBMISSIONS_DATASET, never persisted. See js/demo-mode.js.
-  if (typeof DEMO_MODE_ENABLED !== "undefined" && DEMO_MODE_ENABLED && typeof getDemoDisplaySubmission === "function") {
-    sub = getDemoDisplaySubmission(sub);
-  }
 
   // Screen 2: OCR Fields & Canonical Record
   renderOCRFields(sub.ocrFields, sub.docs);
   if (typeof renderRawEmailCapturePanel === "function") renderRawEmailCapturePanel(sub);
-  const canonInsured = document.getElementById("canonInsured");
-  const canonLOB = document.getElementById("canonLOB");
-  const canonExposure = document.getElementById("canonExposure");
-  const canonJson = document.getElementById("canonicalJsonDisplay");
-  const subIdBadge = document.getElementById("submissionIdBadge");
-
-  if (canonInsured) canonInsured.textContent = sub.insured;
-  if (canonLOB) canonLOB.textContent = sub.lobName;
-  if (canonExposure) canonExposure.textContent = sub.exposure;
-  if (canonJson) canonJson.textContent = JSON.stringify(sub.canonicalJson, null, 2);
-  if (subIdBadge) subIdBadge.textContent = sub.id;
-
   // Screen 3: Clearance & Appetite
   const feinNum = document.getElementById("checkFeinNumber");
   const brokerLock = document.getElementById("brokerLock");
@@ -441,8 +436,6 @@ function renderAllDownstreamScreens(sub) {
   if (tSlaCount) tSlaCount.textContent = sub.slaCountdown;
 
   // Screen 5: Underwriting Workbench
-  switchDocTab("acord");
-  renderLossTable(sub.losses);
   renderSubjectivities(sub.subjectivities);
   renderUnderwritingWorkbench(sub);
   if (typeof renderRiskScoreCard === "function") renderRiskScoreCard(sub);
@@ -942,116 +935,6 @@ function renderEnrichmentCards(cards) {
       </div>
       <div class="enrich-stat-num">${c.val}</div>
       <div class="enrich-stat-lbl">${c.label}</div>
-    </div>
-  `).join("");
-}
-
-
-// Helper: Document Tab in Screen 5
-function switchDocTab(tabKey) {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (!sub) return;
-
-  const tAcord = document.getElementById("tabDocAcord");
-  const tSov = document.getElementById("tabDocSov");
-  const tLoss = document.getElementById("tabDocLoss");
-
-  if (tAcord) tAcord.classList.remove("active");
-  if (tSov) tSov.classList.remove("active");
-  if (tLoss) tLoss.classList.remove("active");
-
-  const panel = document.getElementById("docPreviewPanel");
-  if (!panel) return;
-
-  if (tabKey === "acord") {
-    if (tAcord) tAcord.classList.add("active");
-    panel.innerHTML = `
-      <div class="acord-form-mock">
-        <div class="acord-top-bar">
-          <span class="acord-title">ACORD APPLICATION FORM • ${sub.docs[0]?.name || 'Application.pdf'}</span>
-          <span class="badge badge-primary">Standard ISO Form</span>
-        </div>
-        <div class="form-grid">
-          <div><strong>Named Insured:</strong> ${sub.insured}</div>
-          <div><strong>FEIN:</strong> ${sub.fein}</div>
-          <div><strong>Mailing Address:</strong> ${sub.address}</div>
-          <div><strong>Broker / Origin:</strong> ${sub.broker}</div>
-          <div><strong>Line of Business:</strong> ${sub.lobName}</div>
-          <div><strong>Total Exposure:</strong> ${sub.exposure}</div>
-        </div>
-      </div>
-    `;
-  } else if (tabKey === "sov") {
-    if (tSov) tSov.classList.add("active");
-    panel.innerHTML = `
-      <div class="acord-form-mock">
-        <div class="acord-top-bar">
-          <span class="acord-title">STATEMENT OF VALUES (SOV) • ${sub.docs[1]?.name || 'SOV_Schedule.xlsx'}</span>
-          <span class="badge badge-success">Schedule Normalized</span>
-        </div>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Schedule Item #</th>
-              <th>Asset Description</th>
-              <th>Territory / Location</th>
-              <th>Stated Value / Exposure</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>001</td>
-              <td>Primary Asset Group A</td>
-              <td>Texas Operations Hub</td>
-              <td>${sub.exposure}</td>
-            </tr>
-            <tr>
-              <td>002</td>
-              <td>Secondary Scheduled Assets</td>
-              <td>Regional Garaging / Office</td>
-              <td>Verified & Cleared</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    `;
-  } else if (tabKey === "loss") {
-    if (tLoss) tLoss.classList.add("active");
-    panel.innerHTML = `
-      <div class="acord-form-mock">
-        <div class="acord-top-bar">
-          <span class="acord-title">CARRIER SIGNED LOSS RUN REPORT • 3-Year History</span>
-          <span class="badge badge-success">Official Audit Verified</span>
-        </div>
-        <p class="text-secondary text-sm">Official valuation date: 2026-08-01. Verified with prior underwriting carriers.</p>
-      </div>
-    `;
-  }
-}
-
-// Helper: Loss Runs Table in Screen 5
-function renderLossTable(losses) {
-  const table = document.getElementById("wbLossTable");
-  if (!table || !losses) return;
-  table.innerHTML = losses.map(l => `
-    <tr>
-      <td><strong>${l.year}</strong></td>
-      <td>${l.desc}</td>
-      <td><span class="badge ${l.status === 'Clean' ? 'badge-success' : 'badge-info'}">${l.status}</span></td>
-      <td class="font-mono font-bold">${l.incurred}</td>
-    </tr>
-  `).join("");
-}
-
-// Helper: Subjectivities in Screen 5
-function renderSubjectivities(subjs) {
-  const list = document.getElementById("subjectivityList");
-  if (!list || !subjs) return;
-  list.innerHTML = subjs.map((s, idx) => `
-    <div class="subj-item">
-      <input type="checkbox" id="subj_${idx}" checked>
-      <label class="subj-text" for="subj_${idx}">${s}</label>
-      <span class="badge badge-warning">Pre-Bind Condition</span>
     </div>
   `).join("");
 }
@@ -1945,8 +1828,6 @@ function renderWbUwFactorsUwp(sub) {
     </div>`;
 }
 
-
-// Helper: Authority Screen in Screen 6
 // Helper: Authority Screen in Screen 6
 function renderAuthorityScreen(sub) {
   const expLabel = document.getElementById("currentAuthExposure");
@@ -1962,7 +1843,7 @@ function renderAuthorityScreen(sub) {
 
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
   const effectiveLimit = roleConfig.limit;
-  const isExceeded = exposureScenario === "exceeds" || (effectiveLimit > 0 && sub.exposureVal > effectiveLimit) || (effectiveLimit === 0);
+  const isExceeded = exposureScenario === "exceeds" || !authRoleCovers(currentUserRole, authMeasures(sub)).ok;
 
   if (uwName) {
     uwName.textContent = `${roleConfig.name} (${roleConfig.title})`;
@@ -2022,7 +1903,7 @@ function renderAuthorityScreen(sub) {
       } else {
         jBox.innerHTML = `
           <div class="alert alert-success p-2 text-sm" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534;">
-            <i class="ph ph-check-circle"></i> <strong>Authority Clear:</strong> Submission is within your $2.0M Junior Limit. No referral needed. Proceed to Screen 7 (Rating Engine).
+            <i class="ph ph-check-circle"></i> <strong>Authority Clear:</strong> Submission is within your $2.0M Underwriter I limit. No referral needed. Proceed to Screen 7 (Rating Engine).
           </div>
         `;
       }
@@ -2459,38 +2340,6 @@ function toggleJSONWrap() {
   }
 }
 
-// Helper: Quote PDF Preview in Screen 8
-function renderQuotePDF(sub) {
-  const qNo = document.getElementById("pdfQuoteNo");
-  const qIns = document.getElementById("pdfInsuredName");
-  const qAdd = document.getElementById("pdfInsuredAddress");
-  const qBrok = document.getElementById("pdfBrokerName");
-
-  if (qNo) qNo.textContent = sub.quoteNo;
-  if (qIns) qIns.textContent = sub.insured;
-  if (qAdd) qAdd.innerHTML = sub.address.replace(", ", "<br>");
-  if (qBrok) qBrok.textContent = sub.broker;
-
-  const rows = document.getElementById("pdfCoverageRows");
-  if (rows && sub.coverageRows) {
-    rows.innerHTML = sub.coverageRows.map(c => `
-      <tr>
-        <td><strong>${c.line}</strong></td>
-        <td>${c.limit}</td>
-        <td>${c.ded}</td>
-        <td class="font-mono font-bold">${c.prem}</td>
-      </tr>
-    `).join("");
-  }
-
-  const subjs = document.getElementById("pdfSubjectivitiesList");
-  if (subjs && sub.subjectivities) {
-    subjs.innerHTML = sub.subjectivities.map((s, idx) => `
-      <li>${idx + 1}. ${s}</li>
-    `).join("");
-  }
-}
-
 // ============================================================================
 // ALL 7 STEPS CASE SUMMARY & AUDIT MODAL CONTROLLER (Screen 8)
 // ============================================================================
@@ -2726,7 +2575,7 @@ function renderAllStepsSummaryModal(sub) {
           <span class="summary-step-badge">5</span>
           <div>
             <div class="summary-step-title">Step 5: Authority Delegation & CUO Referral Desk</div>
-            <div class="summary-step-desc">Underwriting limits verification, Junior-to-Senior escalation workflow, and formal CUO sign-off.</div>
+            <div class="summary-step-desc">Underwriting limits verification, Underwriter-to-Senior escalation workflow, and formal CUO sign-off.</div>
           </div>
         </div>
         <span class="badge badge-success"><i class="ph ph-stamp"></i> Executive CUO Signed Off</span>
@@ -2738,7 +2587,7 @@ function renderAllStepsSummaryModal(sub) {
         </div>
         <div class="summary-field-box">
           <div class="summary-field-label">Primary UW Authority Limit</div>
-          <div class="summary-field-val">$2,000,000 (Level-2 Sarah Jenkins)</div>
+          <div class="summary-field-val">$2,000,000 (Underwriter I, Sarah Jenkins)</div>
         </div>
         <div class="summary-field-box">
           <div class="summary-field-label">Escalation Rationale</div>
@@ -2811,277 +2660,6 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-field-box">
           <div class="summary-field-label">Binding Pass Authority</div>
           <div class="summary-field-val text-success font-bold"><i class="ph ph-file-text"></i> Passed & Authorized by Binding Specialist (Elena Rostova)</div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderStep7InlineSummary(sub) {
-  const container = document.getElementById("step7InlineSummaryContainer");
-  if (!container) return;
-  if (!sub) sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
-
-  container.innerHTML = `
-    <!-- Top Metadata Account Strip -->
-    <div class="summary-account-strip mb-3">
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Named Insured</span>
-        <span class="summary-strip-val" title="${sub.insured}">${sub.insured}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Submission ID</span>
-        <span class="summary-strip-val font-mono">${sub.id}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Quote Number</span>
-        <span class="summary-strip-val font-mono text-primary">${sub.quoteNo || 'QT-2026-89412'}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">FEIN</span>
-        <span class="summary-strip-val font-mono">${sub.fein}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Line of Business</span>
-        <span class="summary-strip-val">${sub.lobName}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Producing Broker</span>
-        <span class="summary-strip-val" title="${sub.broker}">${sub.broker.split(' ')[0]}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Assigned Desk / UW</span>
-        <span class="summary-strip-val">${sub.underwriter ? sub.underwriter.split(' ')[0] : 'Open Queue'}</span>
-      </div>
-      <div class="summary-strip-item">
-        <span class="summary-strip-label">Gross Premium</span>
-        <span class="summary-strip-val text-success font-bold">$48,600.00</span>
-      </div>
-    </div>
-
-    <!-- 7 Lifecycle Step Cards Container -->
-    <div class="summary-cards-list">
-      <!-- STEP 1: DOC INGESTION & SCHEMA / OCR -->
-      <div class="summary-step-card" data-step-card="step1">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">1</span>
-            <div>
-              <div class="summary-step-title">Step 1: Document Ingestion & Optical Character Recognition (OCR)</div>
-              <div class="summary-step-desc">Document ingestion pipeline, file validation, OCR parsing, and canonical entity schema creation.</div>
-            </div>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-check-circle"></i> 99.4% OCR Confidence</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">Ingested Files (${(sub.docs || []).length})</div>
-            <div class="summary-field-val">${(sub.docs || []).map(d => d.name).join(', ')}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Entity Type & Structure</div>
-            <div class="summary-field-val">${sub.entityType || 'Commercial LLC'} • DOT: 3948102</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Operating Address</div>
-            <div class="summary-field-val">${sub.address || '10440 Highway 290 West, Houston, TX 77040'}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Effective Term</div>
-            <div class="summary-field-val">${sub.effectiveDate || '09/01/2026'} to 09/01/2027 (12 Mo)</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 2: CLEARANCE & APPETITE CHECK -->
-      <div class="summary-step-card" data-step-card="step2">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">2</span>
-            <div>
-              <div class="summary-step-title">Step 2: FEIN Clearance & Appetite Knockout Screening</div>
-              <div class="summary-step-desc">Duplicate FEIN broker of record lock check, carrier appetite rules validation, and knockout verification.</div>
-            </div>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-shield-check"></i> 10/10 Appetite Rules Passed</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">FEIN Clearance Status</div>
-            <div class="summary-field-val text-success">Cleared • FEIN ${sub.fein} Locked to ${sub.broker.split(' ')[0]}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Commodity & Hazard Eligibility</div>
-            <div class="summary-field-val">General Freight / Dry Van (Non-Hazmat) — Eligible</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Operating Radius Guidelines</div>
-            <div class="summary-field-val">Regional 450-Mile Radius (Max Allowed 750 Miles) — Passed</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Knockout Checkpoints</div>
-            <div class="summary-field-val text-success">0 Violations • No Dual-Broker Conflicts Detected</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 3: DATA ENRICHMENT & ROUTING -->
-      <div class="summary-step-card" data-step-card="step3">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">3</span>
-            <div>
-              <div class="summary-step-title">Step 3: Third-Party Data Enrichment & Automated Routing</div>
-              <div class="summary-step-desc">External API data enrichment (CAB, SAFER/FMCSA, LexisNexis, ISO) and smart underwriter queue routing.</div>
-            </div>
-          </div>
-          <span class="badge badge-info"><i class="ph ph-tree-structure"></i> Verified Live APIs</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">SAFER / FMCSA Safety Rating</div>
-            <div class="summary-field-val">Satisfactory • 0 OOS Violations • Safer Alert: 1.00</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">ISO / CAB Telematics Score</div>
-            <div class="summary-field-val">Tier-1 Safety Profile • ISO Class 3 Public Protection</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Assigned Underwriter & Desk</div>
-            <div class="summary-field-val">${sub.underwriter || 'Sarah Jenkins'} • ${sub.desk || 'Specialty Transportation Desk'}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">SLA Target & Priority Score</div>
-            <div class="summary-field-val"><span class="badge ${sub.priority === 'P1' ? 'badge-danger' : 'badge-warning'}">${sub.priority} Priority</span> (Score: ${sub.priorityScore || 92}/100)</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 4: UNDERWRITING WORKBENCH -->
-      <div class="summary-step-card" data-step-card="step4">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">4</span>
-            <div>
-              <div class="summary-step-title">Step 4: Underwriting Workbench, Loss Runs & Subjectivities</div>
-              <div class="summary-step-desc">5-year historical loss triangulation, ACORD application audit, subjectivities tracking, and RFI log.</div>
-            </div>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-chart-line"></i> 14.8% Favorable Loss Ratio</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">5-Year Prior Claims Triangulation</div>
-            <div class="summary-field-val">2 Claims • $12,400 Total Incurred • 0 Open Reserves</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Calculated Loss Ratio</div>
-            <div class="summary-field-val text-success">14.8% (Carrier Benchmark: &lt; 55.0%) — Highly Favorable</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Active Subjectivities (${(sub.subjectivities || []).length})</div>
-            <div class="summary-field-val">MVR driver check, Signed ACORD on file</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">RFI & Broker Communications</div>
-            <div class="summary-field-val text-success">All inquiries resolved • No outstanding documentation blocks</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 5: AUTHORITY DESK & CUO REFERRAL -->
-      <div class="summary-step-card" data-step-card="step5">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">5</span>
-            <div>
-              <div class="summary-step-title">Step 5: Authority Delegation & CUO Referral Desk</div>
-              <div class="summary-step-desc">Underwriting limits verification, Junior-to-Senior escalation workflow, and formal CUO sign-off.</div>
-            </div>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-stamp"></i> Executive CUO Signed Off</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">Total Exposure Value</div>
-            <div class="summary-field-val font-mono">${sub.exposure || '$3,200,000 TIV / Fleet'}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Primary UW Authority Limit</div>
-            <div class="summary-field-val">$2,000,000 (Level-2 Sarah Jenkins)</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Escalation Rationale</div>
-            <div class="summary-field-val">Exceeds $2.0M limit • Safety and clean loss record justified referral</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">CUO Authority Sign-Off</div>
-            <div class="summary-field-val text-success font-bold">APPROVED by Marcus Vance (Chief Underwriting Officer)</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 6: RATING ENGINE & ACTUARIAL PAYLOAD -->
-      <div class="summary-step-card" data-step-card="step6">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">6</span>
-            <div>
-              <div class="summary-step-title">Step 6: Actuarial Rating Engine & Multi-Line Pricing Payload</div>
-              <div class="summary-step-desc">Automated rating engine calculation, vehicle schedules, driver multipliers, and actuarial payload schema.</div>
-            </div>
-          </div>
-          <span class="badge badge-primary"><i class="ph ph-calculator"></i> Actuarially Rated</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">Rating Model</div>
-            <div class="summary-field-val">Composite Transportation Pricing (Units × Radius × Factor)</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Schedules Summary</div>
-            <div class="summary-field-val">1 Scheduled Power Unit ($500k Value) • 4 Drivers (3 Active, 1 Excl)</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Liability & PD Premium Subtotals</div>
-            <div class="summary-field-val font-mono">Liability: $31,360.00 • Physical Damage: $42,070.00</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Actuarial Payload Schema</div>
-            <div class="summary-field-val text-success">Verified Production JSON Payload • Exportable to CSV</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- STEP 7: QUOTE & BINDING PACKET -->
-      <div class="summary-step-card" data-step-card="step7">
-        <div class="summary-step-header">
-          <div class="summary-step-title-box">
-            <span class="summary-step-badge">7</span>
-            <div>
-              <div class="summary-step-title">Step 7: Formal Bindable Quote & Policy Issuance Terms</div>
-              <div class="summary-step-desc">Official quote document generation, subjectivity verification, binding studio, and policy packet issuance.</div>
-            </div>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-lock"></i> Bind Ready & Verified</span>
-        </div>
-        <div class="summary-step-grid">
-          <div class="summary-field-box">
-            <div class="summary-field-label">Official Quote Document</div>
-            <div class="summary-field-val font-mono font-bold text-primary">${sub.quoteNo || 'QT-2026-89412'} (Valid 30 Days)</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Annual Gross Premium</div>
-            <div class="summary-field-val text-success font-bold font-mono" style="font-size: 14px;">$48,600.00</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Issuance Recipient Target</div>
-            <div class="summary-field-val"><i class="ph ph-paper-plane-tilt text-primary"></i> ${sub.channel === 'direct' ? 'Direct Customer Portal & Insured Email' : 'Producing Broker Agency (' + sub.broker.split(' ')[0] + ')'}</div>
-          </div>
-          <div class="summary-field-box">
-            <div class="summary-field-label">Binding Pass Authority</div>
-            <div class="summary-field-val text-success font-bold"><i class="ph ph-file-text"></i> Passed & Authorized by Binding Specialist (Elena Rostova)</div>
-          </div>
         </div>
       </div>
     </div>

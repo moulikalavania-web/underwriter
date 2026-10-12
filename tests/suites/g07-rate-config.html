@@ -1,0 +1,120 @@
+<!-- Suite G07: rate-config. Run with: python tests/run.py --suite g07 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; document.body.appendChild(e); } e.value = map[id]; }); }
+  function propose(key, val, eff, why){ setf({['cfg_val_'+key]: val, ['cfg_eff_'+key]: eff, ['cfg_why_'+key]: why}); cfgPropose(key); }
+  var toasts = []; var origToast = window.showToast; window.showToast = function(m){ toasts.push(m); };
+  try {
+    localStorage.removeItem(CFG_STORAGE_KEY); cfgLoad(); cfgApply();
+    t('RBAC resource', RBAC_RESOURCES.some(function(r){return r.key==='rateConfig';}));
+    t('senior UW proposes; CUO approves; junior is read only; the Head of Underwriting may do both (never on the same change)', PERMISSIONS_MATRIX.senior_uw.rateConfig.edit && !PERMISSIONS_MATRIX.senior_uw.rateConfig.approve && PERMISSIONS_MATRIX.senior.rateConfig.approve && !PERMISSIONS_MATRIX.junior.rateConfig.edit && PERMISSIONS_MATRIX.admin.rateConfig.edit && PERMISSIONS_MATRIX.admin.rateConfig.approve);
+
+    // defaults reproduce the old constants
+    t('defaults equal the former constants', cfgValue('discretionary_max_credit')===15 && cfgValue('discretionary_max_debit')===25 && cfgValue('commission_hard_cap')===25 && cfgValue('market_lock_days')===60 && cfgValue('bor_treatment')==='prorata' && cfgValue('sl_default_declinations')===3 && cfgValue('sl_search_max_age_days')===90);
+    t('globals set from config', COMMISSION_HARD_CAP===25 && MARKET_LOCK_DAYS===60 && SL_SEARCH_MAX_AGE_DAYS===90);
+    t('both broker fee defaults preserved and distinct', cfgValue('broker_fee_invoice_default')===50 && cfgValue('broker_fee_quote_default')===1500);
+
+    // validation (pure)
+    var it = cfgItem('commission_hard_cap');
+    t('validate: bounds', cfgValidate(it,'60',plus(0),'a valid reason here').problems.length===1 && cfgValidate(it,'-1',plus(0),'a valid reason here').problems.length===1 && cfgValidate(it,'abc',plus(0),'a valid reason here').problems.length===1);
+    t('validate: backdating and short reason', cfgValidate(it,'20',plus(-1),'a valid reason here').problems.length===1 && cfgValidate(it,'20',plus(0),'short').problems.length===1);
+    t('validate: whole numbers only', cfgValidate(cfgItem('market_lock_days'),'45.5',plus(0),'a valid reason here').problems.length===1 && cfgValidate(cfgItem('market_lock_days'),'45',plus(0),'a valid reason here').problems.length===0);
+    t('validate: option list', cfgValidate(cfgItem('bor_treatment'),'at_renewal',plus(0),'a valid reason here').problems.length===0 && cfgValidate(cfgItem('bor_treatment'),'x',plus(0),'a valid reason here').problems.length===1);
+
+    // proposing
+    currentUserRole = 'junior';
+    propose('commission_hard_cap','20',plus(0),'Lower the ceiling per the new producer policy');
+    t('junior cannot propose', !cfgPending('commission_hard_cap'));
+    currentUserRole = 'senior_uw'; renderRateConfig();
+    t('tab content renders', /Rates &amp; Limits/.test(el('rateConfigRoot').innerHTML) || /Rates/.test(el('rateConfigRoot').innerHTML));
+    propose('commission_hard_cap','99',plus(0),'Lower the ceiling per the new producer policy');
+    t('out-of-bounds value refused', !cfgPending('commission_hard_cap'));
+    propose('commission_hard_cap','25',plus(0),'Same value as today, should be refused');
+    t('no-op change refused', !cfgPending('commission_hard_cap'));
+    propose('commission_hard_cap','20',plus(0),'Lower the ceiling per the new producer policy');
+    var p = cfgPending('commission_hard_cap');
+    t('proposal pending, not yet in force', !!p && COMMISSION_HARD_CAP===25 && cfgValue('commission_hard_cap')===25);
+    propose('commission_hard_cap','18',plus(0),'Second proposal while one is pending');
+    t('only one pending change per item', CFG_STATE.items.commission_hard_cap.versions.filter(function(v){return v.status==='pending';}).length===1);
+
+    // maker-checker
+    var sameRoleApprove = (function(){ currentUserRole = 'senior_uw'; cfgDecide('commission_hard_cap', true); return cfgPending('commission_hard_cap') !== null; })();
+    t('proposer without authority cannot approve', sameRoleApprove);
+    // give senior_uw approve authority temporarily to prove the self-approval rule, not just the permission
+    PERMISSIONS_MATRIX.senior_uw.rateConfig.approve = true;
+    cfgDecide('commission_hard_cap', true);
+    t('proposer WITH authority still cannot approve their own change', cfgPending('commission_hard_cap') !== null && COMMISSION_HARD_CAP===25 && toasts.some(function(m){return /different approver/.test(m);}));
+    PERMISSIONS_MATRIX.senior_uw.rateConfig.approve = false;
+    currentUserRole = 'senior';
+    cfgDecide('commission_hard_cap', true);
+    t('different approver approves; takes effect', cfgPending('commission_hard_cap')===null && COMMISSION_HARD_CAP===20 && cfgValue('commission_hard_cap')===20);
+    t('version history keeps the old and new versions', CFG_STATE.items.commission_hard_cap.versions.length>=2 && CFG_STATE.items.commission_hard_cap.versions[1].approvedBy && CFG_STATE.items.commission_hard_cap.versions[1].proposedBy !== CFG_STATE.items.commission_hard_cap.versions[1].approvedBy);
+    currentUserRole = 'senior_uw'; propose('commission_hard_cap','10',plus(0),'Tighten the ceiling below agreement maximums');
+    currentUserRole = 'senior'; cfgDecide('commission_hard_cap', true);
+    t('the ceiling is live in commission logic', comResolveRate({broker:'Marsh & McLennan Commercial Brokerage', lobKey:'trucking'}, plus(0)).band.max === 10);
+    t('change logged', (CFG_STATE.log||[]).some(function(l){return l.decision==='cfg_approved';}));
+    t('persisted', JSON.parse(localStorage.getItem(CFG_STORAGE_KEY)).items.commission_hard_cap.versions.length>=2);
+
+    // reject
+    currentUserRole = 'senior_uw'; propose('market_lock_days','30',plus(0),'Shorten the lock to match the new practice');
+    currentUserRole = 'senior'; setf({cfg_rej_market_lock_days:'no'}); cfgDecide('market_lock_days', false);
+    t('rejection needs a reason', cfgPending('market_lock_days') !== null);
+    setf({cfg_rej_market_lock_days:'Not agreed by the committee'}); cfgDecide('market_lock_days', false);
+    t('rejected change never takes effect', cfgPending('market_lock_days')===null && MARKET_LOCK_DAYS===60 && cfgValue('market_lock_days')===60);
+
+    // withdraw
+    currentUserRole = 'senior_uw'; propose('market_lock_days','45',plus(0),'Try a shorter lock period first');
+    currentUserRole = 'senior'; cfgWithdraw('market_lock_days');
+    t('only the proposer can withdraw', cfgPending('market_lock_days') !== null);
+    currentUserRole = 'senior_uw'; cfgWithdraw('market_lock_days');
+    t('proposer withdraws', cfgPending('market_lock_days')===null);
+
+    // future-dated
+    propose('market_lock_days','90',plus(10),'Longer lock from next cycle, agreed');
+    currentUserRole = 'senior'; cfgDecide('market_lock_days', true);
+    t('future-dated approval does not take effect yet', cfgValue('market_lock_days')===60 && MARKET_LOCK_DAYS===60);
+    t('...but applies on its date', cfgValue('market_lock_days', plus(10))===90 && cfgValue('market_lock_days', plus(9))===60);
+    currentUserRole = 'senior_uw'; propose('market_lock_days','75',plus(20),'Then a further change later on');
+    currentUserRole = 'senior'; cfgDecide('market_lock_days', true);
+    t('latest effective version wins on its date', cfgValue('market_lock_days', plus(25))===75 && cfgValue('market_lock_days', plus(15))===90);
+
+    // quote pinning
+    SUBMISSIONS_DATASET.length = 0;
+    var seed = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+    var S = clone(seed); S.id='SUB-PIN'; delete S.pasSync; delete S.configSnapshot; SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id;
+    S.placementType = 'admitted';
+    var fee0 = cfgValue('broker_fee_invoice_default');
+    recordQuoteVersion(S, false);
+    t('quote terms pinned when first versioned', S.configSnapshot && S.configSnapshot.values.broker_fee_invoice_default.value===fee0 && S.configSnapshot.values.discretionary_max_debit.value===25 && !S.configSnapshot.values.market_lock_days && !S.configSnapshot.values.discretionary_tax_pct);
+    delete S.broker_fee;
+    var firstFee = buildFuturisticQuoteFigures(S).brokerFee;
+    currentUserRole = 'senior_uw'; propose('broker_fee_invoice_default','95',plus(0),'Raise the default policy fee for new quotes');
+    currentUserRole = 'senior'; cfgDecide('broker_fee_invoice_default', true);
+    t('config changed globally', cfgValue('broker_fee_invoice_default')===95);
+    t('the issued quote still uses its pinned default fee', buildFuturisticQuoteFigures(S).brokerFee === firstFee && firstFee === fee0, firstFee + ' vs ' + buildFuturisticQuoteFigures(S).brokerFee);
+    var N = clone(seed); N.id='SUB-NEW'; delete N.configSnapshot; delete N.broker_fee; N.placementType='admitted'; SUBMISSIONS_DATASET.push(N); activeSubmissionId = N.id;
+    t('a new submission uses the new default fee', buildFuturisticQuoteFigures(N).brokerFee === 95);
+    recordQuoteVersion(S, false);
+    t('pin is taken once, not refreshed', S.configSnapshot.values.broker_fee_invoice_default.value===fee0);
+    t('cfgValueFor uses the pin', cfgValueFor(S,'broker_fee_invoice_default')===fee0 && cfgValueFor(N,'broker_fee_invoice_default')===95);
+
+    // consumers
+    currentUserRole = 'senior_uw'; propose('broker_fee_invoice_default','75',plus(0),'Align invoice default fee to new schedule');
+    currentUserRole = 'senior'; cfgDecide('broker_fee_invoice_default', true);
+    var Z = clone(seed); Z.id='SUB-FEE'; delete Z.broker_fee; Z.placementType='admitted'; SUBMISSIONS_DATASET.push(Z);
+    var f = typeof buildFuturisticQuoteFigures === 'function' ? buildFuturisticQuoteFigures(Z) : null;
+    t('invoice default fee comes from config', !f || f.brokerFee === 75, f ? String(f.brokerFee) : 'no figures');
+    t('XSS-safe', cfgEsc('<b>') === '&lt;b&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  try { localStorage.removeItem(CFG_STORAGE_KEY); } catch(e) {}
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

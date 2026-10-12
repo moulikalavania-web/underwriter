@@ -80,13 +80,29 @@ function slBasisFor(sub, state) {
   return { state, taxPct: null, stampingPct: null, source: "none", usable: false, confirmed: false, entry: null, reason: state ? `No surplus lines schedule is loaded for ${state}; a senior user must enter and source the rate.` : "The home state could not be determined." };
 }
 
-/** Premium the tax applies to: the final premium less any tax already on the quote. */
+/**
+ * Premium the tax applies to. The discretionary-pricing Final Quoted Premium is the policy premium before tax, so it is the
+ * base as it stands. Only when there is no priced premium and just the rating engine's figure (which includes tax) is the
+ * quote's tax taken back out.
+ */
 function slPremiumBase(sub) {
   const dp = sub.discretionaryPricing, q = sub.importedRatingData && sub.importedRatingData.quote;
-  const final = (dp && dp.finalPremium) || (q && q.finalPremium) || 0;
+  if (dp && dp.finalPremium) return { final: dp.finalPremium, tax: 0, county: 0, base: dp.finalPremium, hasQuote: !!q };
+  const final = (q && q.finalPremium) || 0;
   if (!q) return { final, tax: 0, county: 0, base: final, hasQuote: false };
   const tax = Number(q.tax) || 0, county = Number(q.countyTax) || 0;
   return { final, tax, county, base: slRound(Math.max(0, final - tax - county)), hasQuote: true };
+}
+
+/** The tax lines for the quote screen: what applies on this submission's premium, from the one confirmed basis. */
+function slTaxFor(sub) {
+  const county = Number(sub.importedRatingData && sub.importedRatingData.quote && sub.importedRatingData.quote.countyTax) || 0;
+  if (!slIsSurplus(sub)) return { applicable: false, tax: 0, stamping: 0, county, total: county, note: "Admitted placement: no surplus lines tax" };
+  const basis = slBasisFor(sub, slHomeState(sub)), base = slPremiumBase(sub).base;
+  if (!basis.usable) return { applicable: true, usable: false, tax: 0, stamping: 0, county, total: county, note: basis.reason };
+  const e = slExpected(base, basis);
+  return { applicable: true, usable: true, tax: e.tax, stamping: e.stamping, county, total: slRound(e.tax + e.stamping + county), taxPct: basis.taxPct, stampingPct: basis.stampingPct, state: basis.state,
+    note: `${basis.state} surplus lines tax ${basis.taxPct}% + stamping fee ${basis.stampingPct}%` };
 }
 
 function slExpected(base, basis) {
@@ -154,9 +170,17 @@ function slPlacingBrokerStatus(sub, state) {
   if (!name) return { ok: false, broker: "", reason: "No placing broker is recorded. A surplus lines licensed broker must place the risk." };
   if (typeof lookupProducerRecord !== "function") return { ok: false, broker: name, reason: "Producer licensing data is not available." };
   const rec = lookupProducerRecord(name);
-  if (!rec) return { ok: false, broker: name, reason: `No licensing record found for ${name}.` };
   if (!state) return { ok: false, broker: name, reason: "The home state could not be determined." };
   const today = slToday();
+  // No registry record: a verified lookup recorded on the Producer Licence card (for the submitting broker) stands in for it.
+  const man = sub.producerCheck && sub.producerCheck.manual;
+  if (!rec && man && (!sub.slPlacingBroker || sub.slPlacingBroker === sub.broker)) {
+    if (man.state !== state) return { ok: false, broker: name, reason: `The recorded lookup for ${name} is for ${man.state}, not ${state}.` };
+    if (man.licenseExpires < today) return { ok: false, broker: name, reason: `The recorded ${state} licence for ${name} has expired.` };
+    if (!man.surplusLines) return { ok: false, broker: name, reason: `The recorded lookup does not show surplus lines authority in ${state}. Record a lookup that does, or place the risk through a licensed surplus lines broker.` };
+    return { ok: true, broker: name, license: man.licenseNumber, reason: `${name} holds surplus lines authority in ${state} (licence ${man.licenseNumber}, recorded lookup).` };
+  }
+  if (!rec) return { ok: false, broker: name, reason: `No licensing record found for ${name}. Record a verified lookup on the Producer Licence card (Step 2), including surplus lines authority.` };
   const lic = (rec.licenses || []).filter(l => l.state === state)[0];
   if (!lic) return { ok: false, broker: name, reason: `${name} holds no licence in ${state}.` };
   if (String(lic.status).toLowerCase() !== "active" || lic.expires < today) return { ok: false, broker: name, reason: `${name}'s ${state} licence is not active.` };
@@ -528,24 +552,9 @@ function slGuardBind(source, subId) {
       return r;
     };
   }
-
-  // Discretionary pricing adds "taxes and fees" as one flat percentage. For a surplus lines placement with a usable basis,
-  // use that state's tax plus stamping fee instead of the flat default (3.2%, or whatever the product JSON said).
-  function withStateTax(fn) {
-    return function () {
-      const sub = slActiveSub();
-      const rates = sub ? slRatesFor(sub) : null;
-      if (!rates || typeof DISCRETIONARY_TAX_RATE_PCT !== "number") return fn.apply(this, arguments);
-      const keep = DISCRETIONARY_TAX_RATE_PCT;
-      DISCRETIONARY_TAX_RATE_PCT = slRound(rates.taxPct + rates.stampingPct);
-      try { return fn.apply(this, arguments); } finally { DISCRETIONARY_TAX_RATE_PCT = keep; }
-    };
-  }
-  if (typeof window.computeFinalQuotedPremium === "function") window.computeFinalQuotedPremium = withStateTax(window.computeFinalQuotedPremium);
-  if (typeof window.renderDiscretionaryPricingCard === "function") window.renderDiscretionaryPricingCard = withStateTax(window.renderDiscretionaryPricingCard);
 })();
 
 window.slSetPlacement = slSetPlacement; window.slConfirmTableBasis = slConfirmTableBasis; window.slSetManualBasis = slSetManualBasis;
 window.slClearBasis = slClearBasis; window.slAddDeclination = slAddDeclination; window.slSetExemption = slSetExemption; window.slRemoveExemption = slRemoveExemption;
 window.slSetPlacingBroker = slSetPlacingBroker; window.slAckDisclosure = slAckDisclosure; window.slMarkFiled = slMarkFiled; window.slDownloadAffidavit = slDownloadAffidavit;
-window.renderSurplusCard = renderSurplusCard; window.slRatesFor = slRatesFor;
+window.slTaxFor = slTaxFor; window.renderSurplusCard = renderSurplusCard; window.slRatesFor = slRatesFor;

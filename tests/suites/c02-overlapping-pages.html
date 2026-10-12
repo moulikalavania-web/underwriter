@@ -1,0 +1,87 @@
+<!-- Suite C02: one home for each overlapping page or view. Run with: python tests/run.py --suite c02
+     Audit history lives in the Audit Log; declines live in the Decline Center; quote history is a tab of Quote Intelligence;
+     the only way to change user is the sign-in screen; the User Master and Archive descriptions say what they hold. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; var origToast = window.showToast; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  function mk(id, over){ var s = clone(seedT); s.id = id; s.decisionLog = []; s.apiSourced = true; for (var k in (over||{})) s[k] = over[k]; return s; }
+  try {
+    // ---------- 1. audit trail: one home
+    var keepLog = ARCHIVAL_POLICY.changeLog.slice();
+    ARCHIVAL_POLICY.changeLog.push({ by: 'Priya Nair (Head of Underwriting)', at: '2026-09-01 10:00', summary: 'Set to archive "Declined / Terminated" records after 30 day(s).' });
+    var pe = collectAuditLogEntries().filter(function(e){ return e.type === 'archival_policy_changed'; });
+    t('archival policy changes are in the Audit Log', pe.length === ARCHIVAL_POLICY.changeLog.length && pe.some(function(e){ return /30 day/.test(e.note); }) && auditActionMeta('archival_policy_changed').label === 'Archival Policy Changed');
+    ARCHIVAL_POLICY.changeLog = keepLog;
+    t('the Archive page no longer keeps its own history list or calls itself an audit trail', !el('archivalPolicyAuditTrail') && /Archive &amp; Retention/.test(document.getElementById('archivePageView').innerHTML) && !/Compliance Audit Trail/.test(document.getElementById('archivePageView').innerHTML));
+    t('dead premium-adjustment audit types are gone', !AUDIT_ACTION_META.premium_adjustment && !AUDIT_ACTION_META.premium_override);
+    var ta = el('teamActivityPageView').innerHTML;
+    t('Team Activity says it is the live workload and points to the Audit Log for history', /Live workload/.test(ta) && /showAuditLogPage/.test(ta));
+
+    // ---------- 2. user master description
+    var um = el('userMasterPageView').innerHTML;
+    t('User Master no longer claims to monitor activity', !/monitor team-wide process activity/.test(um) && /Team Activity page/.test(um));
+
+    // ---------- 3. declines: one list
+    t('the Decline Center has a retention column', /<th>Retention<\/th>/.test(el('declinePageView').innerHTML));
+    var keepPolicy = JSON.parse(JSON.stringify(ARCHIVAL_POLICY));
+    var d1 = mk('D1', { lifecycleStatus:'declined', lifecycleStatusAt: Date.now() - 10*86400000 });
+    ARCHIVAL_POLICY.triggerStatus = 'declined'; ARCHIVAL_POLICY.retentionDays = 90;
+    t('retention text: days to eligibility', /80 day\(s\) to archive eligibility/.test(declineRetentionText(d1)), declineRetentionText(d1));
+    d1.lifecycleStatusAt = Date.now() - 100*86400000;
+    t('retention text: eligible', declineRetentionText(d1) === 'Eligible for archive');
+    d1.archived = true; d1.archivedAt = Date.parse('2026-09-15T00:00:00Z');
+    t('retention text: archived', declineRetentionText(d1) === 'Archived 2026-09-15');
+    ARCHIVAL_POLICY.triggerStatus = 'retired'; d1.archived = false;
+    t('retention text: policy archives other statuses; unknown record', /Retained/.test(declineRetentionText(d1)) && declineRetentionText(null) === '—');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(d1);
+    var keepDecl = DECLINE_LOG.slice(); DECLINE_LOG.length = 0;
+    DECLINE_LOG.push({ subId:'D1', insured:'Ins D1', lob:'Trucking', triggerPoint:'Appetite Knockout', reason:'Outside appetite', at:'2026-08-01 09:00' });
+    renderDeclineCenter();
+    t('the Decline Center row shows the reason and where the record stands under retention', /Outside appetite/.test(el('exitAuditTable').innerHTML) && /Retained/.test(el('exitAuditTable').innerHTML) && el('exitAuditTable').querySelectorAll('td').length === 8);
+    ARCHIVAL_POLICY.triggerStatus = 'declined'; d1.lifecycleStatusAt = Date.now() - 100*86400000; changeUserRole('admin'); renderArchivalEligibilityQueue();
+    t('the Archive queue points declined records back to the Decline Center instead of repeating them', /reason in Decline Center/.test(el('archivalEligibilityQueue').innerHTML));
+    DECLINE_LOG.length = 0; keepDecl.forEach(function(x){ DECLINE_LOG.push(x); });
+    Object.keys(keepPolicy).forEach(function(k){ ARCHIVAL_POLICY[k] = keepPolicy[k]; });
+
+    // ---------- 4. quote history: one home
+    t('no separate Quote Versioning page or menu item', !el('quoteVersionsPageView') && !el('navItemQuoteVersions'));
+    var qi = el('quoteIntelligencePageView');
+    t('Version History is a tab and panel of Quote Intelligence', !!el('qiTabVersions') && !!el('qiPanelVersions') && qi.contains(el('qiPanelVersions')) && qi.contains(el('quoteVersionCardsContainer')));
+    var d2 = mk('V1'); SUBMISSIONS_DATASET.push(d2);
+    showQuoteVersionsPage();
+    t('the old entry point opens Quote Intelligence on the Version History tab', currentPage === 'quote-intel' && quoteIntelActiveTab === 'versions' && el('qiPanelVersions').style.display === 'block' && el('qiTabVersions').classList.contains('active'));
+    switchQuoteIntelTab('compare');
+    t('other tabs hide it', el('qiPanelVersions').style.display === 'none' && !el('qiTabVersions').classList.contains('active') && el('qiPanelCompare').style.display === 'block');
+    switchQuoteIntelTab('bdx');
+    t('add-on tabs (bordereaux) hide it too', el('qiPanelVersions').style.display === 'none');
+    switchQuoteIntelTab('versions');
+    t('and it comes back', el('qiPanelVersions').style.display === 'block' && el('qiPanelBdx').style.display === 'none' && el('qiPanelConfig').style.display === 'none');
+    t('the version panel shows live figures, not fixed demo numbers', !/Test DR Sanjiv/.test(el('qiPanelVersions').innerHTML) && /^\d+ Submission/.test(el('kpiActiveSubs').textContent) && /^\d+ Active/.test(el('kpiActiveQuotes').textContent));
+    recordQuoteVersion(d2, false); renderQuoteVersionsLedger();
+    t('the submission picker lists the submissions that have quotes', Array.prototype.some.call(el('versionSubSelect').options, function(o){ return o.value === 'V1'; }) && /^1 Submission/.test(el('kpiActiveSubs').textContent) && /^1 Active/.test(el('kpiActiveQuotes').textContent), el('kpiActiveSubs').textContent + ' / ' + el('kpiActiveQuotes').textContent);
+    t('the menu calls it Quote Intelligence', /Quote Intelligence/.test(document.getElementById('navItemQuoteIntel').textContent));
+    t('the CSV export is still wired', typeof exportQuoteVersionsCSV === 'function' && /exportQuoteVersionsCSV/.test(el('qiPanelVersions').innerHTML));
+
+    // ---------- 5. one way to choose who you are
+    t('the header role dropdown is gone; "Switch user" exists', !el('userRoleSelect') && !document.querySelector('.user-role-selector-group') && !!el('btnSwitchUser'));
+    changeUserRole('senior_uw');
+    t('changing role needs no dropdown', currentUserRole === 'senior_uw' && el('sidebarUserName').textContent === USER_ROLES_CONFIG.senior_uw.name);
+    switchUser();
+    t('Switch user returns to sign-in with the current user preselected', document.body.classList.contains('pre-login') && el('loginUserSelect').value === 'senior_uw');
+    var n0 = el('loginUserSelect').options.length;
+    el('loginUserSelect').value = 'senior'; el('loginPasswordInput').value = 'secret';
+    submitLogin();
+    t('signing in again changes the persona and enters the app', !document.body.classList.contains('pre-login') && currentUserRole === 'senior' && n0 >= 5);
+    t('new personas (team roster) are selectable at sign-in', Array.prototype.some.call(el('loginUserSelect').options, function(o){ return o.value === 'broker_user'; }) || (switchUser(), Array.prototype.some.call(el('loginUserSelect').options, function(o){ return o.value === 'broker_user'; })));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

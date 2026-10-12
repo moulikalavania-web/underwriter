@@ -7,7 +7,7 @@ run<!--
   Rationale: This module's domain is commercial trucking/auto underwriting,
   which has no analog in the platform's official product list (Private Car,
   SME Property, Group Health, Marine Cargo, Travel). Its role hierarchy
-  (Assistant → Junior UW → Senior UW → CUO → Binding Ops → Auditor → Admin)
+  (Underwriting Assistant → Underwriter I → Senior Underwriter → CUO → Compliance → Admin)
   is a 7-role underwriting authority ladder that does not map to the
   platform's 6 generic named users (PM/Actuary/UW Manager/Compliance/
   Publisher/Admin) without producing inaccurate role labels.
@@ -107,17 +107,6 @@ run<!--
         <span class="badge badge-primary text-xs" id="headerActiveCaseBadge"></span>
       </button>
 
-      <div class="user-role-selector-group">
-        <label for="userRoleSelect"><i class="ph ph-user-shield"></i> UW Role:</label>
-        <select id="userRoleSelect" class="role-dropdown" onchange="changeUserRole(this.value)">
-          <option value="assistant" selected>📋 Intern (Emily Watson - $0 Limit)</option>
-          <option value="junior">👨‍💼 Junior UW (Sarah Jenkins - $2M Limit)</option>
-          <option value="senior_uw">👩‍💼 Senior Underwriter (David Chen - $10M Limit)</option>
-          <option value="senior">👔 Chief Underwriting Officer / CUO (Marcus Vance - $25M Limit)</option>
-          <option value="admin">🛠️ System Administrator (Priya Nair - Full Access)</option>
-        </select>
-      </div>
-
       <div class="lob-selector-group">
         <label for="lobSelect"><i class="ph ph-stack"></i> Product </label>
         <select id="lobSelect" class="lob-dropdown">
@@ -169,22 +158,16 @@ run<!--
               </div>
             </button>
 
-            <button class="sidebar-nav-item" id="navItemQuoteVersions" onclick="showQuoteVersionsPage()" title="Quote Versioning">
-              <div class="nav-icon"><i class="ph ph-stack"></i></div>
-              <div class="nav-text">
-                <span class="nav-title">Quote Versioning</span>
-              </div>
-            </button>
           </nav>
         </div>
 
         <div class="sidebar-section">
-          <div class="sidebar-section-title" id="navLabelComparison">COMPARISON</div>
+          <div class="sidebar-section-title" id="navLabelComparison">QUOTES</div>
           <nav class="sidebar-nav" aria-labelledby="navLabelComparison">
             <button class="sidebar-nav-item" id="navItemQuoteIntel" onclick="showQuoteIntelligencePage()" title="Quote Intelligence">
               <div class="nav-icon"><i class="ph ph-chart-bar"></i></div>
               <div class="nav-text">
-                <span class="nav-title">Quote Comparison</span>
+                <span class="nav-title">Quote Intelligence</span>
               </div>
             </button>
 
@@ -224,7 +207,7 @@ run<!--
         </div>
 
         <div class="sidebar-section u-hidden" id="sidebarAdminSection">
-          <div class="sidebar-section-title" id="navLabelAdmin">ADMIN</div>
+          <div class="sidebar-section-title" id="navLabelAdmin">UNDERWRITING MANAGEMENT</div>
           <nav class="sidebar-nav" aria-labelledby="navLabelAdmin">
             <button class="sidebar-nav-item" id="navItemArchive" onclick="showArchivePage()" title="Archive">
               <div class="nav-icon"><i class="ph ph-archive"></i></div>
@@ -293,8 +276,11 @@ run<!--
           <div class="user-avatar-circle" id="sidebarUserAvatar">👨‍💼</div>
           <div class="user-info-text">
             <strong id="sidebarUserName">Sarah Jenkins</strong>
-            <span id="sidebarUserRoleTitle">Junior UW ($2M Limit)</span>
+            <span id="sidebarUserRoleTitle">Underwriter I ($2M)</span>
           </div>
+          <button type="button" class="btn-icon" id="btnSwitchUser" title="Switch user (back to sign-in)" aria-label="Switch user" onclick="switchUser()">
+            <i class="ph ph-user-switch"></i>
+          </button>
           <button type="button" class="btn-icon" title="Clear saved session" aria-label="Clear saved session" onclick="if(confirm('Clear your saved session? All ingested data will be lost and the app will reload blank. This cannot be undone.')) resetPrototypeData();" style="margin-left:auto; background:transparent; border:none; color:#94a3b8; cursor:pointer; padding:4px;">
             <i class="ph ph-arrow-counter-clockwise"></i>
           </button>
@@ -740,7 +726,7 @@ run<!--
                   <label class="form-row-label" for="manualUnderwriterSelect"><i class="ph ph-user-check text-muted"></i> Assigned Underwriter (Optional):</label>
                   <select id="manualUnderwriterSelect" class="form-control-sm" onchange="onManualAssignmentChange()">
                     <option value="Unassigned (Open Team Queue)">⚡ Unassigned (Open Team Pool)</option>
-                    <option value="Sarah Jenkins (Senior Fleet UW)">Sarah Jenkins (Senior Fleet UW)</option>
+                    <option value="Sarah Jenkins (Underwriter I)">Sarah Jenkins (Underwriter I)</option>
                     <option value="David Chen (Property Senior UW)">David Chen (Property Senior UW)</option>
                     <option value="Elena Rostova (GL / Casualty UW)">Elena Rostova (GL / Casualty UW)</option>
                     <option value="Marcus Vance (Senior UW / CUO)">Marcus Vance (Senior UW / CUO)</option>
@@ -926,7 +912,7 @@ run<!--
               <div class="authority-matrix-box">
                 <div class="auth-stat-row">
                   <span class="lbl">Active Underwriter Persona:</span>
-                  <strong class="val" id="authUnderwriterName">Sarah Jenkins (Junior UW - $2M Limit)</strong>
+                  <strong class="val" id="authUnderwriterName">Sarah Jenkins (Underwriter I - $2M Limit)</strong>
                 </div>
                 <div class="auth-stat-row">
                   <span class="lbl">Maximum Single Risk Authority Limit:</span>
@@ -957,26 +943,22 @@ run<!--
             </div>
           </div>
 
-          <!-- Senior UW Referral Desk & Junior Escalation Form -->
+          <!-- Senior Underwriter Referral Desk & Underwriter Escalation Form -->
           <div class="card" id="referralCard">
             <div class="card-header">
               <h3><i class="ph ph-user-check"></i> Step 13 - 14: Senior UW Referral & Sign-Off Desk</h3>
               <span class="badge badge-info" id="referralStatusBadge">Sign-Off Complete (Ready for Pricing)</span>
             </div>
             <div class="card-body">
-              <!-- Junior View Panel: When Junior UW is logged in -->
+              <!-- Junior View Panel: When the Underwriter I is logged in -->
               <div id="juniorUWPanel">
                 <div class="referral-note">
                   <div class="note-author">
-                    <i class="ph ph-chat-dots"></i> <strong>Junior UW Escalation Notes:</strong>
+                    <i class="ph ph-chat-dots"></i> <strong>Underwriter Escalation Notes:</strong>
                   </div>
-                  <textarea class="form-control mt-2" id="juniorEscalationText" rows="3" placeholder="Enter notes and justification for Senior UW referral...">Risk exposure exceeds $2.0M Level-2 authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</textarea>
+                  <textarea class="form-control mt-2" id="juniorEscalationText" rows="3" placeholder="Enter notes and justification for Senior UW referral...">Risk exposure exceeds $2.0M Underwriter I authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</textarea>
                 </div>
-                <div class="mt-3" id="juniorActionBox">
-                  <button class="btn btn-warning" id="btnJuniorEscalate" onclick="submitJuniorEscalation()">
-                    <i class="ph ph-paper-plane-tilt"></i> Refer to Senior — Marcus Vance (CUO)
-                  </button>
-                </div>
+                <div class="mt-3" id="juniorActionBox"><!-- filled by renderAuthorityScreen --></div>
               </div>
 
               <!-- Senior View Panel: When Senior UW / CUO is logged in -->
@@ -986,7 +968,7 @@ run<!--
                     <div class="note-author">
                       <i class="ph ph-user-tie text-primary"></i> <strong>Escalation from Primary UW (Sarah Jenkins):</strong>
                     </div>
-                    <p id="primaryUWNoteText" class="mt-1 text-sm">Risk exposure exceeds $2.0M Level-2 authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</p>
+                    <p id="primaryUWNoteText" class="mt-1 text-sm">Risk exposure exceeds $2.0M Underwriter I authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</p>
                   </div>
 
                   <div class="senior-approval-panel mt-3">
@@ -996,7 +978,7 @@ run<!--
                         <i class="ph ph-signature"></i> Approve & Sign-Off (CUO Authority)
                       </button>
                       <button class="btn btn-outline-warning" onclick="seniorUWAction('revise')">
-                        <i class="ph ph-arrow-counter-clockwise"></i> Request Junior UW Revision
+                        <i class="ph ph-arrow-counter-clockwise"></i> Request Underwriter Revision
                       </button>
                       <button class="btn btn-outline-danger" onclick="seniorUWAction('decline')">
                         <i class="ph ph-prohibit"></i> Decline & Reject Risk
@@ -1371,9 +1353,9 @@ run<!--
         <div class="archive-header-left">
           <div class="archive-header-title">
             <i class="ph ph-archive text-danger u-fs-24"></i>
-            <h2>Archive & Compliance Audit Trail</h2>
+            <h2>Archive &amp; Retention</h2>
           </div>
-          <p class="archive-header-desc">Configurable retention policy and archival queue for retired, bound-closed, and terminated submission records with full compliance tracking.</p>
+          <p class="archive-header-desc">Configurable retention policy and archival queue for retired, bound-closed and declined submission records. Every archiving action and policy change is recorded in the Audit Log.</p>
         </div>
         <div class="archive-header-right">
           <button class="btn btn-sm btn-outline" onclick="showIntakePage()">
@@ -1384,7 +1366,7 @@ run<!--
 
       <!-- Admin-only restriction notice (shown when content is hidden) -->
       <div id="archivePageAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px;">
-        <i class="ph ph-lock"></i> The Archive module — including the archival policy and archived records — is restricted to the System Administrator persona.
+        <i class="ph ph-lock"></i> The Archive module — including the archival policy and archived records — is restricted to the Head of Underwriting.
       </div>
 
       <!-- Screen 9: Archival Policy & Eligibility -->
@@ -1431,12 +1413,11 @@ run<!--
             <div id="archivalPolicySummary" class="alert alert-info mt-3 u-fs-12-5">
               <i class="ph ph-info"></i> <span id="archivalPolicySummaryText">Loading current policy…</span>
             </div>
-            <div id="archivalPolicyAuditTrail" class="text-xs text-muted mt-2"></div>
           </div>
         </div>
 
         <div id="archivalEligibilityAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px; margin-top:16px;">
-          <i class="ph ph-lock"></i> The Archival Eligibility Queue is restricted to the System Administrator persona.
+          <i class="ph ph-lock"></i> The Archival Eligibility Queue is restricted to the Head of Underwriting.
         </div>
         <div id="archivalEligibilityQueue"><!-- rendered dynamically by renderArchivalEligibilityQueue() --></div>
       </section>
@@ -1511,6 +1492,7 @@ run<!--
                   <th>Exit Trigger Point</th>
                   <th>Reason / Rationale</th>
                   <th>Timestamp</th>
+                  <th>Retention</th>
                   <th>Action</th>
                 </tr>
               </thead>
@@ -1526,87 +1508,7 @@ run<!--
     <!-- ================================================================ -->
     <!-- TOP-LEVEL PAGE 4: SUBMISSION QUOTE VERSION HISTORY -->
     <!-- ================================================================ -->
-    <div class="page-view u-hidden" id="quoteVersionsPageView">
-      
-      <!-- Header Banner -->
-      <div class="archive-header-bar quote-versions-header-bar">
-        <div class="archive-header-left">
-          <div class="archive-header-title">
-            <i class="ph ph-stack text-primary u-fs-24"></i>
-            <h2>Submission Quote Version History</h2>
-          </div>
-          <p class="archive-header-desc">
-            Har submission ke behalf par generate hue saare quotes ki clear version history (Initial Quotes, Revised Quotes, aur Final Bound Terms).
-          </p>
-        </div>
-        <div class="archive-header-right u-row-gap8">
-          <button class="btn btn-sm btn-success" onclick="exportQuoteVersionsCSV()">
-            <i class="ph ph-file-csv"></i> Export to CSV
-          </button>
-          <button class="btn btn-sm btn-outline" onclick="showIntakePage()">
-            <i class="ph ph-arrow-left"></i> Return to Intake Hub
-          </button>
-        </div>
-      </div>
 
-      <!-- Quick Summary Metric Bar -->
-      <div class="versions-summary-bar mb-3">
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Total Quotes Generated</span>
-          <strong class="v-sum-val" id="kpiTotalVersions">14 Quotes</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Active Submissions</span>
-          <strong class="v-sum-val">6 Submissions</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Bound Policies</span>
-          <strong class="v-sum-val text-success" id="kpiBoundCount">3 Bound</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Active / In Progress</span>
-          <strong class="v-sum-val text-primary">3 Active</strong>
-        </div>
-      </div>
-
-      <!-- Filter & Search Toolbar -->
-      <div class="table-filter-bar mb-3">
-        <div class="filter-tabs" id="versionStatusFilterTabs">
-          <button class="tab-btn active" id="tabFilterVerAll" onclick="filterQuoteVersions('all')">All Quotes (<span id="tabCountVerAll">14</span>)</button>
-          <button class="tab-btn" id="tabFilterVerBound" onclick="filterQuoteVersions('bound')"><i class="ph ph-lock text-success"></i> Bound Policies (<span id="tabCountVerBound">3</span>)</button>
-          <button class="tab-btn" id="tabFilterVerActive" onclick="filterQuoteVersions('active')"><i class="ph ph-lightning text-primary"></i> Latest Active Quotes (<span id="tabCountVerActive">4</span>)</button>
-          <button class="tab-btn" id="tabFilterVerSuperceded" onclick="filterQuoteVersions('superceded')"><i class="ph ph-clock-counter-clockwise text-muted"></i> Previous Versions (<span id="tabCountVerSuperceded">7</span>)</button>
-        </div>
-
-        <div class="table-right-controls" style="display: flex; gap: 10px; align-items: center;">
-          <div class="submission-select-box" style="display: flex; align-items: center; gap: 6px;">
-            <label for="versionSubSelect" style="font-size: 11.5px; font-weight: 700; color: #475569; white-space: nowrap;">
-              <i class="ph ph-folder-open text-primary"></i> Select Submission:
-            </label>
-            <select id="versionSubSelect" class="form-control form-control-sm" style="font-weight: 700; min-width: 260px;" onchange="onVersionSubSelectChange(this.value)">
-              <option value="all" selected>All Submissions (14 Quotes)</option>
-              <option value="SUB-48213-TX">SUB-48213-TX • Apex Freight LLC (4 Versions)</option>
-              <option value="SUB-45537">SUB-45537 • Test DR Sanjiv (3 Versions)</option>
-              <option value="SUB-49002-IL">SUB-49002-IL • Midwest Bulk Haulers (2 Versions)</option>
-              <option value="SUB-47991-CA">SUB-47991-CA • Precision Machining (2 Versions)</option>
-              <option value="SUB-50122-FL">SUB-50122-FL • Coastal Cold Storage (2 Versions)</option>
-              <option value="SUB-46109-TX">SUB-46109-TX • Lone Star Heavy Haul (1 Version)</option>
-            </select>
-          </div>
-          
-          <div class="search-box">
-            <i class="ph ph-magnifying-glass search-icon"></i>
-            <input type="text" id="versionSearchInput" placeholder="Search Insured, Quote #, Status..." onkeyup="searchQuoteVersionsTable()">
-          </div>
-        </div>
-      </div>
-
-      <!-- Submissions Quote Version Cards Container -->
-      <div id="quoteVersionCardsContainer" class="quote-version-cards-container">
-        <!-- Rendered dynamically by renderQuoteVersionsLedger() -->
-      </div>
-
-    </div> <!-- /quoteVersionsPageView -->
 
     <!-- ================================================================ -->
     <!-- TOP-LEVEL PAGE 5: TEAM ACTIVITY (Admin/Manager Process Tracking) -->
@@ -1618,15 +1520,16 @@ run<!--
             <i class="ph ph-users-three text-primary u-fs-24"></i>
             <h2>Team Process Tracking</h2>
           </div>
-          <p class="archive-header-desc">Monitor what each team member is working on, current submission stage, completed activities, and pending or delayed tasks.</p>
+          <p class="archive-header-desc">Live workload: what each team member is working on right now, each case's current stage, and what is delayed. The history of what people did is in the Audit Log.</p>
         </div>
         <div class="archive-header-right">
+          <button class="btn btn-sm btn-outline" onclick="showAuditLogPage()"><i class="ph ph-clock-counter-clockwise"></i> Action history (Audit Log)</button>
           <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
         </div>
       </div>
 
       <div id="teamActivityAuthNotice" class="alert alert-danger" style="display:none; font-size:12.5px; margin-bottom:12px;">
-        <i class="ph ph-lock"></i> Team Activity is restricted to the System Administrator persona.
+        <i class="ph ph-lock"></i> Team Activity is restricted to the Head of Underwriting.
       </div>
 
       <div id="teamActivityMonthlyChart"><!-- rendered dynamically by renderTeamActivityMonthlyChart() --></div>
@@ -1689,9 +1592,9 @@ run<!--
         <div class="archive-header-left">
           <div class="archive-header-title">
             <i class="ph ph-chart-bar text-primary u-fs-24"></i>
-            <h2>Quote Comparison</h2>
+            <h2>Quote Intelligence</h2>
           </div>
-          <p class="archive-header-desc">Compare a customer's prior policy against the new quote, and compare multiple quotes with matching coverage side by side.</p>
+          <p class="archive-header-desc">Quote version history, prior-policy against new-quote comparison, multi-quote comparison, renewals, rates and limits, carrier bordereaux and performance.</p>
         </div>
         <div class="archive-header-right">
           <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
@@ -1699,7 +1602,8 @@ run<!--
       </div>
 
       <div class="filter-tabs mb-3" id="qiTabNav">
-        <button class="tab-btn active" id="qiTabRenewal" onclick="switchQuoteIntelTab('renewal')"><i class="ph ph-arrows-clockwise"></i> Old vs New (Renewal)</button>
+        <button class="tab-btn active" id="qiTabVersions" onclick="switchQuoteIntelTab('versions')"><i class="ph ph-stack"></i> Version History</button>
+        <button class="tab-btn" id="qiTabRenewal" onclick="switchQuoteIntelTab('renewal')"><i class="ph ph-arrows-clockwise"></i> Old vs New (Renewal)</button>
         <button class="tab-btn" id="qiTabCompare" onclick="switchQuoteIntelTab('compare')"><i class="ph ph-columns"></i> Multiple Quote Comparison</button>
         <button class="tab-btn" id="qiTabPipeline" onclick="switchQuoteIntelTab('pipeline')"><i class="ph ph-calendar-check"></i> Renewal Pipeline</button>
         <button class="tab-btn" id="qiTabConfig" onclick="switchQuoteIntelTab('config')"><i class="ph ph-sliders-horizontal"></i> Rates &amp; Limits</button>
@@ -1707,6 +1611,64 @@ run<!--
         <button class="tab-btn" id="qiTabPerf" onclick="switchQuoteIntelTab('perf')"><i class="ph ph-chart-line-up"></i> Performance</button>
       </div>
 
+      <!-- Panel: Version History (the quote ledger; was a separate Quote Versioning page) -->
+      <div id="qiPanelVersions" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
+          <p class="text-xs text-muted u-m0">Every quote generated on each submission: initial quotes, revised quotes and the final bound terms.</p>
+          <button class="btn btn-sm btn-success" style="width:auto;" onclick="exportQuoteVersionsCSV()"><i class="ph ph-file-csv"></i> Export to CSV</button>
+        </div>
+      <!-- Quick Summary Metric Bar -->
+      <div class="versions-summary-bar mb-3">
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Total Quotes Generated</span>
+          <strong class="v-sum-val" id="kpiTotalVersions">14 Quotes</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active Submissions</span>
+          <strong class="v-sum-val" id="kpiActiveSubs">0 Submissions</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Bound Policies</span>
+          <strong class="v-sum-val text-success" id="kpiBoundCount">3 Bound</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active / In Progress</span>
+          <strong class="v-sum-val text-primary" id="kpiActiveQuotes">0 Active</strong>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="table-filter-bar mb-3">
+        <div class="filter-tabs" id="versionStatusFilterTabs">
+          <button class="tab-btn active" id="tabFilterVerAll" onclick="filterQuoteVersions('all')">All Quotes (<span id="tabCountVerAll">14</span>)</button>
+          <button class="tab-btn" id="tabFilterVerBound" onclick="filterQuoteVersions('bound')"><i class="ph ph-lock text-success"></i> Bound Policies (<span id="tabCountVerBound">3</span>)</button>
+          <button class="tab-btn" id="tabFilterVerActive" onclick="filterQuoteVersions('active')"><i class="ph ph-lightning text-primary"></i> Latest Active Quotes (<span id="tabCountVerActive">4</span>)</button>
+          <button class="tab-btn" id="tabFilterVerSuperceded" onclick="filterQuoteVersions('superceded')"><i class="ph ph-clock-counter-clockwise text-muted"></i> Previous Versions (<span id="tabCountVerSuperceded">7</span>)</button>
+        </div>
+
+        <div class="table-right-controls" style="display: flex; gap: 10px; align-items: center;">
+          <div class="submission-select-box" style="display: flex; align-items: center; gap: 6px;">
+            <label for="versionSubSelect" style="font-size: 11.5px; font-weight: 700; color: #475569; white-space: nowrap;">
+              <i class="ph ph-folder-open text-primary"></i> Select Submission:
+            </label>
+            <select id="versionSubSelect" class="form-control form-control-sm" style="font-weight: 700; min-width: 260px;" onchange="onVersionSubSelectChange(this.value)">
+              <option value="all" selected>All Submissions</option>
+            </select>
+          </div>
+          
+          <div class="search-box">
+            <i class="ph ph-magnifying-glass search-icon"></i>
+            <input type="text" id="versionSearchInput" placeholder="Search Insured, Quote #, Status..." onkeyup="searchQuoteVersionsTable()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Submissions Quote Version Cards Container -->
+      <div id="quoteVersionCardsContainer" class="quote-version-cards-container">
+        <!-- Rendered dynamically by renderQuoteVersionsLedger() -->
+      </div>
+      </div>
+
       <!-- Panel: Renewal Pipeline (js/renewals.js) -->
       <div id="qiPanelPipeline" style="display:none;"><div id="renewalPipelineRoot"></div></div>
 
@@ -1773,7 +1735,7 @@ run<!--
 
       <div id="unifiedAccountAuthNotice" class="alert alert-warning" style="display:none; font-size:12.5px; margin-bottom:12px;">
         <i class="ph ph-lock"></i> Cross-LOB account visibility is restricted to authorized roles (Senior Underwriter, CUO, Binding Ops, Auditor, Admin). Your current persona doesn't have access.
-        <button class="btn btn-xs btn-primary" style="margin-left:8px;" onclick="document.getElementById('userRoleSelect').value='senior_uw'; changeUserRole('senior_uw'); showUnifiedAccountPage();">
+        <button class="btn btn-xs btn-primary" style="margin-left:8px;" onclick="changeUserRole('senior_uw'); showUnifiedAccountPage();">
           Switch to Senior Underwriter
         </button>
       </div>
@@ -1814,7 +1776,7 @@ run<!--
             <i class="ph ph-shield-check text-primary u-fs-24"></i>
             <h2>User Master</h2>
           </div>
-          <p class="archive-header-desc">Admin-only dashboard: monitor team-wide process activity and configure exactly which role can view, edit, approve, override, or archive each part of the system.</p>
+          <p class="archive-header-desc">Head of Underwriting only: manage the team roster and configure exactly which role can view, edit, approve, override, or archive each part of the system. Live team workload is on the Team Activity page.</p>
         </div>
         <div class="archive-header-right">
           <button class="btn btn-sm btn-outline" onclick="showIntakePage()"><i class="ph ph-arrow-left"></i> Return to Intake Hub</button>
@@ -1822,7 +1784,7 @@ run<!--
       </div>
 
       <div id="userMasterAuthNotice" class="alert alert-danger" style="display:none; font-size:12.5px; margin-bottom:12px;">
-        <i class="ph ph-lock"></i> User Master is restricted to the System Administrator persona.
+        <i class="ph ph-lock"></i> User Master is restricted to the Head of Underwriting.
       </div>
 
       <div id="userMasterContent">
@@ -2027,35 +1989,6 @@ run<!--
        an underwriter opens the Data Enrichment & Smart Routing step, while
        the system "fetches" NHTSA / FMCSA / State DMV registry data for the
        submission's vehicle schedule. Closes itself once the fetch finishes. -->
-  <div class="modal-overlay u-hidden" id="registryFetchModal" role="dialog" aria-modal="true">
-    <div class="modal-content" style="max-width: 440px;">
-      <div class="modal-header">
-        <div class="u-row-gap10">
-          <i class="ph ph-cloud-arrow-down text-primary u-fs-22"></i>
-          <div>
-            <h3 class="u-title-16">Fetching Registry Data</h3>
-            <p class="text-xs text-muted u-m0">Verifying vehicle &amp; carrier data against third-party registries.</p>
-          </div>
-        </div>
-      </div>
-      <div class="modal-body">
-        <div class="registry-fetch-row" id="registryFetchRow_nhtsa">
-          <span class="registry-fetch-status"><i class="ph ph-circle-notch ph-spin"></i></span>
-          <span class="registry-fetch-label">Fetching NHTSA data&hellip;</span>
-        </div>
-        <div class="registry-fetch-row" id="registryFetchRow_fmcsa">
-          <span class="registry-fetch-status"><i class="ph ph-circle"></i></span>
-          <span class="registry-fetch-label">Fetching FMCSA data&hellip;</span>
-        </div>
-        <div class="registry-fetch-row" id="registryFetchRow_dmv">
-          <span class="registry-fetch-status"><i class="ph ph-circle"></i></span>
-          <span class="registry-fetch-label">Fetching State DMV data&hellip;</span>
-        </div>
-        <div class="registry-fetch-progress-track">
-          <div class="registry-fetch-progress-fill" id="registryFetchProgressFill"></div>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- E-Signature Modal — required before a quote is issued/bound. A typed
@@ -2145,7 +2078,7 @@ run<!--
       </div>
       <div class="modal-body">
         <div id="reviewRoutingModalAuthNotice" class="alert alert-warning py-2 px-3 mb-3" style="display:none; font-size:12px;">
-          <i class="ph ph-lock"></i> Review Routing Rules are restricted to the System Administrator persona.
+          <i class="ph ph-lock"></i> Review Routing Rules are restricted to the Head of Underwriting.
         </div>
 
         <div class="form-group mb-3">
@@ -2165,12 +2098,7 @@ run<!--
         </div>
 
         <div class="form-group mb-3">
-          <label class="u-label-sm">Require Senior review when customer trust/risk score is below</label>
-          <input type="number" id="ruleTrustScoreThreshold" class="form-control" value="65" min="0" max="100">
-        </div>
-
-        <div class="form-group mb-3">
-          <label class="u-label-sm">Require Senior review for risk level</label>
+          <label class="u-label-sm">Require Senior review for risk band (from the Risk Score)</label>
           <select id="ruleRiskLevelTrigger" class="form-control">
             <option value="high" selected>High risk only</option>
             <option value="medium_high">Medium and High risk</option>
@@ -2229,7 +2157,6 @@ run<!--
     </div>
   </div>
 
-  <!-- Trust Score-Based Premium Adjustment Modal (#7) -->
   <!-- Submission Intake — Quick Version List Modal -->
   <!-- Submission Intake — Customer Data Version History Modal -->
   <div class="modal-overlay u-hidden" id="intakeVersionListModal" role="dialog" aria-modal="true">
@@ -2360,7 +2287,7 @@ run<!--
         </div>
         <div class="form-group mb-3">
           <label class="u-label-sm">Job Title <span class="u-text-danger">*</span></label>
-          <input type="text" id="addUserTitle" class="form-control" placeholder="e.g. Junior Underwriter (L2)">
+          <input type="text" id="addUserTitle" class="form-control" placeholder="e.g. Underwriter II">
         </div>
         <div class="form-group mb-3">
           <label class="u-label-sm">Email</label>
@@ -2453,76 +2380,6 @@ run<!--
     </div>
   </div>
 
-  <div class="modal-overlay u-hidden" id="premiumAdjustModal" role="dialog" aria-modal="true">
-    <div class="modal-content modal-lg">
-      <div class="modal-header">
-        <div class="u-row-gap10">
-          <i class="ph ph-calculator text-primary u-fs-22"></i>
-          <div>
-            <h3 class="u-title-16">Adjust Premium Based on Trust/Risk Score</h3>
-            <p class="text-xs text-muted u-m0">Adjustments must stay within your authorized limit and are logged with reason and user details.</p>
-          </div>
-        </div>
-        <button class="btn-close" aria-label="Close" onclick="closePremiumAdjustModal()"><i class="ph ph-x"></i></button>
-      </div>
-      <div class="modal-body" id="premiumAdjustModalBody">
-        <!-- populated dynamically -->
-      </div>
-      <div class="modal-footer u-row-between">
-        <button class="btn btn-outline" onclick="closePremiumAdjustModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="submitPremiumAdjustment()"><i class="ph ph-check"></i> Save Adjustment</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay u-hidden" id="importQuoteJsonModal" role="dialog" aria-modal="true">
-    <div class="modal-content modal-lg">
-      <div class="modal-header">
-        <div class="u-row-gap10">
-          <i class="ph ph-file-code text-warning u-fs-22"></i>
-          <div>
-            <h3 class="u-title-16">Import Rating JSON from Local System</h3>
-            <p class="text-xs text-muted u-m0">Upload a .json rating file from your computer or paste custom rating JSON to generate the bindable quote.</p>
-          </div>
-        </div>
-        <button class="btn-close" aria-label="Close" onclick="closeImportQuoteJsonModal()"><i class="ph ph-x"></i></button>
-      </div>
-      <div class="modal-body">
-        
-        <!-- File Dropzone for System JSON Import -->
-        <input class="u-hidden" type="file" id="quoteJsonModalFileInput" accept=".json,application/json" onchange="handleSystemJsonFileSelect(event)">
-        
-        <div class="json-dropzone mb-3" id="jsonDropzoneBox" onclick="document.getElementById('quoteJsonModalFileInput').click()" ondragover="handleJsonDragOver(event)" ondragleave="handleJsonDragLeave(event)" ondrop="handleJsonFileDrop(event)">
-          <div class="dropzone-icon">
-            <i class="ph ph-cloud-arrow-up text-primary" style="font-size: 32px;"></i>
-          </div>
-          <div class="dropzone-text">
-            <strong style="font-size: 13.5px; color: #0f172a;">Click to browse .JSON file from your system, or drag and drop here</strong>
-            <p style="margin: 3px 0 0 0; font-size: 11.5px; color: #64748b;">Supports Actuarial Rating payload schema (quote, coverages, fees, factors)</p>
-          </div>
-          <button type="button" class="btn btn-sm btn-primary u-fw-700" onclick="event.stopPropagation(); document.getElementById('quoteJsonModalFileInput').click();">
-            <i class="ph ph-folder-open"></i> Browse Computer
-          </button>
-        </div>
-
-        <div id="loadedFileIndicator" class="alert alert-info py-1 px-3 mb-2" style="display: none; font-size: 11.5px; align-items: center; justify-content: space-between;">
-          <span><i class="ph ph-file-text text-success"></i> Loaded File: <strong id="loadedFileName">rating.json</strong> (<span id="loadedFileSize">0 KB</span>)</span>
-          <span class="badge badge-success">Ready to Generate</span>
-        </div>
-
-        <div class="form-group mb-2 u-row-between">
-          <label style="font-weight: 700; font-size: 12px; margin: 0;">Rating JSON Payload Editor / Preview:</label>
-          <button type="button" class="btn btn-xs btn-outline" onclick="loadSampleRatingJson()"><i class="ph ph-arrow-counter-clockwise"></i> Load Default Trucking Sample</button>
-        </div>
-        <textarea id="importQuoteJsonTextarea" class="form-control font-mono" style="font-size: 11px; height: 260px; line-height: 1.4; resize: vertical; background: #0f172a; color: #38bdf8; border-color: #334155;" spellcheck="false"></textarea>
-      </div>
-      <div class="modal-footer u-row-between">
-        <button class="btn btn-outline" onclick="closeImportQuoteJsonModal()">Cancel</button>
-        <button class="btn btn-primary" onclick="handleApplyImportedJson()" style="font-weight: 700; background: #16a34a; border-color: #15803d;">
-          <i class="ph ph-lightning"></i> Generate Formal Quote
-        </button>
-      </div>
-    </div>
   </div>
 
   <!-- Modal: View Specific Quote Version PDF Document -->
@@ -2600,27 +2457,6 @@ run<!--
     </div>
   </div>
 
-  <!-- Modal: Generate Final Underwriting JSON (Add-On, Authority Desk) -->
-  <div class="modal-overlay" id="generateFinalJsonModal" role="dialog" aria-modal="true">
-    <div class="modal-content modal-xl">
-      <div class="modal-header">
-        <h3><i class="ph ph-file-code text-primary"></i> Final Underwriting JSON — <span id="finalJsonModalSubId" class="font-mono"></span></h3>
-        <button class="btn-close" aria-label="Close" onclick="closeGenerateFinalJsonModal()" style="font-size:20px; line-height:1; font-weight:700;">
-          <i class="ph ph-x"></i>
-        </button>
-      </div>
-      <div class="modal-body">
-        <p class="text-xs text-muted u-m0" style="margin-bottom:10px;">
-          Same <code>ratingInputs</code> structure as the reference JSON template, populated live from the
-          Underwriting Workbench — only fields present in that template are included, nothing extra.
-        </p>
-        <div class="ps-json-editor" id="finalJsonCodeBlock" style="height:480px; overflow:auto; white-space:pre;"></div>
-        <div class="modal-footer mt-3" style="margin:0; padding:12px 0 0 0;">
-          <button type="button" class="btn btn-outline" onclick="copyFinalJsonToClipboard()"><i class="ph ph-copy"></i> Copy JSON</button>
-          <button type="button" class="btn btn-primary" onclick="downloadFinalJson()"><i class="ph ph-download-simple"></i> Download JSON</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Modal: Email → Raw Data & Document Capture (Add-On Intake Path)
@@ -2679,42 +2515,7 @@ run<!--
     </div>
   </div>
 
-  <!-- Modal: Request Missing Information (opened from the Document Ingestion
-       review form's "Request Missing Information" button, next to
-       "Confirm & Apply Standard Data") -->
-  <div class="modal-overlay" id="missingFieldsModal" role="dialog" aria-modal="true">
-    <div class="modal-content modal-lg">
-      <div class="modal-header">
-        <h3><i class="ph ph-warning-circle text-danger"></i> Missing Fields</h3>
-        <button class="btn-close" aria-label="Close" onclick="closeMissingFieldsModal()"><i class="ph ph-x"></i></button>
-      </div>
-      <div class="modal-body">
-        <p class="text-xs text-muted u-m0" style="margin-bottom:12px;">The following required information is missing from the captured data.</p>
-        <div class="table-responsive">
-          <table class="data-table" id="missingFieldsTable">
-            <thead>
-              <tr>
-                <th style="width:28px;"></th>
-                <th>Field Name</th>
-                <th>Current Value</th>
-                <th>Required</th>
-                <th>Suggest Request To</th>
-              </tr>
-            </thead>
-            <tbody id="missingFieldsTableBody"></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline" onclick="closeMissingFieldsModal()">Cancel</button>
-        <button type="button" class="btn btn-primary" id="missingFieldsRequestBtn" onclick="sendMissingFieldsRequest()">
-          <i class="ph ph-paper-plane-tilt"></i> Request Selected (<span id="missingFieldsSelectedCount">0</span>)
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal: + New Submission Intake -->
+    <!-- Modal: + New Submission Intake -->
   <div class="modal-overlay" id="newIntakeModal" role="dialog" aria-modal="true">
     <div class="modal-content">
       <div class="modal-header">
@@ -2949,51 +2750,6 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
     </div>
   </div>
 
-  <!-- Modal: View Case Details & Pre-Normalization Inspection -->
-  <div class="modal-overlay" id="viewCaseModal" role="dialog" aria-modal="true">
-    <div class="modal-content modal-xl">
-      <div class="modal-header">
-        <div>
-          <h3><i class="ph ph-folder-open text-primary"></i> Active Selected Case: <span id="modalDetailInsuredTitle">Apex Freight LLC (SUB-48213-TX)</span></h3>
-          <span class="badge badge-info mt-1" id="modalDetailChannelBadge">Broker Intake: Marsh & McLennan (Email)</span>
-        </div>
-        <button class="btn-close" aria-label="Close" onclick="closeViewCaseModal()"><i class="ph ph-x"></i></button>
-      </div>
-      <div class="modal-body">
-        <div class="two-col-grid">
-          <!-- Left: Metadata -->
-          <div class="intake-detail-box">
-            <h4><i class="ph ph-identification-card"></i> Submission Envelope Metadata</h4>
-            <div class="meta-grid mt-2">
-              <div><span class="lbl">Legal Entity:</span> <strong id="modalDetailInsuredName">Apex Freight LLC</strong></div>
-              <div><span class="lbl">FEIN / Tax ID:</span> <strong class="font-mono" id="modalDetailFEIN">81-440000TX</strong></div>
-              <div><span class="lbl">Submission Origin:</span> <strong id="modalDetailOriginType">Broker Submission (Marsh & McLennan Commercial Brokerage)</strong></div>
-              <div><span class="lbl">Submitter Email:</span> <strong id="modalDetailSubmitterEmail">submissions@marshbrokerage.com</strong></div>
-              <div><span class="lbl">Line of Business:</span> <strong id="modalDetailLOBName">Commercial Auto / Trucking</strong></div>
-              <div><span class="lbl">Target Effective Date:</span> <strong id="modalDetailEffectiveDate">2026-09-01 (12 Months)</strong></div>
-              <div><span class="lbl">Priority & SLA:</span> <strong class="text-danger" id="modalDetailPriority">P1 - Highest (4h SLA)</strong></div>
-            </div>
-          </div>
-
-          <!-- Right: Attached Core Documents -->
-          <div class="intake-detail-box">
-            <h4><i class="ph ph-paperclip"></i> Uploaded Submission Documents (ACORD, SOV, Loss Runs)</h4>
-            <div class="doc-upload-list mt-2" id="modalDetailDocList">
-              <!-- Rendered dynamically -->
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="modal-footer u-row-between">
-        <span class="text-muted text-sm"><i class="ph ph-check-circle text-success"></i> All core documents normalized and ready for OCR text extraction pipeline.</span>
-        <div class="u-row-gap8">
-          <button class="btn btn-outline" onclick="closeViewCaseModal()">Close</button>
-          <button class="btn btn-primary" onclick="resumeActiveCaseFlow()">
-            <i class="ph ph-sign-in"></i> Resume Case at Current Step <i class="ph ph-arrow-right"></i>
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Modal: Document Live Preview & PDF Viewer -->
@@ -3145,7 +2901,6 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/risk-score.js"></script>
   <script src="js/vehicle-enrichment.js"></script>
   <script src="js/registry-enrichment.js"></script>
-  <script src="js/demo-mode.js"></script>
   <script src="js/generate-final-json.js"></script>
   <script src="js/issue-quote-email.js"></script>
   <script src="js/sanctions-screening.js"></script>
@@ -3164,6 +2919,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/bordereaux.js"></script>
   <script src="js/performance-reporting.js"></script>
   <script src="js/external-access.js"></script>
+  <script src="js/access-policy.js"></script>
   <script src="js/golden-path-data.js"></script>
 </body>
 </html>

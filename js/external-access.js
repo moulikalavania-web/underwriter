@@ -2,7 +2,7 @@
  * ============================================================================
  * EXTERNAL AND OVERSIGHT ROLES, PRODUCER AND PROGRAM SEGREGATION (G31)
  * ----------------------------------------------------------------------------
- * Until now every persona was an internal underwriter or the administrator, and
+ * Until now every persona was an internal underwriter or the head of the department, and
  * every one of them could see every submission. Real surplus lines and MGA
  * operations also have people who are NOT employees and must never see the whole
  * book:
@@ -32,33 +32,30 @@
  */
 
 // scope kinds: all | agency | program | carrier
+// The application ships ONE oversight user (the Compliance Officer). Producer, program-administrator and carrier-auditor
+// users are not shipped: they are added with registerExternalRole() when those people are onboarded, and the test suites
+// register their own (tests/fixtures/external-personas.js).
 var EXTERNAL_ROLES = {
-  broker_user: {
-    name: "Jordan Reyes", title: "Producer, Marsh & McLennan Commercial Brokerage (External)", icon: "🤝",
-    limit: 0, limitText: "External · own agency book only", description: "Broker user: sees only their own agency's submissions and quotes.",
-    external: true, scope: { kind: "agency", agency: "Marsh & McLennan Commercial Brokerage" }
-  },
-  broker_user_2: {
-    name: "Meera Arora", title: "Producer, Arora & Sons (External)", icon: "🤝",
-    limit: 0, limitText: "External · own agency book only", description: "Broker user at a second agency; proves producers cannot see each other's business.",
-    external: true, scope: { kind: "agency", agency: "Arora & Sons" }
-  },
-  mga_user: {
-    name: "Taylor Brooks", title: "Program Administrator, Contractors GL Program (External)", icon: "🏗️",
-    limit: 0, limitText: "External · program lines only", description: "Program or MGA administrator: sees only the lines of their program.",
-    external: true, scope: { kind: "program", name: "Contractors GL Program", lobs: ["gl_cpc", "gl_cas"], states: null }
-  },
-  carrier_auditor: {
-    name: "Helen Park", title: "Carrier Auditor, Vikram & Sons (External, read-only)", icon: "🔎",
-    limit: 0, limitText: "External · read-only · carrier paper only", description: "Reads policies written on the carrier's paper; cannot change anything.",
-    external: true, readOnly: true, scope: { kind: "carrier", carrier: "Vikram & Sons" }
-  },
   compliance: {
-    name: "Robert Okafor", title: "Compliance Officer (Read-only)", icon: "🧾",
+    name: "Robert Okafor", title: "Compliance Officer", icon: "🧾",
     limit: 0, limitText: "Read-only · whole book · audit log", description: "Internal oversight: reads everything, changes nothing.",
     external: false, readOnly: true, scope: { kind: "all" }
   }
 };
+
+/** Adds a restricted user: scope { kind: "agency", agency } | { kind: "program", lobs, states } | { kind: "carrier", carrier } | { kind: "all" }. */
+function registerExternalRole(key, def) {
+  EXTERNAL_ROLES[key] = def;
+  if (!USER_ROLES_CONFIG[key]) {
+    USER_ROLES_CONFIG[key] = { name: def.name, title: def.title, limit: def.limit || 0, limitText: def.limitText, icon: def.icon, description: def.description, external: !!def.external, readOnly: !!def.readOnly };
+  }
+  if (typeof PERMISSIONS_MATRIX !== "undefined" && !PERMISSIONS_MATRIX[key]) PERMISSIONS_MATRIX[key] = extPermissionsFor(key);
+  if (typeof TEAM_USERS !== "undefined" && !TEAM_USERS.some(function (u) { return u.roleKey === key; })) {
+    TEAM_USERS.push({ id: "u_" + key, name: def.name, title: def.title, email: "", roleKey: key, limit: 0, description: def.description, states: [], lobs: [], coverages: [], isDefault: true });
+  }
+  if (typeof populateLoginUserSelect === "function") { try { populateLoginUserSelect(); } catch (e) { /* not mounted */ } }
+}
+window.registerExternalRole = registerExternalRole;
 
 var EXT_VIEW_ALL = ["documents", "submissionData", "workflow", "archival", "reviewRules", "appetiteRules", "premiumAdjustment", "unifiedAccount", "auditLog", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "rateConfig", "authority", "bordereaux", "performance"];
 var EXT_VIEW_PORTAL = ["documents", "submissionData", "workflow", "completeness", "subjectivities", "binders", "policyChanges", "renewals"];
@@ -75,15 +72,14 @@ function extPermissionsFor(roleKey) {
   } else {
     EXT_VIEW_ALL.forEach(function (k) { if (p[k]) p[k].view = true; });
   }
-  if (roleKey === "carrier_auditor" && p.auditLog) p.auditLog.view = false;   // carrier sees policies, not the company's internal log
+  if (r.scope.kind === "carrier" && p.auditLog) p.auditLog.view = false;
+  if (roleKey === "compliance" && p.accessReview) { p.accessReview.view = true; p.accessReview.approve = true; }   // records the periodic access review   // carrier sees policies, not the company's internal log
   return p;
 }
 
-// ----------------------------------------------------------------------------
-// 1. SCOPE (pure)
-// ----------------------------------------------------------------------------
-function extRole(roleKey) { return EXTERNAL_ROLES[roleKey] || null; }
 function extIsExternal(roleKey) { var r = EXTERNAL_ROLES[roleKey]; return !!(r && r.external); }
+/** Users registered here (oversight and restricted users) see cases by scope, not by assignment. */
+function extUsesScopeNotAssignment(roleKey) { return !!EXTERNAL_ROLES[roleKey]; }
 function extIsRestricted(roleKey) { var r = EXTERNAL_ROLES[roleKey]; return !!(r && r.scope.kind !== "all"); }
 function extSameAgency(a, b) {
   if (typeof comSameBroker === "function") return comSameBroker(a, b);
@@ -135,7 +131,7 @@ function extApplyPersonaUi() {
   var id = "extAccessStyle", st = document.getElementById(id);
   if (!st) {
     st = document.createElement("style"); st.id = id;
-    st.textContent = "body.role-external #navItemDecline, body.role-external #navItemQuoteVersions, body.role-external #navItemQuoteIntel, body.role-external #navItemIntegratingApi, body.role-external #navItemUnifiedAccount { display:none !important; } " +
+    st.textContent = "body.role-external #navItemDecline, body.role-external #navItemQuoteIntel, body.role-external #navItemIntegratingApi, body.role-external #navItemUnifiedAccount { display:none !important; } " +
       EXT_HIDDEN_PANELS.map(function (p) { return "body.role-external #" + p; }).join(", ") + " { display:none !important; }";
     document.head.appendChild(st);
   }
@@ -154,17 +150,7 @@ function extReconcileActive() {
 }
 
 (function installExternalAccess() {
-  Object.keys(EXTERNAL_ROLES).forEach(function (k) {
-    if (!USER_ROLES_CONFIG[k]) {
-      var r = EXTERNAL_ROLES[k];
-      USER_ROLES_CONFIG[k] = { name: r.name, title: r.title, limit: r.limit, limitText: r.limitText, icon: r.icon, description: r.description, external: !!r.external, readOnly: !!r.readOnly };
-    }
-    if (typeof PERMISSIONS_MATRIX !== "undefined" && !PERMISSIONS_MATRIX[k]) PERMISSIONS_MATRIX[k] = extPermissionsFor(k);
-    if (typeof TEAM_USERS !== "undefined" && !TEAM_USERS.some(function (u) { return u.roleKey === k; })) {
-      var rr = EXTERNAL_ROLES[k];
-      TEAM_USERS.push({ id: "u_" + k, name: rr.name, title: rr.title, email: "", roleKey: k, limit: 0, description: rr.description, states: [], lobs: [], coverages: [], isDefault: true });
-    }
-  });
+  Object.keys(EXTERNAL_ROLES).forEach(function (k) { registerExternalRole(k, EXTERNAL_ROLES[k]); });
 
   // "Reset to Defaults" in User Master rebuilds the matrix; keep the new personas in it.
   var origDefaults = window.defaultPermissionsMatrix;
@@ -237,7 +223,6 @@ function extReconcileActive() {
     };
   }
 
-  if (typeof refreshUserRoleDropdown === "function") { try { refreshUserRoleDropdown(); } catch (e) { /* not mounted */ } }
   if (typeof populateLoginUserSelect === "function") { try { populateLoginUserSelect(); } catch (e) { /* not mounted */ } }
 
   if (typeof AUDIT_ACTION_META !== "undefined") {

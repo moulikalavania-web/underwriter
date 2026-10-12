@@ -1,0 +1,226 @@
+<!-- Suite G17: renewals. Run with: python tests/run.py --suite g17 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return (sub.decisionLog||[]).filter(function(x){return x.decision===d;}); }
+  function has(arr, re){ return arr.some(function(x){return re.test(x);}); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+  function mdy(iso){ return iso.slice(5,7)+'/'+iso.slice(8,10)+'/'+iso.slice(0,4); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement(/^rn_(reason|fcra)$/.test(id) ? 'select' : 'input'); e.id = id; if (/^rn_(reduced|consumer|lateAck|info_\d)$/.test(id)) e.type = 'checkbox'; document.body.appendChild(e); }
+      if (e.type === 'checkbox') e.checked = !!map[id]; else if (e.tagName === 'SELECT') { if (!Array.prototype.some.call(e.options, function(o){return o.value===map[id];})) e.innerHTML += '<option value="'+map[id]+'">'+map[id]+'</option>'; e.value = map[id]; } else e.value = map[id]; }); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0];
+  function mkPolicy(id, daysToExpiry, premium){
+    var s = clone(seedG); s.id = id; var exp = plus(daysToExpiry), eff = plus(daysToExpiry - 365);
+    s.pasSync = { status:'success', policyNumber:'POL-'+id, pasRecordId:'PAS-'+id, effectiveDate:eff };
+    s.effectiveDate = mdy(eff); s.expirationDate = mdy(exp);
+    s.discretionaryPricing = { finalPremium: premium || 10000 };
+    s.importedRatingData = { quote: { finalPremium: premium || 10000, fees: [] } };
+    s.subjectivities = []; s.certificates = [{id:'C1', status:'issued', holderName:'First Lender Bank', holderType:'Mortgagee'}];
+    s.docs = [{name:'ACORD_125_Application.pdf'},{name:'Prior_Loss_Runs.pdf'},{name:'SOV_Schedule.xlsx'}];
+    s.losses = [{year:'2025', desc:'Water damage', status:'Closed', incurred:'$4,000'}];
+    return s;
+  }
+  try {
+    // ---------- config
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='renewals';}));
+    t('assistant: review and info only', PERMISSIONS_MATRIX.assistant.renewals.edit && !PERMISSIONS_MATRIX.assistant.renewals.approve);
+    t('junior renews, cannot non-renew', PERMISSIONS_MATRIX.junior.renewals.approve && !PERMISSIONS_MATRIX.junior.renewals.override);
+    t('senior UW and CUO can non-renew', PERMISSIONS_MATRIX.senior_uw.renewals.override && PERMISSIONS_MATRIX.senior.renewals.override);
+    t('admin read only', PERMISSIONS_MATRIX.admin.renewals.view && !PERMISSIONS_MATRIX.admin.renewals.edit);
+    t('audit meta added', !!AUDIT_ACTION_META.nonrenewal_notice_issued && !!AUDIT_ACTION_META.renewal_completed);
+
+    // ---------- timeline
+    t('notice defaults', rnNoticeDays('nonrenewal', null) === 60 && rnNoticeDays('conditional', null) === 45);
+    RENEWAL_NOTICE_STATE_RULES.TX = { nonrenewal: 90, conditional: 60 };
+    t('state rules override the defaults', rnNoticeDays('nonrenewal', 'TX') === 90 && rnNoticeDays('conditional', 'TX') === 60 && rnNoticeDays('nonrenewal', 'OH') === 60);
+    delete RENEWAL_NOTICE_STATE_RULES.TX;
+    var ms = rnMilestones('2027-01-01', null); var by = {}; ms.forEach(function(m){ by[m.key] = m.due; });
+    t('milestone dates for a 2027-01-01 expiry', by.review === '2026-09-03' && by.info === '2026-10-03' && by.nonrenewal === '2026-11-02' && by.conditional === '2026-11-17' && by.quote === '2026-12-02', JSON.stringify(by));
+    t('stage derivation', rnStageOf(null, 200) === 'upcoming' && rnStageOf(null, 100) === 'review_due' && rnStageOf({status:'under_review'}, 50) === 'under_review' && rnStageOf({status:'renewal_in_progress'}, 20) === 'renewal_in_progress' && rnStageOf({status:'renewed'}, -5) === 'renewed' && rnStageOf({status:'non_renewal_notified'}, 10) === 'non_renewal_notified' && rnStageOf({status:'non_renewal_notified'}, -1) === 'non_renewed' && rnStageOf({status:'under_review'}, -1) === 'lapsed' && rnStageOf(null, -1) === 'lapsed');
+
+    // ---------- validation (pure)
+    var ctx = { today:'2026-10-08', expiration:'2027-01-01', state:'TX', canOverride:false, consumerNoticeIds:['NTC-1'] };
+    var ctxO = Object.assign({}, ctx, { canOverride:true });
+    t('plain renewal within the threshold validates', rnValidateRenew(ctx, { expectedPct:'5', reducedCoverage:false }).length === 0 && rnValidateRenew(ctx, { expectedPct:'', reducedCoverage:false }).length === 0);
+    t('a big rise must go conditional', has(rnValidateRenew(ctx, { expectedPct:'15' }), /conditional-renewal notice/));
+    t('reduced cover must go conditional', has(rnValidateRenew(ctx, { expectedPct:'0', reducedCoverage:true }), /conditional-renewal notice/));
+    function cond(o){ var f = { expectedPct:'15', reducedCoverage:false, terms:'Premium rises 15% and the deductible doubles.', mailedOn:'2026-10-08', proofRef:'USPS-1' }; for (var k in (o||{})) f[k]=o[k]; return f; }
+    t('conditional renewal with timely notice validates', rnValidateConditional(ctx, cond()).length === 0);
+    t('conditional renewal inside the threshold is refused', has(rnValidateConditional(ctx, cond({expectedPct:'5'})), /within the 10% threshold/));
+    t('conditional renewal needs terms and a percentage', has(rnValidateConditional(ctx, cond({terms:'x', expectedPct:''})), /changed terms/) && has(rnValidateConditional(ctx, cond({terms:'x', expectedPct:''})), /expected premium change/));
+    var lateCtx = Object.assign({}, ctx, { today:'2026-12-01' });
+    t('late conditional notice needs senior authority', has(rnValidateConditional(lateCtx, cond({mailedOn:'2026-12-01'})), /late.*senior authority/));
+    function nr(o){ var f = { reason:'LOSS_EXPERIENCE', facts:'Three liability claims in 24 months, all open.', mailedOn:'2026-10-08', proofRef:'USPS-2', consumerReport:false, fcraNoticeId:'', lateAck:false, lateWhy:'' }; for (var k in (o||{})) f[k]=o[k]; return f; }
+    t('non-renewal needs senior authority', has(rnValidateNonRenewal(ctx, nr()), /senior authority/) && rnValidateNonRenewal(ctxO, nr()).length === 0);
+    t('non-renewal needs a reason and facts', has(rnValidateNonRenewal(ctxO, nr({reason:'', facts:'x'})), /choose the reason/) && has(rnValidateNonRenewal(ctxO, nr({reason:'', facts:'x'})), /facts/));
+    t('non-renewal needs proof of mailing and a mailing date', has(rnValidateNonRenewal(ctxO, nr({proofRef:'', mailedOn:''})), /proof-of-mailing/) && has(rnValidateNonRenewal(ctxO, nr({proofRef:'', mailedOn:''})), /date the notice is mailed/));
+    t('mailing date cannot be in the future or after expiry', has(rnValidateNonRenewal(ctxO, nr({mailedOn:'2026-10-20'})), /future/) && has(rnValidateNonRenewal(Object.assign({}, ctxO, {today:'2027-02-01'}), nr({mailedOn:'2027-01-05'})), /before the policy expires/));
+    t('a consumer report needs an issued FCRA notice', has(rnValidateNonRenewal(ctxO, nr({consumerReport:true})), /adverse-action notice/) && has(rnValidateNonRenewal(ctxO, nr({consumerReport:true, fcraNoticeId:'NTC-9'})), /not an issued notice/) && rnValidateNonRenewal(ctxO, nr({consumerReport:true, fcraNoticeId:'NTC-1'})).length === 0);
+    var lateO = Object.assign({}, ctxO, { today:'2026-12-01' });
+    t('late non-renewal needs the acknowledgement and an explanation', has(rnValidateNonRenewal(lateO, nr({mailedOn:'2026-12-01'})), /told and explain/) && rnValidateNonRenewal(lateO, nr({mailedOn:'2026-12-01', lateAck:true, lateWhy:'Account review finished late.'})).length === 0);
+    t('late notice with no senior authority is refused outright', has(rnValidateNonRenewal(Object.assign({}, lateCtx), nr({mailedOn:'2026-12-01'})), /late.*senior authority/));
+
+    // ---------- the pipeline
+    SUBMISSIONS_DATASET.length = 0;
+    var P1 = mkPolicy('SUB-P1', 100), P2 = mkPolicy('SUB-P2', 200), P3 = mkPolicy('SUB-P3', -10), P5 = mkPolicy('SUB-P5', 90);
+    var P4 = mkPolicy('SUB-P4', 150); P4.policyState = 'cancelled';
+    var P6 = mkPolicy('SUB-P6', 150); delete P6.pasSync;
+    [P1, P2, P3, P4, P5, P6].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    activeSubmissionId = P1.id;
+    var pol = rnPolicies();
+    t('pipeline holds only bound, uncancelled policies', pol.length === 4 && !pol.some(function(p){return p.sub.id==='SUB-P4' || p.sub.id==='SUB-P6';}));
+    t('sorted by days to expiry', pol[0].sub.id === 'SUB-P3' && pol[1].sub.id === 'SUB-P5' && pol[2].sub.id === 'SUB-P1' && pol[3].sub.id === 'SUB-P2');
+    t('stages: lapsed, review due, review due, upcoming', pol[0].stage === 'lapsed' && pol[1].stage === 'review_due' && pol[2].stage === 'review_due' && pol[3].stage === 'upcoming');
+    t('expired policy with no decision is swept to lapsed, once', rnSweep() === 1 && P3.renewal.status === 'lapsed' && rnSweep() === 0 && logs(P3, 'renewal_lapsed').length === 1);
+
+    // ---------- next action
+    (function(){
+      var q = mkPolicy('SUB-Q', 20); q.renewal = { status:'not_started', history:[] };
+      var pq = { sub:q, days:20, stage:'review_due', milestones:rnMilestones(rnFacts(q).expiration, null) };
+      var na = rnNextAction(pq, plus(0));
+      t('next action: start the review first, flagged overdue with the count', na.label === 'Start renewal review' && na.overdue === true && na.overdueCount === 3, JSON.stringify(na));
+      q.renewal.reviewStartedAt = 'x'; q.renewal.infoRequestedAt = 'y';
+      na = rnNextAction(pq, plus(0));
+      t('next action: then decide and give notice', na.label === 'Decide and give any notice' && na.overdue === true);
+      var far = { sub:mkPolicy('SUB-F', 200), days:200, stage:'upcoming', milestones:rnMilestones(plus(200), null) };
+      na = rnNextAction(far, plus(0));
+      t('next action: an upcoming policy is not overdue', na.label === 'Start renewal review' && na.overdue === false && na.due === plus(200 - 120));
+      t('next action: nothing once a decision is made', rnNextAction({ sub:q, days:20, stage:'renewal_in_progress', milestones:[] }, plus(0)) === null && rnNextAction({ sub:q, days:20, stage:'non_renewal_notified', milestones:[] }, plus(0)) === null);
+    })();
+
+    // ---------- review and information requests
+    currentUserRole = 'admin'; rnStartReview('SUB-P1');
+    t('admin cannot start a review', !P1.renewal || P1.renewal.status === 'not_started');
+    currentUserRole = 'assistant'; rnStartReview('SUB-P1');
+    t('assistant starts a review', P1.renewal.status === 'under_review' && logs(P1, 'renewal_review_started').length === 1);
+    rnStartReview('SUB-P1');
+    t('starting twice does nothing more', logs(P1, 'renewal_review_started').length === 1);
+    rnSelect('SUB-P2'); renderRenewalPipeline();
+    setf({ rn_info_0:false, rn_info_1:false, rn_info_2:false, rn_info_3:false }); rnRequestInfo('SUB-P2');
+    t('info request needs at least one item', !P2.renewal || !P2.renewal.infoRequestedAt);
+    setf({ rn_info_0:true, rn_info_1:true, rn_infoNote:'Please send by the 15th.' }); rnRequestInfo('SUB-P2');
+    t('info request recorded and review started with it', P2.renewal.status === 'under_review' && P2.renewal.infoItems.length === 2 && logs(P2, 'renewal_info_requested').length === 1 && /Updated, signed renewal application/.test(logs(P2, 'renewal_info_requested')[0].notes));
+
+    // ---------- decisions: renew
+    currentUserRole = 'assistant'; renderRenewalPipeline(); rnSelect('SUB-P1');
+    setf({ rn_pct:'5', rn_reduced:false }); rnDecide('SUB-P1', 'renew');
+    t('assistant cannot decide', P1.renewal.status === 'under_review');
+    currentUserRole = 'junior'; rnSelect('SUB-P1');
+    setf({ rn_pct:'15', rn_reduced:false }); rnDecide('SUB-P1', 'renew');
+    t('plain renewal refused when the rise is above the threshold', P1.renewal.status === 'under_review');
+    setf({ rn_pct:'5', rn_reduced:false }); rnDecide('SUB-P1', 'renew');
+    var R1 = SUBMISSIONS_DATASET[0];
+    t('junior renews: renewal submission created and queued first', R1.id === 'SUB-P1-R1' && R1.renewalOf === 'SUB-P1' && P1.renewal.status === 'renewal_in_progress' && P1.renewal.renewalSubmissionId === 'SUB-P1-R1');
+    t('renewal submission starts at Step 1 as a renewal', R1.currentStep === 1 && R1.completedSteps.length === 0 && (!R1.genInfo || R1.genInfo.policytype === 'Renewal') && R1.statusText === 'Renewal Intake');
+    t('renewal dates run from the expiry', R1.effectiveDate === P1.expirationDate && R1.expirationDate === mdy(plus(100 + 365)), R1.effectiveDate + ' / ' + R1.expirationDate);
+    t('expiring policy recorded as the prior policy', R1.priorPolicy.policyNumber === 'POL-SUB-P1' && R1.priorPolicy.premium === 10000 && R1.priorPolicy.claimsCount === 1 && /Water damage/.test(R1.priorPolicy.claimsNote) && R1.priorPolicy.coverageRows.length === P1.coverageRows.length, JSON.stringify(R1.priorPolicy).slice(0, 120));
+    t('stale documents are not carried forward', R1.docs.length === 1 && /SOV/.test(R1.docs[0].name));
+    t('no bound-policy or compliance state is copied', !R1.pasSync && !R1.quoteIssued && !R1.certificates && !R1.binders && !R1.policyLedger && !R1.tria && !R1.sanctions && !R1.producerCheck && R1.subjectivities.length === 0 && !R1.currentPremium);
+    t('the expiring policy is untouched', P1.pasSync.status === 'success' && P1.certificates.length === 1);
+    t('renewal appears in the existing prior-policy comparison list', SUBMISSIONS_DATASET.filter(function(s){return s.priorPolicy;}).some(function(s){return s.id==='SUB-P1-R1';}));
+    t('audit entries on both sides', logs(P1, 'renewal_offered').length === 1 && logs(R1, 'submission_updated').length >= 1 && /SUB-P1-R1/.test(logs(P1, 'renewal_offered')[0].notes));
+    rnDecide('SUB-P1', 'renew');
+    t('a second decision on the same policy is refused', SUBMISSIONS_DATASET.filter(function(s){return s.renewalOf==='SUB-P1';}).length === 1);
+
+    t('where a submission has genInfo, the policy type becomes Renewal', (function(){ var tr = clone(SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking' && x.genInfo;})[0]); tr.id='SUB-T1'; var e = plus(60), f0 = plus(60-365); tr.pasSync={status:'success',policyNumber:'POL-T1',effectiveDate:f0}; tr.effectiveDate=mdy(f0); tr.expirationDate=mdy(e); tr.discretionaryPricing={finalPremium:20000}; SUBMISSIONS_DATASET.push(tr); var r = rnCreateRenewalSubmission(tr); SUBMISSIONS_DATASET.shift(); SUBMISSIONS_DATASET.pop(); return r.genInfo.policytype === 'Renewal' && r.genInfo.effective_date === tr.expirationDate; })());
+    // priority follows time to expiry
+    t('renewal inside 30 days gets P1', (function(){ var p = mkPolicy('SUB-PX', 20); SUBMISSIONS_DATASET.push(p); var r = rnCreateRenewalSubmission(p); SUBMISSIONS_DATASET.shift(); SUBMISSIONS_DATASET.pop(); return r.priority === 'P1' && /4h/.test(r.slaText); })());
+
+    // ---------- conditional renewal
+    currentUserRole = 'junior'; rnSelect('SUB-P2'); renderRenewalPipeline();
+    setf({ rn_pct:'18', rn_reduced:false, rn_terms:'Premium rises about 18% and the cargo limit is halved.', rn_mailed:plus(0), rn_proof:'' });
+    rnDecide('SUB-P2', 'conditional');
+    t('conditional renewal needs proof of mailing', P2.renewal.status === 'under_review');
+    setf({ rn_proof:'USPS-4455' }); rnDecide('SUB-P2', 'conditional');
+    var R2 = SUBMISSIONS_DATASET[0];
+    t('conditional renewal creates the submission', R2.renewalOf === 'SUB-P2' && P2.renewal.status === 'renewal_in_progress' && P2.renewal.decision === 'conditional');
+    t('conditional notice names the changes and the recipients', /NOTICE OF CONDITIONAL RENEWAL/.test(P2.renewal.notice.html) && /18%/.test(P2.renewal.notice.html) && /First Lender Bank/.test(P2.renewal.notice.html) && /USPS-4455/.test(P2.renewal.notice.html));
+    t('conditional audit entry', logs(P2, 'renewal_conditional_notice').length === 1);
+
+    // ---------- non-renewal
+    SUBMISSIONS_DATASET.push(mkPolicy('SUB-N1', 90), mkPolicy('SUB-N2', 30));
+    var N1 = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-N1';})[0], N2 = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-N2';})[0];
+    currentUserRole = 'junior'; rnSelect('SUB-N1'); renderRenewalPipeline();
+    setf({ rn_reason:'LOSS_EXPERIENCE', rn_facts:'Three liability claims in 24 months, all open.', rn_mailed:plus(0), rn_proof:'USPS-7001', rn_consumer:false, rn_fcra:'', rn_lateAck:false, rn_lateWhy:'' });
+    rnDecide('SUB-N1', 'non_renew');
+    t('junior cannot non-renew', N1.renewal && N1.renewal.status !== 'non_renewal_notified');
+    currentUserRole = 'senior_uw'; rnSelect('SUB-N1'); renderRenewalPipeline();
+    setf({ rn_reason:'LOSS_EXPERIENCE', rn_facts:'x', rn_mailed:plus(0), rn_proof:'USPS-7001' });
+    rnDecide('SUB-N1', 'non_renew');
+    t('non-renewal needs facts', !N1.renewal || N1.renewal.status !== 'non_renewal_notified');
+    setf({ rn_facts:'Three liability claims in 24 months, all open.', rn_consumer:true, rn_fcra:'' });
+    rnDecide('SUB-N1', 'non_renew');
+    t('consumer report without an FCRA notice is refused', !N1.renewal || N1.renewal.status !== 'non_renewal_notified');
+    N1.notices = [{ id:'NTC-SUB-N1-1', status:'issued', consumerUsed:true, type:'adverse_terms' }];
+    renderRenewalPipeline();
+    setf({ rn_reason:'LOSS_EXPERIENCE', rn_facts:'Three liability claims in 24 months, all open.', rn_mailed:plus(0), rn_proof:'USPS-7001', rn_consumer:true, rn_fcra:'NTC-SUB-N1-1' });
+    rnDecide('SUB-N1', 'non_renew');
+    t('senior UW non-renews on time, citing the FCRA notice', N1.renewal.status === 'non_renewal_notified' && N1.renewal.notice.late === false && /NTC-SUB-N1-1/.test(N1.renewal.notice.html) && N1.renewal.notice.copiesTo.length >= 2);
+    t('non-renewal notice document', /NOTICE OF NON-RENEWAL/.test(N1.renewal.notice.html) && /Loss experience/.test(N1.renewal.notice.html) && /not approved by Compliance/.test(N1.renewal.notice.html) && /First Lender Bank/.test(N1.renewal.notice.html));
+    t('no renewal submission for a non-renewal', !SUBMISSIONS_DATASET.some(function(s){return s.renewalOf==='SUB-N1';}));
+    t('non-renewal audit entry', logs(N1, 'nonrenewal_notice_issued').length === 1 && /USPS-7001/.test(logs(N1, 'nonrenewal_notice_issued')[0].notes));
+    rnSelect('SUB-N1'); renderRenewalPipeline();
+    t('pipeline shows the notified stage', /Non-renewal notified/.test(el('renewalPipelineRoot').innerHTML) && el('rn_rescindWhy') !== null);
+
+    // rescind
+    setf({ rn_rescindWhy:'x' }); rnRescindNonRenewal('SUB-N1');
+    t('rescinding needs a reason', N1.renewal.status === 'non_renewal_notified');
+    currentUserRole = 'junior'; renderRenewalPipeline();
+    t('junior is not offered rescind', el('rn_rescindWhy') === null);
+    currentUserRole = 'senior_uw'; renderRenewalPipeline();
+    setf({ rn_rescindWhy:'Broker supplied the missing loss controls; account reviewed again.' }); rnRescindNonRenewal('SUB-N1');
+    t('rescinded: back under review, history kept, audit entry', N1.renewal.status === 'under_review' && N1.renewal.history.length === 1 && logs(N1, 'nonrenewal_rescinded').length === 1);
+
+    // late notice (30 days to expiry; 60 days required)
+    currentUserRole = 'senior_uw'; rnSelect('SUB-N2'); renderRenewalPipeline();
+    setf({ rn_reason:'GUIDELINES', rn_facts:'The class is now outside our guidelines.', rn_mailed:plus(0), rn_proof:'USPS-8001', rn_consumer:false, rn_fcra:'', rn_lateAck:false, rn_lateWhy:'' });
+    rnDecide('SUB-N2', 'non_renew');
+    t('late non-renewal refused without the acknowledgement', !N2.renewal || N2.renewal.status !== 'non_renewal_notified');
+    setf({ rn_lateAck:true, rn_lateWhy:'Class review concluded late; Compliance consulted on 2026-10-07.' });
+    rnDecide('SUB-N2', 'non_renew');
+    t('late non-renewal recorded as late, with the reason, and flagged in the log', N2.renewal.status === 'non_renewal_notified' && N2.renewal.notice.late === true && /LATE NOTICE/.test(logs(N2, 'nonrenewal_notice_issued')[0].notes) && /Compliance consulted/.test(logs(N2, 'nonrenewal_notice_issued')[0].notes));
+
+    // ---------- when the renewal is bound
+    var R1b = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-P1-R1';})[0];
+    R1b.pasSync = { status:'success', policyNumber:'GLC-2027-555001', pasRecordId:'PAS-9', effectiveDate:plus(100) };
+    recordQuoteVersion(R1b, true);
+    t('binding the renewal closes out the expiring policy', P1.renewal.status === 'renewed' && P1.renewal.renewedPolicyNumber === 'GLC-2027-555001' && logs(P1, 'renewal_completed').length === 1 && logs(R1b, 'renewal_completed').length === 1);
+    recordQuoteVersion(R1b, true);
+    t('closing out happens once', logs(P1, 'renewal_completed').length === 1);
+
+    // ---------- the pipeline tab and filters
+    t('stage after renewal', rnPolicies().filter(function(p){return p.sub.id==='SUB-P1';})[0].stage === 'renewed');
+    switchQuoteIntelTab('pipeline');
+    t('Quote Intelligence has a Renewal Pipeline tab that shows its panel and hides the others', el('qiPanelPipeline').style.display === 'block' && el('qiPanelRenewal').style.display === 'none' && el('qiTabPipeline').classList.contains('active') && !el('qiTabRenewal').classList.contains('active'));
+    t('pipeline table lists the policies', /SUB-P2/.test(el('renewalPipelineRoot').innerHTML) && /POL-SUB-P2/.test(el('renewalPipelineRoot').innerHTML));
+    rnSetFilter('bucket', '60');
+    t('expiry filter keeps only policies within 60 days', /SUB-N2/.test(el('renewalPipelineRoot').innerHTML) && !/SUB-P2/.test(el('renewalPipelineRoot').innerHTML));
+    rnSetFilter('bucket', 'all'); rnSetFilter('stage', 'lapsed');
+    t('stage filter', /SUB-P3/.test(el('renewalPipelineRoot').innerHTML) && !/SUB-P2/.test(el('renewalPipelineRoot').innerHTML));
+    rnSetFilter('stage', 'all');
+    switchQuoteIntelTab('renewal');
+    t('switching back restores the original tabs', el('qiPanelPipeline').style.display === 'none' && el('qiPanelRenewal').style.display === 'block' && el('qiTabRenewal').classList.contains('active'));
+    currentUserRole = 'admin'; rnSelect('SUB-P5'); renderRenewalPipeline();
+    t('admin sees the detail but no decision controls', /Renewal decisions need/.test(el('renewalPipelineRoot').innerHTML) && el('renewalPipelineRoot').innerHTML.indexOf('id="rn_pct"') === -1);
+
+    // ---------- the renewal submission's status card
+    el('renewalStatusContainer').innerHTML = '';
+    R1b.currentPremium = 11500;                                       // +15% against 10,000
+    renderRenewalChip(R1b);
+    t('chip warns when a plain renewal prices above the threshold', /no conditional-renewal notice was given/.test(el('renewalStatusContainer').innerHTML));
+    R1b.currentPremium = 10200;
+    renderRenewalChip(R1b);
+    t('chip shows the comparison otherwise', /Renewal premium \+2%/.test(el('renewalStatusContainer').innerHTML));
+    renderRenewalChip(P5);
+    t('chip on an expiring policy points at the pipeline', /Renewal Pipeline/.test(el('renewalStatusContainer').innerHTML));
+    t('empty pipeline message', (function(){ var keep = SUBMISSIONS_DATASET.slice(); SUBMISSIONS_DATASET.length = 0; renderRenewalPipeline(); var ok = /No bound policies yet/.test(el('renewalPipelineRoot').innerHTML); keep.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); return ok; })());
+    t('XSS-safe', rnEsc('<b onclick=1>') === '&lt;b onclick=1&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

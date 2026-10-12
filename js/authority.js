@@ -109,6 +109,24 @@ function authRequiredRole(m) {
   return null;
 }
 
+/**
+ * The internal role whose desk a submission sits on: the assigned underwriter's role, or, for older records with no
+ * assignment, the lowest role whose limit reaches the figure the record carries in authorityLimit. This is the one
+ * definition of "referral needed" for the queue, the counts, the status labels and the review-routing rules.
+ */
+function authDeskRole(sub) {
+  if (sub.assignedTo && AUTH_ROLE_ORDER.indexOf(sub.assignedTo) > 0) return sub.assignedTo;
+  var want = Number(sub.authorityLimit) || 0;
+  for (var i = 1; i < AUTH_ROLE_ORDER.length; i++) {
+    var c = USER_ROLES_CONFIG[AUTH_ROLE_ORDER[i]];
+    if (c && c.limit >= want) return AUTH_ROLE_ORDER[i];
+  }
+  return AUTH_ROLE_ORDER[AUTH_ROLE_ORDER.length - 1];
+}
+// An unknown state does not by itself make a queue item a referral (the gates at quote and bind still need a state).
+function authDeskCover(sub) { var m = authMeasures(sub); if (m.state === null) m.state = "??"; return authRoleCovers(authDeskRole(sub), m); }
+function authNeedsReferral(sub) { return !authDeskCover(sub).ok; }
+
 /** Aggregate limit already bound on a carrier's paper for a line (other policies only). */
 function authBoundAggregate(carrier, lob, excludeId, dataset) {
   var tot = 0;
@@ -144,7 +162,7 @@ function authCarrierCheck(sub, m, dataset, today) {
 function authPreparers(sub) {
   var s = {};
   if (sub.authorityRef && sub.authorityRef.raisedBy) s[sub.authorityRef.raisedBy] = true;
-  (sub.premiumAdjustments || []).forEach(function (a) { if (a.by) s[a.by] = true; });
+  if (sub.discretionaryPricing && sub.discretionaryPricing.appliedBy) s[sub.discretionaryPricing.appliedBy] = true;   // whoever priced it
   if (sub.authPreparedBy) Object.keys(sub.authPreparedBy).forEach(function (k) { s[k] = true; });
   return Object.keys(s);
 }

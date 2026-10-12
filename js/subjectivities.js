@@ -313,7 +313,13 @@ function subjDueText(i, today) {
   return `Due ${i.dueDays || SUBJ_DEFAULT_POST_BIND_DAYS} days after bind`;
 }
 
+/**
+ * One board, two views. The Quote & Bind screen ("qb") is where subjectivities are tracked: received, accepted, waived,
+ * reopened. The Underwriting Workbench ("wb") is where conditions are set while the risk is reviewed, so it shows the
+ * list (with Add) and points to Quote & Bind for tracking, instead of repeating the tracking controls in two places.
+ */
 function subjBoardHtml(sub, host) {
+  const compact = host === "wb";
   const today = subjIso(new Date());
   const items = ensureSubjectivityItems(sub);
   const st = subjEvaluate(items, today);
@@ -333,7 +339,8 @@ function subjBoardHtml(sub, host) {
     const noteInput = `<input id="sj_note_${host}_${i.id}" class="form-control" style="width:230px; display:inline-block;" placeholder="Reference, or reason">`;
     const b = (fn, label, cls, perm) => perm ? `<button class="btn btn-xs ${cls}" style="width:auto;" onclick="${fn}('${i.id}','${host}')">${label}</button>` : "";
     let actions = "";
-    if (i.status === "open") actions = (canEdit || canWaive) ? `${noteInput} ${b("subjReceive", "Mark received", "btn-primary", canEdit)} ${b("subjWaive", "Waive", "btn-outline", canWaive)}` : "";
+    if (compact) actions = "";
+    else if (i.status === "open") actions = (canEdit || canWaive) ? `${noteInput} ${b("subjReceive", "Mark received", "btn-primary", canEdit)} ${b("subjWaive", "Waive", "btn-outline", canWaive)}` : "";
     else if (i.status === "received") actions = (canAccept || canWaive) ? `${noteInput} ${b("subjAccept", "Accept", "btn-success", canAccept)} ${b("subjReturn", "Not acceptable", "btn-outline-danger", canAccept)} ${b("subjWaive", "Waive", "btn-outline", canWaive)}` : "";
     else actions = canWaive ? `${noteInput} ${b("subjReopen", "Reopen", "btn-outline", canWaive)}` : "";
 
@@ -361,7 +368,8 @@ function subjBoardHtml(sub, host) {
       ${sub.subjectivityBindDate ? `<span class="text-muted">Bound ${subjEsc(sub.subjectivityBindDate)}</span>` : ""}
     </div>`;
   const ordered = items.slice().sort((a, b) => (a.timing === b.timing ? 0 : (a.timing === "pre_bind" ? -1 : 1)));
-  return summary + (ordered.length ? ordered.map(row).join("") : `<div class="text-muted text-xs">No subjectivities on this submission.</div>`);
+  const note = compact ? `<div class="text-xs text-muted" style="margin-top:6px;"><i class="ph ph-info"></i> Receipt, acceptance and waiver are tracked on the Quote &amp; Bind screen.</div>` : "";
+  return summary + (ordered.length ? ordered.map(row).join("") : `<div class="text-muted text-xs">No subjectivities on this submission.</div>`) + note;
 }
 
 function renderSubjectivityViews(sub) {

@@ -21,7 +21,6 @@ function persistAppState() {
       activeSubmissionId: activeSubmissionId,
       DISCRETIONARY_MAX_CREDIT_PCT: DISCRETIONARY_MAX_CREDIT_PCT,
       DISCRETIONARY_MAX_DEBIT_PCT: DISCRETIONARY_MAX_DEBIT_PCT,
-      DISCRETIONARY_TAX_RATE_PCT: DISCRETIONARY_TAX_RATE_PCT,
       savedAt: new Date().toISOString()
     };
     localStorage.setItem(FUT_STORAGE_KEY, JSON.stringify(state));
@@ -107,16 +106,31 @@ window.submitLogin = submitLogin;
 // uses, so permissions/sidebar/dashboards are configured identically to
 // before) and then performs the app's normal first render — this used to
 // run unconditionally on DOMContentLoaded; now it only runs post-login.
+let appInitialised = false;
 function initAppAfterLogin(chosenRole) {
-  setupNavigationEvents();
-  restoreSidebarCollapsedState();
-  setupLOBSelector();
-  setupDiagramModal();
+  if (!appInitialised) {      // one-time wiring; signing in again after "Switch user" must not repeat it
+    setupNavigationEvents();
+    restoreSidebarCollapsedState();
+    setupLOBSelector();
+    setupDiagramModal();
+    appInitialised = true;
+  }
   if (typeof changeUserRole === "function" && chosenRole) changeUserRole(chosenRole);
   renderSubmissionsTable();
   selectSubmission(activeSubmissionId, false);
   showIntakePage();
 }
+
+/** The one way to change who you are: go back to the sign-in screen (there is no separate in-app role dropdown). */
+function switchUser() {
+  populateLoginUserSelect();
+  const sel = document.getElementById("loginUserSelect");
+  if (sel && currentUserRole) sel.value = currentUserRole;
+  const pw = document.getElementById("loginPasswordInput");
+  if (pw) pw.value = "";
+  document.body.classList.add("pre-login");
+}
+window.switchUser = switchUser;
 
 function setupNavigationEvents() {
   // Note: the sidebar toggle button already has an inline onclick="toggleSidebar()"
@@ -127,8 +141,6 @@ function setupNavigationEvents() {
 
 function changeUserRole(role) {
   currentUserRole = role;
-  const roleSelect = document.getElementById("userRoleSelect");
-  if (roleSelect && roleSelect.value !== role) roleSelect.value = role;
 
   const roleConfig = USER_ROLES_CONFIG[role] || USER_ROLES_CONFIG.junior;
 
@@ -138,7 +150,7 @@ function changeUserRole(role) {
   const uTitle = document.getElementById("sidebarUserRoleTitle");
   if (uAvatar) uAvatar.textContent = roleConfig.icon;
   if (uName) uName.textContent = roleConfig.name;
-  if (uTitle) uTitle.textContent = `${roleConfig.title.split(' ')[0]} UW (${roleConfig.limitText.split(' ')[0]})`;
+  if (uTitle) uTitle.textContent = roleConfig.limit > 0 ? `${roleConfig.title.split(' (')[0]} (${roleConfig.limitText.split(' ')[0]})` : roleConfig.title.split(' (')[0];
 
   // Simplified UI: the whole Admin-only nav group (User Master, Team
   // Activity, Archive) is one section that shows/hides together.
@@ -184,10 +196,7 @@ function changeUserRole(role) {
   // and must reflect the newly active persona immediately, even if the
   // user is already sitting on that screen when they switch roles.
   let sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (sub) {
-    if (typeof DEMO_MODE_ENABLED !== "undefined" && DEMO_MODE_ENABLED && typeof getDemoDisplaySubmission === "function") {
-      sub = getDemoDisplaySubmission(sub);
-    }
+  if (sub) {
     renderAuthorityScreen(sub);
     renderAppetiteRules(sub.appetiteRules);
     renderUnderwritingWorkbench(sub);
@@ -576,16 +585,11 @@ function showIntakePage() {
   // 3. Update Nav Items & Header Workflow Button
   const navIntake = document.getElementById("navItemIntake");
   const navArchive = document.getElementById("navItemArchive");
-  const navVersions = document.getElementById("navItemQuoteVersions");
   const btnHw = document.getElementById("headerCaseWorkflowBtn");
 
   if (navIntake) navIntake.classList.add("active");
   if (navArchive) navArchive.classList.remove("active");
-  if (navVersions) navVersions.classList.remove("active");
   if (btnHw) btnHw.classList.remove("active");
-
-  const versionsPage = document.getElementById("quoteVersionsPageView");
-  if (versionsPage) { versionsPage.style.display = "none"; versionsPage.classList.remove("active"); }
 
   // 4. Hide Bottom Workflow Footer on Intake Page
   const footer = document.getElementById("workflowBottomFooter");
@@ -622,22 +626,18 @@ function showWorkflowPage(stepNum = 1) {
   const intakePage = document.getElementById("intakePageView");
   const workflowPage = document.getElementById("workflowPageView");
   const archivePage = document.getElementById("archivePageView");
-  const versionsPage = document.getElementById("quoteVersionsPageView");
 
   if (intakePage) { intakePage.style.display = "none"; intakePage.classList.remove("active"); }
   if (workflowPage) { workflowPage.style.display = "block"; workflowPage.classList.add("active"); }
   if (archivePage) { archivePage.style.display = "none"; archivePage.classList.remove("active"); }
-  if (versionsPage) { versionsPage.style.display = "none"; versionsPage.classList.remove("active"); }
 
   // 2. Update Nav Items & Header Workflow Button
   const navIntake = document.getElementById("navItemIntake");
   const navArchive = document.getElementById("navItemArchive");
-  const navVersions = document.getElementById("navItemQuoteVersions");
   const btnHw = document.getElementById("headerCaseWorkflowBtn");
 
   if (navIntake) navIntake.classList.remove("active");
   if (navArchive) navArchive.classList.remove("active");
-  if (navVersions) navVersions.classList.remove("active");
   if (btnHw) btnHw.classList.add("active");
 
   // 3. Navigate to requested workflow step

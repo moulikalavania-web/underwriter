@@ -29,13 +29,6 @@ function renderArchivalPolicySummary() {
   if (daysInput) daysInput.value = ARCHIVAL_POLICY.retentionDays;
   if (approvalCheckbox) approvalCheckbox.checked = ARCHIVAL_POLICY.requireApproval;
 
-  const logEl = document.getElementById("archivalPolicyAuditTrail");
-  if (logEl) {
-    const rows = ARCHIVAL_POLICY.changeLog.slice().reverse().slice(0, 5).map(c =>
-      `<div>› ${c.at} — <strong>${c.by}</strong>: ${c.summary}</div>`
-    ).join("");
-    logEl.innerHTML = `<strong>Policy Change History:</strong>${rows}`;
-  }
 }
 
 function saveArchivalPolicy() {
@@ -114,7 +107,7 @@ function renderArchivalEligibilityQueue() {
       <td><code class="font-mono">${sub.id}</code></td>
       <td>${sub.insured}</td>
       <td>${sub.lobName}</td>
-      <td><span class="badge badge-warning">${triggerLabel}</span></td>
+      <td><span class="badge badge-warning">${triggerLabel}</span>${sub.lifecycleStatus === "declined" ? ` <a href="#" class="text-xs" onclick="showDeclinePage();return false;">reason in Decline Center</a>` : ""}</td>
       <td>${daysSinceStatus} days ago</td>
       <td>
         <button class="btn btn-xs btn-primary" onclick="confirmArchiveSubmission('${sub.id}')">
@@ -228,8 +221,8 @@ function showArchivePage() {
   currentPage = "archive";
   currentScreenId = "screen-9";
   resetAllTopLevelPages();
-  setPageTitle("Archive & Audit");
-  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Archive & Audit" }]);
+  setPageTitle("Archive & Retention");
+  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Archive & Retention" }]);
 
   const archivePage = document.getElementById("archivePageView");
   if (archivePage) { archivePage.style.display = "block"; archivePage.classList.add("active"); }
@@ -288,45 +281,11 @@ function showDeclinePage() {
 }
 
 /**
- * Switch to Page 4: Quote Versioning, Revision Ledger & Actuarial Diff
+ * Quote Versioning is now the "Version History" tab of Quote Intelligence; this keeps the old entry point working.
  */
 function showQuoteVersionsPage() {
-  currentPage = "quote-versions";
-  resetAllTopLevelPages();
-  setPageTitle("Quote Versioning");
-  setBreadcrumb([{ label: "FUT", onClick: "showIntakePage()" }, { label: "Quote Versioning" }]);
-
-  // 1. Toggle Page Views
-  const intakePage = document.getElementById("intakePageView");
-  const workflowPage = document.getElementById("workflowPageView");
-  const archivePage = document.getElementById("archivePageView");
-  const versionsPage = document.getElementById("quoteVersionsPageView");
-
-  if (intakePage) { intakePage.style.display = "none"; intakePage.classList.remove("active"); }
-  if (workflowPage) { workflowPage.style.display = "none"; workflowPage.classList.remove("active"); }
-  if (archivePage) { archivePage.style.display = "none"; archivePage.classList.remove("active"); }
-  if (versionsPage) { versionsPage.style.display = "block"; versionsPage.classList.add("active"); }
-
-  // 2. Update Nav Items & Header Workflow Button
-  const navIntake = document.getElementById("navItemIntake");
-  const navArchive = document.getElementById("navItemArchive");
-  const navVersions = document.getElementById("navItemQuoteVersions");
-  const btnHw = document.getElementById("headerCaseWorkflowBtn");
-
-  if (navIntake) navIntake.classList.remove("active");
-  if (navArchive) navArchive.classList.remove("active");
-  if (navVersions) navVersions.classList.add("active");
-  if (btnHw) btnHw.classList.remove("active");
-
-  // 3. Hide Bottom Workflow Footer
-  const footer = document.getElementById("workflowBottomFooter");
-  if (footer) footer.style.display = "none";
-  document.body.classList.remove("has-bottom-footer");
-
-  // 4. Render Table
-  renderQuoteVersionsLedger();
-
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  quoteIntelActiveTab = "versions";
+  showQuoteIntelligencePage();
 }
 
 // ============================================================================
@@ -381,7 +340,7 @@ function computeSubmissionActivityFlags(sub) {
   if ((sub.priority === "P1" || sub.priority === "P2") && ageHours > 24 && (sub.currentStep || 1) <= 2) {
     isDelayed = true;
     delayReason = `${sub.priority} priority, received ${Math.round(ageHours)}h ago, still at "${stepObj ? stepObj.shortTitle : 'Intake'}"`;
-  } else if (sub.exposureVal > sub.authorityLimit && (sub.currentStep || 1) < 5) {
+  } else if (authNeedsReferral(sub) && (sub.currentStep || 1) < 5) {
     isDelayed = true;
     delayReason = `Exceeds underwriter authority — awaiting escalation/referral before Step 5`;
   }
@@ -483,6 +442,15 @@ function renderFeinClearanceStatus(sub) {
   }
 }
 
+/** Where a declined record stands under the retention policy; the Archive page acts on it, this is the one place that lists the declines. */
+function declineRetentionText(sub) {
+  if (!sub) return "—";
+  if (sub.archived) return `Archived ${new Date(sub.archivedAt).toISOString().slice(0, 10)}`;
+  if (ARCHIVAL_POLICY.triggerStatus !== "declined") return "Retained (policy archives other statuses)";
+  const days = (Date.now() - (sub.lifecycleStatusAt || Date.now())) / 86400000;
+  return days >= ARCHIVAL_POLICY.retentionDays ? "Eligible for archive" : `${Math.ceil(ARCHIVAL_POLICY.retentionDays - days)} day(s) to archive eligibility`;
+}
+
 function renderDeclineCenter() {
   const tbody = document.getElementById("exitAuditTable");
   if (!tbody) return;
@@ -490,7 +458,7 @@ function renderDeclineCenter() {
   const canFix = FEIN_FIX_AUTHORIZED_ROLES.includes(currentUserRole);
 
   if (DECLINE_LOG.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted text-sm" style="padding:20px;">No declined or terminated submissions logged yet.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted text-sm" style="padding:20px;">No declined or terminated submissions logged yet.</td></tr>`;
   } else {
     tbody.innerHTML = DECLINE_LOG.map((entry, idx) => {
       let actionCell = `<span class="text-xs text-muted">—</span>`;
@@ -503,6 +471,7 @@ function renderDeclineCenter() {
           actionCell = `<span class="text-xs text-muted" title="Senior Underwriter or higher authority required">🔒 Restricted — Senior UW+ required</span>`;
         }
       }
+      const retSub = SUBMISSIONS_DATASET.find(s => s.id === entry.subId);
       return `
       <tr>
         <td><code>${entry.subId}</code></td>
@@ -511,6 +480,7 @@ function renderDeclineCenter() {
         <td><span class="badge ${DECLINE_TRIGGER_BADGE[entry.triggerPoint] || 'badge-danger'}">${entry.triggerPoint}</span></td>
         <td>${entry.reason}</td>
         <td>${entry.at}</td>
+        <td class="text-xs">${declineRetentionText(retSub)}</td>
         <td>${actionCell}</td>
       </tr>`;
     }).join("");

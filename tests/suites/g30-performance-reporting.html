@@ -1,0 +1,102 @@
+<!-- Suite G30: performance-reporting. Run with: python tests/run.py --suite g30 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function near(a, b){ return Math.abs(a - b) < 1e-6; }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  var NOW = Date.parse('2026-09-30T12:00:00Z');
+  function ts(d, hh){ return Date.parse(d + 'T' + (hh || '00:00') + ':00Z'); }
+  function mk(id, received, over){
+    var s = clone(seedT); s.id = id; s.lobKey = 'trucking'; s.lobName = 'Commercial Auto / Trucking'; s.channelType = 'broker'; s.broker = 'Marsh & McLennan Commercial Brokerage'; s.priority = 'P2';
+    ['pasSync','lifecycleStatus','lifecycleStatusAt','declineTriggerPoint','authorityRef','quoteIssued','isReferral','assignedTo','discretionaryPricing','importedRatingData'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.receivedTimestamp = received; for (var k in (over||{})) s[k] = over[k]; return s; }
+  function quoted(s, at){ s.quoteIssued = true; s.decisionLog.push({ decision:'quote_issued', at: at }); return s; }
+  function bound(s, at, prem){ s.pasSync = { status:'success', policyNumber:'P-'+s.id, syncedAt: at }; s.discretionaryPricing = { finalPremium: prem }; return s; }
+  try {
+    t('RBAC resource and permissions', RBAC_RESOURCES.some(function(r){return r.key==='performance';}) && PERMISSIONS_MATRIX.senior_uw.performance.view && !PERMISSIONS_MATRIX.senior_uw.performance.approve && PERMISSIONS_MATRIX.senior.performance.approve && !PERMISSIONS_MATRIX.junior.performance.view && PERMISSIONS_MATRIX.compliance.performance.view && !PERMISSIONS_MATRIX.broker_user.performance.view);
+
+    // ---------- helpers
+    t('timestamp parsing', perfMs('2026-09-01 10:30') === ts('2026-09-01','10:30') && perfMs('2026-09-01') === ts('2026-09-01') && perfMs('junk') === null && perfMs(null) === null && perfMs(12345) === 12345);
+    var st = perfStats([1,2,3,4,5,6,7,8,9,10]);
+    t('statistics: average, median and 90th percentile (nearest rank)', near(st.avg,5.5) && st.median === 5 && st.p90 === 9 && st.n === 10);
+    t('empty statistics are null, not zero', perfStats([]).median === null && perfPct(1,0) === null && perfFmtPct(null) === 'n/a' && perfFmtHours(null) === 'n/a');
+    t('formatting', perfFmtHours(5.25) === '5.3 h' && perfFmtHours(72) === '3 d');
+
+    // ---------- fixture: 10 submissions, received in September
+    var S = [];
+    S.push(bound(quoted(mk('A1', ts('2026-09-01','08:00')), '2026-09-01 10:00'), '2026-09-02 10:00', 10000));       // 2h to quote (P2 target 24h), 24h to bind
+    S.push(bound(quoted(mk('A2', ts('2026-09-02','08:00')), '2026-09-03 08:00'), '2026-09-05 08:00', 20000));       // 24h to quote, on the line
+    S.push(quoted(mk('A3', ts('2026-09-03','08:00')), '2026-09-06 08:00'));                                           // 72h: late
+    S.push(quoted(mk('A4', ts('2026-09-04','08:00'),{priority:'P1'}), '2026-09-04 11:00'));                           // 3h, P1 target 4h: on time
+    S.push(mk('A5', ts('2026-09-05','08:00'),{lifecycleStatus:'declined', lifecycleStatusAt: ts('2026-09-05','12:00'), declineTriggerPoint:'Appetite Knockout'}));
+    S.push(mk('A6', ts('2026-09-06','08:00'),{lifecycleStatus:'declined', lifecycleStatusAt: ts('2026-09-06','12:00'), declineTriggerPoint:'Appetite Knockout'}));
+    S.push(mk('A7', ts('2026-09-07','08:00'),{lifecycleStatus:'declined', lifecycleStatusAt: ts('2026-09-07','12:00'), declineTriggerPoint:'Duplicate FEIN'}));
+    S.push(mk('A8', ts('2026-09-28','08:00')));                                                                       // open, 52h old, P2 target 24h: past
+    S.push(mk('A9', ts('2026-09-30','06:00')));                                                                       // open, 6h old: within
+    var A10 = mk('A10', ts('2026-09-08','08:00'), { quoteIssued:true }); S.push(A10);                                 // quoted, no timestamp
+    var m = perfCompute(S, {}, NOW), f = m.funnel;
+    t('funnel counts', f.received===10 && f.quoted===5 && f.bound===2 && f.declined===3 && f.open===2, JSON.stringify([f.received,f.quoted,f.bound,f.declined,f.open]));
+    t('ratios', f.quoteRatio===50 && f.hitRatio===40 && f.declineRatio===30);
+    t('turnaround: median and 90th percentile of the four timestamped quotes', f.turnaround.n===4 && f.turnaround.median===3 && f.turnaround.p90===72, JSON.stringify([f.turnaround.n,f.turnaround.median,f.turnaround.p90]));
+    t('quote to bind', f.quoteToBind.n===2 && f.quoteToBind.median===24);
+    t('a quote with no timestamp is counted but left out of timings, and reported', f.noTimestamp===1);
+    t('premium bound', f.premium===30000);
+    t('declines by trigger point', m.declines.filter(function(d){return d.trigger==='Appetite Knockout';})[0].n===2 && m.declines.filter(function(d){return d.trigger==='Duplicate FEIN';})[0].n===1);
+
+    // ---------- SLA
+    var sla = m.sla;
+    t('SLA: on time, late and boundary (exactly on target counts as met)', sla.measured===4 && sla.onTime===3 && sla.late.length===1 && sla.late[0].id==='A3' && sla.rate===75, JSON.stringify([sla.measured, sla.onTime]));
+    t('SLA: open items split into past target and within target', sla.openPast.length===1 && sla.openPast[0].id==='A8' && sla.openWithin===1);
+    t('SLA by priority', sla.byPriority.P1.target===4 && sla.byPriority.P1.onTime===1 && sla.byPriority.P2.measured===3);
+
+    // ---------- window and line filters
+    t('window filter on received date', perfCompute(S, { from:'2026-09-01', to:'2026-09-03' }, NOW).count===3 && perfCompute(S, { from:'2026-09-29' }, NOW).count===1);
+    var prop = mk('PR', ts('2026-09-10','08:00'), { lobKey:'property', lobName:'Commercial Property' });
+    t('line filter', perfCompute(S.concat([prop]), { lob:'property' }, NOW).count===1 && perfCompute(S.concat([prop]), { lob:'trucking' }, NOW).count===10);
+    t('submissions with no received date are excluded from a dated window, included otherwise', perfCompute([mk('ND', null)], { from:'2026-01-01' }, NOW).count===0 && perfCompute([mk('ND', null)], {}, NOW).count===1);
+
+    // ---------- referrals and authority
+    var R1 = mk('R1', ts('2026-09-10','08:00'), { authorityRef:{ status:'approved', raisedAt:'2026-09-10 09:00', decidedAt:'2026-09-10 21:00' } });
+    var R2 = mk('R2', ts('2026-09-11','08:00'), { authorityRef:{ status:'pending', raisedAt:'2026-09-29 12:00' } });          // 24h old
+    var R3 = mk('R3', ts('2026-09-12','08:00'), { authorityRef:{ status:'pending', raisedAt:'2026-09-20 12:00' } });          // 10 days old
+    var R4 = mk('R4', ts('2026-09-13','08:00'), { authorityRef:{ status:'pending', raisedAt:'2026-09-30 11:00' } });          // 1h old
+    R3.decisionLog.push({decision:'auth_bind_blocked'}, {decision:'auth_quote_blocked'});
+    var mr = perfCompute([R1,R2,R3,R4], {}, NOW).referrals, ma = perfCompute([R1,R2,R3,R4], {}, NOW).authority;
+    t('referral count, decision time and open referrals by age', mr.count===4 && mr.turnaround.n===1 && mr.turnaround.median===12 && mr.open===3 && mr.buckets[0].n===2 && mr.buckets[1].n===0 && mr.buckets[2].n===1, JSON.stringify(mr.buckets));
+    t('authority blocks counted', ma.blocks===2 && ma.submissionsBlocked===1);
+
+    // ---------- groups
+    var G = [bound(quoted(mk('G1', ts('2026-09-01','08:00')), '2026-09-01 12:00'), '2026-09-02 12:00', 5000), mk('G2', ts('2026-09-02','08:00'),{ broker:'Arora & Sons', assignedTo:'junior' }), quoted(mk('G3', ts('2026-09-03','08:00'),{ broker:'Arora & Sons', assignedTo:'junior' }), '2026-09-03 09:00')];
+    var mg = perfCompute(G, {}, NOW);
+    var marsh = mg.byProducer.filter(function(g){return /Marsh/.test(g.key);})[0], arora = mg.byProducer.filter(function(g){return /Arora/.test(g.key);})[0];
+    t('by producer: own funnel and hit ratio', marsh.received===1 && marsh.hitRatio===100 && arora.received===2 && arora.quoted===1 && arora.hitRatio===0 && marsh.premium===5000);
+    t('by line and by assignee', mg.byLob.length===1 && mg.byAssignee.filter(function(g){return g.key==='junior';})[0].received===2);
+    var D = mk('DIR', ts('2026-09-01','08:00'), { channelType:'direct', broker:'' });
+    t('direct business grouped as Direct', perfCompute([D], {}, NOW).byProducer[0].key === 'Direct');
+
+    // ---------- csv and screen
+    var csv = perfCsv(m);
+    t('CSV has the measures and producers', /Hit ratio,40%/.test(csv) && /Marsh/.test(csv) && /Premium bound,30000/.test(csv));
+    t('CSV guards text cells against formula injection', /^"?'=HYPERLINK/m.test(perfCsv(perfCompute([mk('X', ts('2026-09-01','08:00'), { broker:'=HYPERLINK("x")' })], {}, NOW))));
+    SUBMISSIONS_DATASET.length = 0; S.concat([R1,R2,R3,R4]).forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    currentUserRole = 'junior'; renderPerformance();
+    t('no access for a junior', /do not have access/.test(el('performanceRoot').innerHTML));
+    currentUserRole = 'senior_uw'; renderPerformance();
+    t('senior UW sees book measures but not underwriter-level', /Hit ratio/.test(el('performanceRoot').innerHTML) && /Underwriter-level measures need approval/.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
+    currentUserRole = 'senior'; renderPerformance();
+    t('CUO also sees the underwriter table', /By assigned underwriter/.test(el('performanceRoot').innerHTML));
+    changeUserRole('carrier_auditor'); renderPerformance();
+    t('carrier auditor sees only policies on their carrier, and no people table', /Underwriting Performance/.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
+    changeUserRole('broker_user'); renderPerformance();
+    t('producer refused', /do not have access/.test(el('performanceRoot').innerHTML));
+    changeUserRole('senior');
+    t('XSS-safe', perfEsc('<b>') === '&lt;b&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

@@ -1,0 +1,143 @@
+<!-- Suite G03: producer-licensing. Run with: python tests/run.py --suite g03 -->
+<script>
+(function(){
+  var out = [], errs = []; window.slGuardQuote=function(){return true;}; window.slGuardBind=function(){return true;}; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;}; /* G06 is covered by its own suite */
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seedBy(broker, lob){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.broker === broker && (!lob || s.lobKey === lob); })[0]); }
+  function checkOf(r, id){ return r.checks.filter(function(c){return c.id===id;})[0]; }
+  var TODAY = new Date('2026-10-08T12:00:00Z');
+  try {
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='producerLicensing';}));
+    t('matrix has producerLicensing for all roles', ['assistant','junior','senior_uw','senior','admin'].every(function(r){return PERMISSIONS_MATRIX[r].producerLicensing;}));
+    t('audit meta added', !!AUDIT_ACTION_META.producer_bind_blocked);
+
+    // --- risk state derivation
+    var marsh = seedBy('Marsh & McLennan Commercial Brokerage', 'trucking');
+    t('seed garaging "Houston" ignored, address gives TX', deriveRiskState(marsh) === 'TX', String(marsh.insuredInfo.insured_garaging_state));
+    var gold = clone(GOLDEN_PATH_SUBMISSION);
+    t('golden path state from garaging TX', deriveRiskState(gold) === 'TX');
+
+    // --- pure evaluation across the seeded scenarios
+    var r = evaluateProducerCompliance(marsh, TODAY);
+    t('Marsh trucking TX -> verified', r.status === 'verified', r.status);
+
+    var aon = seedBy('Aon Commercial Risk Solutions', 'property');
+    r = evaluateProducerCompliance(aon, TODAY);
+    t('Aon property TX -> failed on appointment', r.status === 'failed' && checkOf(r,'appointment').pass === false && checkOf(r,'license').pass === true, r.status);
+
+    var wtw = seedBy('Willis Towers Watson Commercial', 'mpl');
+    r = evaluateProducerCompliance(wtw, TODAY);
+    t('WTW MPL MA -> failed on expired licence', r.status === 'failed' && checkOf(r,'license').pass === false, checkOf(r,'license').detail);
+
+    var gal = seedBy('Gallagher Commercial Brokers', 'gl_cpc');
+    t('Gallagher GL CPC OH -> verified', evaluateProducerCompliance(gal, TODAY).status === 'verified');
+
+    var amw = seedBy('Amwins Specialty Wholesale Brokerage', 'gl_cas');
+    r = evaluateProducerCompliance(amw, TODAY);
+    t('Amwins GL CAS TX -> failed (no appointment)', r.status === 'failed' && /No appointment/.test(checkOf(r,'appointment').detail), checkOf(r,'appointment').detail);
+
+    var gold2 = clone(GOLDEN_PATH_SUBMISSION);
+    t('Golden path Arora & Sons trucking -> verified', evaluateProducerCompliance(gold2, TODAY).status === 'verified');
+
+    var direct = clone(SEED_SUBMISSIONS_DATASET.filter(function(s){return s.channelType==='direct';})[0]);
+    t('direct submission -> not_applicable', evaluateProducerCompliance(direct, TODAY).status === 'not_applicable');
+    t('not_applicable allows bind', producerAllowsBind('not_applicable') === true);
+
+    var unk = clone(marsh); unk.broker = 'Zeta Unknown Brokers';
+    t('unknown producer -> not_found', evaluateProducerCompliance(unk, TODAY).status === 'not_found');
+
+    var noState = clone(marsh); noState.address = 'Somewhere'; noState.insuredInfo.insured_garaging_state = 'Houston'; delete noState.canonicalJson;
+    t('no state -> cannot_determine', evaluateProducerCompliance(noState, TODAY).status === 'cannot_determine');
+
+    r = evaluateProducerCompliance(marsh, new Date('2027-04-01T12:00:00Z'));
+    t('licence expires after 2027-03-31 -> failed', r.status === 'failed' && checkOf(r,'license').pass === false);
+
+    t('name match tolerates suffix', lookupProducerRecord('Marsh & McLennan Commercial Brokerage LLC') !== null);
+    t('short/unrelated names do not match', lookupProducerRecord('Mar') === null && lookupProducerRecord('Random Agency') === null);
+
+    // --- stateful flow on a submission that fails on appointment (Aon property)
+    SUBMISSIONS_DATASET.length = 0;
+    var sub = seedBy('Aon Commercial Risk Solutions', 'property');
+    SUBMISSIONS_DATASET.push(sub);
+    activeSubmissionId = sub.id;
+    // property is a TRIA-covered line: satisfy the TRIA gate so these tests exercise the producer guard
+    sub.tria = {history:[], offer:{premium:0}, election:{decision:'accepted'}};
+    sub.subjectivities = [];   // no open subjectivities, so the producer guard is what is under test
+
+    currentUserRole = 'junior';
+    runProducerCheck(sub, 'clearance');
+    t('stored check is failed', sub.producerCheck.result.status === 'failed');
+    t('failed audit entry written once', sub.decisionLog.filter(function(d){return d.decision==='producer_license_failed';}).length === 1);
+    runProducerCheck(sub, 'manual');
+    t('no duplicate audit entry when outcome unchanged', sub.decisionLog.filter(function(d){return d.decision==='producer_license_failed';}).length === 1);
+    t('bind blocked on failed check', producerGuardBind('e-signature') === false);
+    t('bind-blocked audit entry', sub.decisionLog.some(function(d){return d.decision==='producer_bind_blocked';}));
+
+    // manual verification form
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="producerLicensingContainer"></div>' +
+      '<input id="plNpn" value="90000003"><input id="plLicNo" value="TX-DEMO-300003">' +
+      '<input id="plLicExp" value="2027-02-28"><input id="plApptEff" value="2026-10-01">' +
+      '<select id="plSource"><option>NIPR / state DOI licence lookup</option></select>' +
+      '<input id="plRef" value="NIPR-REF-5521"><input id="plNotes" value="Appointment letter received">');
+
+    currentUserRole = 'junior';
+    producerRecordManualVerification();
+    t('junior cannot record manual verification', !sub.producerCheck.manual && sub.producerCheck.result.status === 'failed');
+
+    currentUserRole = 'senior';
+    document.getElementById('plLicExp').value = '2026-01-01';
+    producerRecordManualVerification();
+    t('past licence expiry rejected', !sub.producerCheck.manual);
+    document.getElementById('plLicExp').value = '2027-02-28';
+    document.getElementById('plNpn').value = 'abc';
+    producerRecordManualVerification();
+    t('bad NPN rejected', !sub.producerCheck.manual);
+    document.getElementById('plNpn').value = '90000003';
+    document.getElementById('plRef').value = '';
+    producerRecordManualVerification();
+    t('missing reference rejected', !sub.producerCheck.manual);
+    document.getElementById('plRef').value = 'NIPR-REF-5521';
+
+    producerRecordManualVerification();
+    t('CUO manual verification accepted', !!sub.producerCheck.manual);
+    t('status verified after manual record', sub.producerCheck.result.status === 'verified' && sub.producerCheck.result.source === 'manual', sub.producerCheck.result.status);
+    t('manual audit entry has source and reference', sub.decisionLog.some(function(d){return d.decision==='producer_manual_verification' && /NIPR-REF-5521/.test(d.notes);}));
+    t('verified audit entry', sub.decisionLog.some(function(d){return d.decision==='producer_license_verified';}));
+    t('bind allowed once verified', producerGuardBind('issue quote') === true);
+
+    // admin cannot approve
+    t('admin cannot record verifications', PERMISSIONS_MATRIX.admin.producerLicensing.approve === false);
+
+    // --- rendering
+    renderProducerCard(sub);
+    var html = document.getElementById('producerLicensingContainer').innerHTML;
+    t('card renders verified state', html.indexOf('Producer Licence') > -1 && html.indexOf('Verified') > -1 && html.indexOf('Manual verification') > -1);
+    sub.producerCheck.manual = null; runProducerCheck(sub, 'manual');
+    renderProducerCard(sub);
+    t('card shows manual form when failed and user may approve', document.getElementById('producerLicensingContainer').innerHTML.indexOf('plNpn') > -1);
+    t('banner blocked', renderProducerBindBanner(sub).indexOf('Bind blocked') > -1);
+    t('e-signature entry point is a function', typeof window.openESignatureModal === 'function');
+    t('issue quote entry point is a function', typeof window.issueQuoteAction === 'function');
+    // chained guards: producer verified, but a confirmed sanctions match must still stop the real entry points
+    sub.producerCheck.manual = {npn:'90000003',licenseNumber:'TX-DEMO-300003',licenseExpires:'2027-02-28',appointmentEffective:'2026-10-01',source:'x',reference:'y',by:'t',at:'t',state:'TX'};
+    runProducerCheck(sub, 'manual');
+    t('producer verified again for chain test', sub.producerCheck.result.status === 'verified');
+    sub.sanctions = {screens:[],reviews:[],extraParties:[{name:'Test Blocked Person',role:'Principal / Owner'}]};
+    runSanctionsScreening(sub, 'manual');
+    var modal = document.getElementById('eSignatureModal'); modal.style.display = 'none';
+    window.openESignatureModal();
+    t('sanctions guard (inner) still blocks e-signature', modal.style.display !== 'flex');
+    sub.sanctions = {screens:[],reviews:[],extraParties:[]};
+    runSanctionsScreening(sub, 'manual');
+    window.openESignatureModal();
+    t('both guards pass -> e-signature opens', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    t('XSS-safe', producerEsc('<script>') === '&lt;script&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

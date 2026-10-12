@@ -1,0 +1,188 @@
+<!-- Suite G14: subjectivities. Run with: python tests/run.py --suite g14 -->
+<script>
+(function(){
+  var out = [], errs = []; window.slGuardQuote=function(){return true;}; window.slGuardBind=function(){return true;}; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;}; /* G06 is covered by its own suite */
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seed(lob, broker){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.lobKey === lob && (!broker || s.broker === broker); })[0]); }
+  function el(id){ return document.getElementById(id); }
+  function note(id, host, v){ var e = el('sj_note_' + host + '_' + id); if (!e) { out.push('WARN missing note input ' + id + '/' + host); return; } e.value = v; }
+  function item(sub, id){ return sub.subjectivityItems.filter(function(i){return i.id===id;})[0]; }
+  function logs(sub, d){ return sub.decisionLog.filter(function(x){return x.decision===d;}); }
+  try {
+    // ---------- config
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='subjectivities';}));
+    t('assistant and admin view only', PERMISSIONS_MATRIX.assistant.subjectivities.view && !PERMISSIONS_MATRIX.assistant.subjectivities.edit && !PERMISSIONS_MATRIX.admin.subjectivities.edit);
+    t('junior records and accepts, cannot waive', PERMISSIONS_MATRIX.junior.subjectivities.edit && PERMISSIONS_MATRIX.junior.subjectivities.approve && !PERMISSIONS_MATRIX.junior.subjectivities.override);
+    t('senior UW and CUO can waive', PERMISSIONS_MATRIX.senior_uw.subjectivities.override && PERMISSIONS_MATRIX.senior.subjectivities.override);
+    t('audit meta added', !!AUDIT_ACTION_META.subjectivity_overdue && !!AUDIT_ACTION_META.subjectivity_bind_blocked);
+
+    // ---------- timing guess from legacy text
+    t('"prior to bind" -> pre-bind', subjParse('Receipt of MVRs prior to bind.').timing === 'pre_bind');
+    t('"within 15 days" -> post-bind, 15 days', subjParse('MVRs within 15 days of bind.').timing === 'post_bind' && subjParse('MVRs within 15 days of bind.').dueDays === 15);
+    t('explicit pre-bind wins over a day count', subjParse('Within 30 days before binding, receive X (pre-bind)').timing === 'pre_bind');
+    t('plain wording defaults to pre-bind', subjParse('Receipt of signed statement of no losses.').timing === 'pre_bind');
+
+    // ---------- migration from the legacy strings
+    SUBMISSIONS_DATASET.length = 0;
+    var sub = seed('trucking', 'Marsh & McLennan Commercial Brokerage');
+    SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    var legacyCount = sub.subjectivities.length;
+    var items = ensureSubjectivityItems(sub);
+    t('legacy strings become structured items', items.length === legacyCount && items.every(function(i){return i.status==='open' && i.id && i.timing;}), 'n=' + items.length);
+    t('legacy items default to pre-bind', items.every(function(i){return i.timing==='pre_bind';}));
+    t('migration is idempotent', ensureSubjectivityItems(sub).length === items.length);
+    sub.subjectivities.push('Receipt of tax clearance certificate within 20 days of binding.');
+    t('a string added by older code is imported once as post-bind', (function(){ ensureSubjectivityItems(sub); ensureSubjectivityItems(sub); var p = sub.subjectivityItems.filter(function(i){return /tax clearance/.test(i.text);}); return p.length===1 && p[0].timing==='post_bind' && p[0].dueDays===20; })());
+    var st = subjStatus(sub);
+    t('pre-bind items block bind', st.blocked && st.preBlocking.length === legacyCount);
+    t('post-bind items do not block', st.post.length === 1 && !st.preBlocking.some(function(i){return i.timing==='post_bind';}));
+    t('mirror keeps the legacy array in step', sub.subjectivities.length === sub.subjectivityItems.length && sub.subjectivities.some(function(s){return /within 20 days of binding/.test(s);}));
+
+    // ---------- receive / accept / return / waive / reopen
+    var ids = sub.subjectivityItems.filter(function(i){return i.timing==='pre_bind';}).map(function(i){return i.id;});
+    renderSubjectivityViews(sub);
+    currentUserRole = 'assistant';
+    note(ids[0], 'qb', 'mvr-batch-17.pdf'); subjReceive(ids[0], 'qb');
+    t('assistant cannot record receipt', item(sub, ids[0]).status === 'open');
+
+    currentUserRole = 'junior';
+    renderSubjectivityViews(sub);
+    note(ids[0], 'qb', 'x'); subjReceive(ids[0], 'qb');
+    t('receipt needs a reference', item(sub, ids[0]).status === 'open');
+    note(ids[0], 'qb', 'mvr-batch-17.pdf'); subjReceive(ids[0], 'qb');
+    t('junior records receipt', item(sub, ids[0]).status === 'received' && item(sub, ids[0]).evidence === 'mvr-batch-17.pdf');
+    t('receipt audit entry', logs(sub, 'subjectivity_received').length === 1);
+    renderSubjectivityViews(sub);
+    subjAccept(ids[0], 'qb');
+    t('the same person cannot accept their own receipt', item(sub, ids[0]).status === 'received');
+
+    currentUserRole = 'senior_uw';
+    renderSubjectivityViews(sub);
+    note(ids[0], 'qb', ''); subjReturn(ids[0], 'qb');
+    t('"not acceptable" needs a note', item(sub, ids[0]).status === 'received');
+    note(ids[0], 'qb', 'Report is for the wrong driver'); subjReturn(ids[0], 'qb');
+    t('returned to open with the note kept', item(sub, ids[0]).status === 'open' && /wrong driver/.test(item(sub, ids[0]).returnedNote));
+    t('returned audit entry', logs(sub, 'subjectivity_returned').length === 1);
+
+    currentUserRole = 'junior'; renderSubjectivityViews(sub);
+    note(ids[0], 'qb', 'mvr-batch-18.pdf'); subjReceive(ids[0], 'qb');
+    currentUserRole = 'senior_uw'; renderSubjectivityViews(sub);
+    subjAccept(ids[0], 'qb');
+    t('a second person accepts', item(sub, ids[0]).status === 'accepted' && /David Chen/.test(item(sub, ids[0]).acceptedBy));
+    t('accepted item leaves the mirror', !sub.subjectivities.some(function(s){return s === item(sub, ids[0]).text;}));
+    t('accept audit entry', logs(sub, 'subjectivity_accepted').length === 1);
+
+    // waive: junior no, short reason no, valid yes
+    currentUserRole = 'junior'; renderSubjectivityViews(sub);
+    note(ids[1], 'qb', 'Not needed for this insured at all'); subjWaive(ids[1], 'qb');
+    t('junior cannot waive', item(sub, ids[1]).status === 'open');
+    currentUserRole = 'senior_uw'; renderSubjectivityViews(sub);
+    note(ids[1], 'qb', 'short'); subjWaive(ids[1], 'qb');
+    t('short waiver reason rejected', item(sub, ids[1]).status === 'open');
+    note(ids[1], 'qb', 'SOV already verified against the registry extract.'); subjWaive(ids[1], 'qb');
+    t('senior UW waives with a reason', item(sub, ids[1]).status === 'waived' && /registry extract/.test(item(sub, ids[1]).waivedReason));
+    t('waive audit entry', logs(sub, 'subjectivity_waived').length === 1);
+    note(ids[1], 'qb', 'x'); subjReopen(ids[1], 'qb');
+    t('reopen needs a reason', item(sub, ids[1]).status === 'waived');
+    note(ids[1], 'qb', 'Waiver withdrawn, still needed'); subjReopen(ids[1], 'qb');
+    t('reopen works and is logged', item(sub, ids[1]).status === 'open' && logs(sub, 'subjectivity_reopened').length === 1);
+    t('still blocked: one pre-bind item left open', subjStatus(sub).blocked === true, 'blocking=' + subjStatus(sub).preBlocking.length);
+
+    // clear remaining pre-bind items
+    ids.slice(1).forEach(function(id){ renderSubjectivityViews(sub); note(id, 'qb', 'Verified against file, no longer needed here.'); subjWaive(id, 'qb'); });
+    t('bind is clear once every pre-bind item is accepted or waived', subjStatus(sub).blocked === false);
+    t('guard allows bind', subjectivitiesGuardBind('test') === true);
+
+    // ---------- add dialog: post-bind with days, validation
+    currentUserRole = 'junior';
+    subjOpenAddDialog();
+    t('add dialog opens', el('subjectivityAddModal').style.display === 'flex');
+    el('sjAddText').value = 'short'; el('sjAddTiming').value = 'pre_bind'; subjSubmitAdd();
+    t('add: short text rejected', sub.subjectivityItems.every(function(i){return i.text !== 'short';}));
+    el('sjAddText').value = 'Signed loss-control survey recommendations accepted.'; el('sjAddTiming').value = 'post_bind'; el('sjAddDays').value = '0'; subjSubmitAdd();
+    t('add: days must be between 1 and 180', sub.subjectivityItems.every(function(i){return !/loss-control/.test(i.text);}));
+    el('sjAddDays').value = '45'; subjSubmitAdd();
+    var post = sub.subjectivityItems.filter(function(i){return /loss-control/.test(i.text);})[0];
+    t('add: post-bind item with 45 days', !!post && post.timing==='post_bind' && post.dueDays===45 && post.dueDate===null);
+    t('add audit entry', logs(sub, 'subjectivity_added').length >= 1);
+    subjOpenAddDialog(); el('sjAddText').value = 'Updated driver list before binding.'; el('sjAddTiming').value = 'pre_bind'; el('sjAddNeededBy').value = '2020-01-01'; subjSubmitAdd();
+    t('add: needed-by date in the past rejected', sub.subjectivityItems.every(function(i){return !/Updated driver list/.test(i.text);}));
+    el('sjAddNeededBy').value = ''; subjSubmitAdd();
+    var newPre = sub.subjectivityItems.filter(function(i){return /Updated driver list/.test(i.text);})[0];
+    t('add: a new pre-bind item blocks bind again', !!newPre && subjStatus(sub).blocked === true);
+    currentUserRole = 'senior_uw'; renderSubjectivityViews(sub);
+    note(newPre.id, 'qb', 'Driver list received from broker'); subjReceive(newPre.id, 'qb');
+    currentUserRole = 'senior'; renderSubjectivityViews(sub); subjAccept(newPre.id, 'qb');
+    t('accepted again -> clear', subjStatus(sub).blocked === false);
+
+    // ---------- post-bind clock and overdue
+    startPostBindClock(sub, '2026-10-08');
+    var tax = sub.subjectivityItems.filter(function(i){return /tax clearance/.test(i.text);})[0];
+    t('clock: 20-day item due 2026-10-28', tax.dueDate === '2026-10-28', tax.dueDate);
+    t('clock: 45-day item due 2026-11-22', post.dueDate === '2026-11-22', post.dueDate);
+    t('clock audit entry', logs(sub, 'subjectivity_clock_started').length === 1);
+    t('bind date stored', sub.subjectivityBindDate === '2026-10-08');
+    t('mirror shows the due date', sub.subjectivities.some(function(s){return /due 2026-10-28/.test(s);}));
+    var later = subjEvaluate(sub.subjectivityItems, '2026-11-01');
+    t('overdue after the due date', later.overdue.some(function(i){return i.id===tax.id;}) && !later.overdue.some(function(i){return i.id===post.id;}));
+    t('received item is not overdue', (function(){ var c = clone(sub.subjectivityItems); c.forEach(function(i){ if (i.id===tax.id) i.status='received'; }); return !subjEvaluate(c, '2026-11-01').overdue.some(function(i){return i.id===tax.id;}); })());
+    tax.dueDate = '2026-01-01';   // force overdue against today's date
+    subjCheckOverdue(sub); subjCheckOverdue(sub);
+    t('overdue logged once', logs(sub, 'subjectivity_overdue').length === 1);
+    t('bind banner warns about overdue post-bind items', /overdue/.test(renderSubjectivitiesBindBanner(sub)));
+    var late = subjAddDays('2026-10-08', 30);
+    t('date maths', late === '2026-11-07');
+    subjOpenAddDialog(); el('sjAddText').value = 'Fire alarm certificate to be supplied after binding.'; el('sjAddTiming').value = 'post_bind'; el('sjAddDays').value = '10'; subjSubmitAdd();
+    var fa = sub.subjectivityItems.filter(function(i){return /Fire alarm/.test(i.text);})[0];
+    t('item added after bind gets its due date straight away', fa && fa.dueDate === '2026-10-18', fa && fa.dueDate);
+
+    // ---------- views
+    var wbHtml = el('subjectivityList').innerHTML;
+    t('workbench list shows both kinds', /Pre-bind/.test(wbHtml) && /Post-bind/.test(wbHtml));
+    t('no always-ticked "Pre-Bind Condition" badges any more', !/Pre-Bind Condition/.test(wbHtml));
+    var q = renderSubjectivitiesQuoteList(sub);
+    t('quote list groups before and after binding', /After binding/.test(q) && /due 2026-/.test(q));
+    var cleared = clone(sub); cleared.subjectivityItems.forEach(function(i){ i.status = 'waived'; });
+    t('quote list says so when nothing is open', /No open subjectivities/.test(renderSubjectivitiesQuoteList(cleared)));
+    t('XSS-safe', subjEsc('<img onerror=1>') === '&lt;img onerror=1&gt;');
+
+    // ---------- staging: the quote goes out with its subjectivities; the real bind ("Bind & Sync to PAS") is what they gate
+    SUBMISSIONS_DATASET.length = 0;
+    var gal = seed('gl_cpc', 'Gallagher Commercial Brokers'); SUBMISSIONS_DATASET.push(gal); activeSubmissionId = gal.id;
+    gal.tria = { history:[], offer:{premium:0}, election:{decision:'accepted'} };
+    var modal = el('eSignatureModal'); modal.style.display = 'none';
+    currentUserRole = 'junior';
+    ensureSubjectivityItems(gal);
+    var open0 = gal.subjectivityItems.filter(function(i){return i.timing==='pre_bind';}).length;
+    window.openESignatureModal();
+    t('quote CAN be signed and issued while pre-bind items are open', open0 > 0 && modal.style.display === 'flex', 'pre-bind items=' + open0);
+    modal.style.display = 'none';
+    t('quote-stage banner is a warning, not a block', /can be issued with them listed/.test(renderSubjectivitiesBindBanner(gal, 'quote')) && !/Bind blocked/.test(renderSubjectivitiesBindBanner(gal, 'quote')));
+    t('bind-stage banner says bind blocked', /Bind blocked/.test(renderSubjectivitiesBindBanner(gal, 'bind')));
+    gal.quoteIssued = true; gal.customerApproved = true;
+    window.simulatePASBindSync(gal.id);
+    t('real bind refused while pre-bind items are open', !gal.pasSync, JSON.stringify(gal.pasSync || null));
+    t('bind-blocked audit entry', logs(gal, 'subjectivity_bind_blocked').length >= 1);
+    t('guard accepts an explicit submission id', subjectivitiesGuardBind('test', gal.id) === false);
+
+    currentUserRole = 'senior_uw'; renderSubjectivityViews(gal);
+    gal.subjectivityItems.filter(function(i){return i.timing==='pre_bind';}).forEach(function(i){ note(i.id, 'qb', 'Reviewed and not required for this class.'); subjWaive(i.id, 'qb'); });
+    t('bind is clear once pre-bind items are waived', subjectivitiesGuardBind('test', gal.id) === true);
+
+    gal.subjectivityItems.push({id:'SJ-90', text:'Signed premium finance agreement.', timing:'post_bind', dueDays:30, dueDate:null, neededBy:null, status:'open', source:'manual', createdBy:'t', createdAt:'t'});
+    gal.subjectivities.push('Signed premium finance agreement.');
+    window.issueQuoteAction();
+    t('issuing the quote works', gal.quoteIssued === true);
+    t('issuing the quote does NOT start the post-bind clock', !gal.subjectivityBindDate && !item(gal, 'SJ-90').dueDate);
+    recordQuoteVersion(gal, false);
+    t('an unbound quote version does not start the clock either', !gal.subjectivityBindDate);
+    recordQuoteVersion(gal, true);
+    t('recording the BOUND version starts the post-bind clock', !!gal.subjectivityBindDate && !!item(gal, 'SJ-90').dueDate && item(gal, 'SJ-90').dueDate > gal.subjectivityBindDate, String(item(gal, 'SJ-90').dueDate));
+    t('bind-stage entry points are still callable', typeof window.simulatePASBindSync === 'function' && typeof window.recordQuoteVersion === 'function');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

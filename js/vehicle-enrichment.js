@@ -76,7 +76,7 @@ function renderVehicleEnrichment(sub) {
   const vehicleRows = vehicles.map((v, idx) => {
     const label = [v.year, v.make, v.model].filter(Boolean).join(" ") || `Unit ${idx + 1}`;
     const result = v.enrichment;
-    let confBadge = `<span class="badge badge-light">${fetched ? 'No Match Found' : 'Awaiting Registry Fetch'}</span>`;
+    let confBadge = `<span class="badge badge-light">${fetched ? 'No Match Found' : 'No registry connected'}</span>`;
     if (result) {
       confBadge = result.confidence > 0
         ? `<span class="badge ${result.confidence >= 66 ? 'badge-success' : 'badge-warning'}">🟢 ${result.confidence}%</span>`
@@ -103,7 +103,7 @@ function renderVehicleEnrichment(sub) {
     <div class="card mt-4">
       <div class="card-header">
         <h3><i class="ph ph-truck text-primary"></i> Vehicle Data Enrichment</h3>
-        <span class="text-xs text-muted">Matched automatically by VIN when Registry Verification runs — nothing to import or search manually.</span>
+        <span class="text-xs text-muted">Matched by VIN when a registry source returns data. No registry is connected, so nothing is matched here yet.</span>
       </div>
       <div class="card-body">
         <table class="data-table">

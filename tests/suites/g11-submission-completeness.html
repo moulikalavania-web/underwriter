@@ -1,0 +1,164 @@
+<!-- Suite G11: submission-completeness. Run with: python tests/run.py --suite g11 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seed(lob, broker){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.lobKey === lob && (!broker || s.broker === broker); })[0]); }
+  function ids(list){ return list.map(function(i){return i.id;}).join(','); }
+  function el(id){ return document.getElementById(id); }
+  try {
+    // ---------- config and permissions
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='completeness';}));
+    t('assistant can run the check but not waive', PERMISSIONS_MATRIX.assistant.completeness.edit && !PERMISSIONS_MATRIX.assistant.completeness.approve);
+    t('senior UW and CUO can waive', PERMISSIONS_MATRIX.senior_uw.completeness.approve && PERMISSIONS_MATRIX.senior.completeness.approve);
+    t('admin read only', PERMISSIONS_MATRIX.admin.completeness.view && !PERMISSIONS_MATRIX.admin.completeness.edit);
+    t('audit meta added', !!AUDIT_ACTION_META.completeness_gate_blocked && !!AUDIT_ACTION_META.completeness_waived);
+    ['common','trucking','property','mpl','gl_cpc','gl_cas'].forEach(function(k){
+      t('checklist exists: ' + k, Array.isArray(COMPLETENESS_CHECKLISTS[k]) && COMPLETENESS_CHECKLISTS[k].length > 0); });
+
+    // ---------- seeded submissions
+    var apex = seed('trucking', 'Marsh & McLennan Commercial Brokerage');
+    var rA = evaluateCompleteness(apex);
+    t('Apex trucking evaluates', rA.items.length > 15 && rA.required > 10, 'required=' + rA.required + ' missing=' + ids(rA.missingRequired));
+    out.push('INFO Apex status=' + rA.status + ' pct=' + rA.percent + ' missing=' + ids(rA.missingRequired));
+    var gold = clone(GOLDEN_PATH_SUBMISSION);
+    var rG = evaluateCompleteness(gold);
+    out.push('INFO Golden status=' + rG.status + ' pct=' + rG.percent + ' missing=' + ids(rG.missingRequired));
+    var prop = seed('property');
+    var rP = evaluateCompleteness(prop);
+    out.push('INFO Property status=' + rP.status + ' pct=' + rP.percent + ' missing=' + ids(rP.missingRequired));
+    var mpl = seed('mpl', 'Willis Towers Watson Commercial');
+    var rM = evaluateCompleteness(mpl);
+    out.push('INFO MPL status=' + rM.status + ' pct=' + rM.percent + ' missing=' + ids(rM.missingRequired));
+    t('MPL seed flags loss runs and retro date as missing', rM.missingRequired.some(function(i){return i.id==='doc_lossruns';}) && rM.missingRequired.some(function(i){return i.id==='retro';}));
+    t('property seed has line-specific items', rP.items.some(function(i){return i.id==='construction';}) && rP.items.some(function(i){return i.id==='doc_sov';}));
+    t('trucking items not applied to property', !rP.items.some(function(i){return i.id==='dot';}));
+    t('percent matches counts', rM.percent === Math.round(rM.requiredMet / rM.required * 100));
+    var gcpc = seed('gl_cpc'); var gcas = seed('gl_cas');
+    t('GL CPC and CAS have their own items', evaluateCompleteness(gcpc).items.some(function(i){return i.id==='operations';}) && evaluateCompleteness(gcas).items.some(function(i){return i.id==='safety';}));
+
+    // ---------- mechanics on a controlled submission (Apex trucking)
+    var sub = clone(gold);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    var base0 = evaluateCompleteness(sub);
+    t('baseline (golden path) is complete', base0.status === 'complete', ids(base0.missingRequired));
+    t('real finding: seeded Apex driver has no licence number', rA.missingRequired.length === 1 && rA.missingRequired[0].id === 'drivers');
+
+    sub.docs = sub.docs.filter(function(d){ return !/loss.?run/i.test(d.name + d.desc); });
+    var r1 = evaluateCompleteness(sub);
+    t('removing the loss run makes it incomplete', r1.status === 'incomplete' && r1.missingRequired.some(function(i){return i.id==='doc_lossruns';}));
+    var noDot = clone(sub); noDot.dot = 'N/A (Fixed Facility)'; noDot.insuredInfo.dot_number = ''; delete noDot.canonicalJson.applicant.dot_number;
+    noDot.ocrFields = noDot.ocrFields.filter(function(f){ return !/DOT/i.test(f.key); });
+    t('"N/A" for USDOT counts as missing on trucking', evaluateCompleteness(noDot).missingRequired.some(function(i){return i.id==='dot';}));
+    var v0 = sub.vehicles; sub.vehicles = [{year:2022, make:'Ford'}];
+    t('vehicle without a value is incomplete', evaluateCompleteness(sub).missingRequired.some(function(i){return i.id==='vehicles';}));
+    sub.vehicles = v0;
+    var d0 = sub.drivers; sub.drivers = [{given_name:'A', last_name:'B', age:40}];
+    t('driver without licence is incomplete', evaluateCompleteness(sub).missingRequired.some(function(i){return i.id==='drivers';}));
+    sub.drivers = d0;
+
+    // logging only on change
+    sub.decisionLog = []; sub.completeness = null;
+    runCompletenessCheck(sub, 'test'); runCompletenessCheck(sub, 'test');
+    var n1 = sub.decisionLog.filter(function(d){return /^completeness_/.test(d.decision);}).length;
+    t('one audit entry for an unchanged outcome', n1 === 1, 'n=' + n1);
+    t('incomplete entry names the gap', /Currently valued loss runs/.test(sub.decisionLog[0].notes));
+
+    // ---------- waivers
+    document.body.insertAdjacentHTML('beforeend','<div id="completenessContainer"></div>');
+    currentUserRole = 'junior';
+    renderCompletenessCard(sub);
+    t('junior sees no waive control', el('cmpWaive_doc_lossruns') === null);
+    completenessWaive('doc_lossruns');
+    t('junior cannot waive', evaluateCompleteness(sub).status === 'incomplete');
+    currentUserRole = 'senior_uw';
+    renderCompletenessCard(sub);
+    t('senior UW sees the waive control', el('cmpWaive_doc_lossruns') !== null);
+    el('cmpWaive_doc_lossruns').value = 'short';
+    completenessWaive('doc_lossruns');
+    t('short waiver reason rejected', evaluateCompleteness(sub).status === 'incomplete');
+    el('cmpWaive_doc_lossruns').value = 'New venture, no prior carrier; letter of no prior coverage on file.';
+    completenessWaive('doc_lossruns');
+    var rW = evaluateCompleteness(sub);
+    t('waiver accepted -> complete', rW.status === 'complete' && rW.items.find(function(i){return i.id==='doc_lossruns';}).waived === true);
+    t('waiver audit entry with the reason', sub.decisionLog.some(function(d){return d.decision==='completeness_waived' && /New venture/.test(d.notes);}));
+    t('percent counts the waived item', rW.percent === 100);
+    completenessUnwaive('doc_lossruns');
+    t('removing the waiver restores the gap', evaluateCompleteness(sub).status === 'incomplete');
+
+    // ---------- resolved through the communication log
+    sub.submissionVersions = [{version:1, at:'2026-10-08 10:00', by:'x', resolvedDocs:['Currently valued loss runs']}];
+    var rC = evaluateCompleteness(sub);
+    t('item received via customer communication counts as present', rC.status === 'complete' && /logged in customer communication/.test(rC.items.find(function(i){return i.id==='doc_lossruns';}).detail));
+    sub.submissionVersions = [];
+
+    // ---------- request missing items -> RFI
+    currentUserRole = 'assistant';
+    sub.missingItems = {documents:[], dataFields:[]};
+    completenessRequestMissing();
+    t('missing document registered for the RFI', sub.missingItems.documents.indexOf('Currently valued loss runs') > -1);
+    t('RFI message lists the item', /Currently valued loss runs/.test(el('rfiMessageText').value) && /Dear Arora/.test(el('rfiMessageText').value));
+    t('RFI recipient and subject filled', el('rfiRecipientEmail').value === sub.email && /Information needed to quote/.test(el('rfiSubject').value));
+    t('RFI modal opened', el('rfiModal').classList.contains('active'));
+    t('request audit entry', sub.decisionLog.some(function(d){return d.decision==='completeness_rfi_requested';}));
+    el('rfiModal').classList.remove('active');
+    completenessRequestMissing();
+    t('no duplicate missing items on a second request', sub.missingItems.documents.filter(function(x){return x==='Currently valued loss runs';}).length === 1);
+
+    // ---------- Step 1 gate
+    currentUserRole = 'junior';
+    currentWorkflowStep = 1;
+    sub.currentStep = 1; sub.completedSteps = [];
+    goToNextStep();
+    t('gate blocks leaving Step 1 while incomplete', sub.currentStep === 1 && sub.completedSteps.length === 0);
+    t('gate attempt audited', sub.decisionLog.some(function(d){return d.decision==='completeness_gate_blocked';}));
+    currentUserRole = 'senior';
+    renderCompletenessCard(sub);
+    el('cmpWaive_doc_lossruns').value = 'Letter of no prior coverage on file for this new venture.';
+    completenessWaive('doc_lossruns');
+    currentUserRole = 'junior';
+    goToNextStep();
+    t('after the waiver the file moves on to Step 2', sub.currentStep === 2 && sub.completedSteps.indexOf(1) > -1, 'step=' + sub.currentStep);
+    // the gate applies at Step 1 only: an incomplete file at Step 3 (no decision modal) still advances
+    sub.docs = []; sub.completeness = null;
+    t('file is incomplete again', evaluateCompleteness(sub).status === 'incomplete');
+    sub.currentStep = 3; currentWorkflowStep = 3; sub.completedSteps = [1, 2];
+    goToNextStep();
+    t('gate does not apply after Step 1', sub.currentStep === 4, 'step=' + sub.currentStep);
+
+    // ---------- direct submission and product requirements
+    var direct = seed('trucking'); direct.channelType = 'direct'; direct.broker = 'Direct Customer (Online Intake)';
+    t('direct submission: producer item satisfied', evaluateCompleteness(direct).items.find(function(i){return i.id==='producer';}).met === true);
+
+    var sub2 = clone(gold);
+    window.ACTIVE_INSURANCE_PRODUCT = { requiredDocuments: ['Certificate of Authority'], requiredFields: ['Safety Rating'] };
+    var rPr = evaluateCompleteness(sub2);
+    t('product JSON adds requirements', rPr.items.some(function(i){return /product requirement/.test(i.label);}) && rPr.status === 'incomplete');
+    sub2.docs.push({name:'Certificate_of_Authority.pdf', type:'pdf', desc:'x'});
+    sub2.ocrFields.push({key:'Safety Rating', val:'Satisfactory', conf:'99%'});
+    t('product requirements satisfied by matching document and field', evaluateCompleteness(sub2).status === 'complete', ids(evaluateCompleteness(sub2).missingRequired));
+    window.ACTIVE_INSURANCE_PRODUCT = null;
+
+    // ---------- rendering and hooks
+    currentUserRole = 'admin';
+    var sub3 = clone(mpl);
+    renderCompletenessCard(sub3);
+    var h = el('completenessContainer').innerHTML;
+    t('card shows progress and missing items', /Submission Completeness/.test(h) && /required item\(s\) missing/.test(h) && /Missing/.test(h));
+    t('admin sees no action buttons', !/Re-check/.test(h) && !/Request missing items/.test(h));
+    currentUserRole = 'assistant';
+    renderCompletenessCard(sub3);
+    t('assistant sees re-check and request', /Re-check/.test(el('completenessContainer').innerHTML) && /Request missing items/.test(el('completenessContainer').innerHTML));
+    var sub4 = clone(gold); sub4.currentStep = 1; sub4.decisionLog = [];
+    el('completenessContainer').innerHTML = '';
+    renderAllDownstreamScreens(sub4);
+    t('downstream render draws the card', /Submission Completeness/.test(el('completenessContainer').innerHTML));
+    t('goToNextStep is still callable', typeof window.goToNextStep === 'function');
+    t('XSS-safe', completenessEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

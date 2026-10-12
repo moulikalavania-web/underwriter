@@ -1,0 +1,180 @@
+<!-- Suite G04: tria-offer. Run with: python tests/run.py --suite g04 -->
+<script>
+(function(){
+  var out = [], errs = []; window.slGuardQuote=function(){return true;}; window.slGuardBind=function(){return true;}; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;}; /* G06 is covered by its own suite */
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seed(broker, lob){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.broker === broker && (!lob || s.lobKey === lob); })[0]); }
+  function setf(map){ Object.keys(map).forEach(function(id){
+      var el = document.getElementById(id);
+      if (!el) { el = document.createElement(/^triaDisc/.test(id) ? 'input' : (/Method|Decision|Delivery/.test(id) ? 'select' : 'input')); el.id = id; if (/^triaDisc/.test(id)) el.type = 'checkbox'; document.body.appendChild(el); }
+      if (el.type === 'checkbox') el.checked = !!map[id];
+      else if (el.tagName === 'SELECT') { el.innerHTML = '<option>' + map[id] + '</option>'; el.value = map[id]; }
+      else el.value = map[id];
+  }); }
+  function withQuote(sub, amt){ sub.importedRatingData = { quote: { fees: amt === null ? [] : [{ code: 'FEE_TRIA', amt: amt }] } }; }
+  try {
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='tria';}));
+    t('matrix has tria for all roles', ['assistant','junior','senior_uw','senior','admin'].every(function(r){return PERMISSIONS_MATRIX[r].tria;}));
+    t('audit meta added', !!AUDIT_ACTION_META.tria_bind_blocked && !!AUDIT_ACTION_META.tria_rejected);
+
+    // --- applicability
+    t('commercial auto excluded', triaApplicability({lobKey:'trucking'}).applies === false);
+    t('property covered', triaApplicability({lobKey:'property'}).applies === true);
+    t('GL CPC covered', triaApplicability({lobKey:'gl_cpc'}).applies === true);
+    t('GL CAS covered', triaApplicability({lobKey:'gl_cas'}).applies === true);
+    t('MPL with E&O only excluded', triaApplicability({lobKey:'mpl', coverageRows:[{line:'Errors & Omissions (E&O) Professional Liability'}]}).applies === false);
+    t('MPL with D&O covered', triaApplicability({lobKey:'mpl', coverageRows:[{line:'Directors & Officers (D&O) Management Liability'}]}).applies === true);
+    var unk = triaApplicability({lobKey:'prd016'});
+    t('unconfigured line treated as covered, flagged', unk.applies === true && unk.configured === false);
+
+    // --- quote charge reading
+    var s0 = seed('Aon Commercial Risk Solutions','property');
+    t('no imported quote -> null', triaQuotedCharge(s0) === null);
+    withQuote(s0, 526); t('imported quote with fee -> amount', triaQuotedCharge(s0) === 526);
+    withQuote(s0, null); t('imported quote without fee -> 0', triaQuotedCharge(s0) === 0);
+
+    // --- notice text
+    var notice = triaNoticeText(s0, 500);
+    t('notice has premium, federal share and cap', /\$500/.test(notice) && /80%/.test(notice) && /\$100 billion/.test(notice));
+    t('notice never calls it a surcharge', !/surcharge/i.test(notice));
+    var late = clone(s0); late.expirationDate = '09/01/2028';
+    t('program-end note added when policy outlives program', /scheduled to end on 2027-12-31/.test(triaNoticeText(late, 500)));
+    t('program-end info issue raised', getTriaStatus(late).issues.some(function(i){return i.level==='info';}));
+
+    // --- full flow on a property submission
+    SUBMISSIONS_DATASET.length = 0;
+    var sub = clone(s0); SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    withQuote(sub, 500);
+    var st = getTriaStatus(sub);
+    t('property starts at offer_required, blocked', st.state === 'offer_required' && st.blocked === true);
+    t('guard blocks with no offer', triaGuardBind('e-signature') === false);
+    t('bind-blocked audit entry', sub.decisionLog.some(function(d){return d.decision==='tria_bind_blocked';}));
+
+    currentUserRole = 'assistant';
+    setf({triaOfferPremium:'500', triaDelivery:'With the quote (email to broker)', triaOfferNotes:'', triaDiscPremium:true, triaDiscShare:true, triaDiscCap:true});
+    triaCreateOffer();
+    t('assistant cannot make offer', !(sub.tria && sub.tria.offer));
+
+    currentUserRole = 'junior';
+    setf({triaDiscCap:false});
+    triaCreateOffer();
+    t('offer refused without all three disclosures', !(sub.tria && sub.tria.offer));
+    setf({triaDiscCap:true, triaOfferPremium:''});
+    triaCreateOffer();
+    t('offer refused without a premium', !(sub.tria && sub.tria.offer));
+    setf({triaOfferPremium:'500'});
+    triaCreateOffer();
+    t('offer recorded', !!(sub.tria && sub.tria.offer) && sub.tria.offer.premium === 500);
+    t('offer audit entry', sub.decisionLog.some(function(d){return d.decision==='tria_offered';}));
+    st = getTriaStatus(sub);
+    t('awaiting election, blocked', st.state === 'awaiting_election' && st.blocked);
+    t('guard blocks while awaiting election', triaGuardBind('issue quote') === false);
+
+    // election: validation and permissions
+    setf({triaDecision:'accepted', triaSigner:'', triaSignerTitle:'CFO', triaMethod:'Signed election form', triaReference:'FORM-77', triaElectionNotes:''});
+    triaRecordElection();
+    t('election needs the signer name', !sub.tria.election);
+    setf({triaSigner:'Jordan Reyes', triaReference:''});
+    triaRecordElection();
+    t('election needs a reference', !sub.tria.election);
+    setf({triaReference:'FORM-77', triaDecision:'rejected'});
+    triaRecordElection();
+    t('junior cannot record a rejection', !sub.tria.election);
+
+    currentUserRole = 'senior';
+    setf({triaMethod:'Email from insured (accept only)'});
+    triaRecordElection();
+    t('rejection by email refused', !sub.tria.election);
+
+    // reject properly -> quote still charges TRIA -> blocked
+    setf({triaMethod:'Signed election form'});
+    triaRecordElection();
+    st = getTriaStatus(sub);
+    t('CUO records rejection', st.state === 'rejected', st.state);
+    t('rejection with TRIA charge still on quote is blocked', st.blocked && st.issues.some(function(i){return i.level==='block' && /rejected/.test(i.text);}));
+    t('guard blocks rejected election with charge', triaGuardBind('issue quote') === false);
+    withQuote(sub, 0);
+    st = getTriaStatus(sub);
+    t('rejection with charge removed is allowed', st.state === 'rejected' && !st.blocked);
+    t('guard passes once re-rated', triaGuardBind('issue quote') === true);
+    t('rejection audit entry', sub.decisionLog.some(function(d){return d.decision==='tria_rejected' && /FORM-77/.test(d.notes);}));
+
+    // withdraw and re-offer, accept at a different premium than the quote
+    setf({triaWithdrawReason:'x'});
+    triaWithdrawOffer();
+    t('withdraw needs a real reason', !!sub.tria.offer);
+    setf({triaWithdrawReason:'Insured asked for a revised premium after re-rating'});
+    triaWithdrawOffer();
+    t('withdrawn offer cleared and archived', !sub.tria.offer && !sub.tria.election && sub.tria.history.length === 1);
+    t('back to offer_required', getTriaStatus(sub).state === 'offer_required');
+    currentUserRole = 'junior';
+    withQuote(sub, 526);
+    setf({triaOfferPremium:'500', triaDiscPremium:true, triaDiscShare:true, triaDiscCap:true, triaDelivery:'With the quote (email to broker)'});
+    triaCreateOffer();
+    setf({triaDecision:'accepted', triaSigner:'Jordan Reyes', triaSignerTitle:'CFO', triaMethod:'Signed election form', triaReference:'FORM-78'});
+    currentUserRole = 'senior_uw';
+    triaRecordElection();
+    st = getTriaStatus(sub);
+    t('senior UW can record an acceptance', st.state === 'accepted');
+    t('accepted with mismatched quote charge is blocked', st.blocked && st.issues.some(function(i){return /does not match/.test(i.text);}));
+    withQuote(sub, 500);
+    t('accepted with matching charge allowed', !getTriaStatus(sub).blocked);
+
+    // not-applicable line: trucking with a TRIA fee on the quote warns but does not block
+    var truck = seed('Marsh & McLennan Commercial Brokerage','trucking');
+    withQuote(truck, 526);
+    st = getTriaStatus(truck);
+    t('trucking: not applicable, warning only', st.state === 'not_applicable' && !st.blocked && st.issues.some(function(i){return i.level==='warn';}));
+
+    // --- rendering
+    document.body.insertAdjacentHTML('beforeend','<div id="triaOfferContainer"></div>');
+    var fresh = clone(s0); fresh.tria = null; withQuote(fresh, 500);
+    currentUserRole = 'junior';
+    renderTriaCard(fresh);
+    var h = document.getElementById('triaOfferContainer').innerHTML;
+    t('card renders offer form', h.indexOf('Make the offer') > -1 && h.indexOf('triaOfferPremium') > -1 && h.indexOf('value="500"') > -1);
+    t('banner shows blocked', renderTriaBindBanner(fresh).indexOf('Bind blocked') > -1);
+    renderTriaCard(sub);
+    h = document.getElementById('triaOfferContainer').innerHTML;
+    t('card renders accepted record', h.indexOf('Accepted') > -1 && h.indexOf('Withdraw') > -1 && h.indexOf('Earlier offers') > -1);
+    t('XSS-safe', triaEsc('<b onmouseover=1>') === '&lt;b onmouseover=1&gt;');
+
+    // --- chained guards on a clean line (Gallagher GL CPC, OH): TRIA is the outermost gate
+    SUBMISSIONS_DATASET.length = 0;
+    var gal = seed('Gallagher Commercial Brokers','gl_cpc'); gal.subjectivities = []; SUBMISSIONS_DATASET.push(gal); activeSubmissionId = gal.id;
+    withQuote(gal, 400);
+    var modal = document.getElementById('eSignatureModal'); modal.style.display = 'none';
+    currentUserRole = 'junior';
+    window.openESignatureModal();
+    t('e-signature refused until TRIA offer and election exist', modal.style.display !== 'flex');
+    setf({triaOfferPremium:'400', triaDiscPremium:true, triaDiscShare:true, triaDiscCap:true, triaDelivery:'With the quote (email to broker)'});
+    triaCreateOffer();
+    setf({triaDecision:'accepted', triaSigner:'Pat Lee', triaSignerTitle:'Owner', triaMethod:'E-signature', triaReference:'ESIG-1'});
+    triaRecordElection();
+    window.openESignatureModal();
+    t('with TRIA done, producer verified and sanctions clear, e-signature opens', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    // sanctions guard still blocks with TRIA satisfied
+    gal.sanctions = {screens:[],reviews:[],extraParties:[{name:'Test Blocked Person',role:'Principal / Owner'}]};
+    runSanctionsScreening(gal, 'manual');
+    window.openESignatureModal();
+    t('sanctions guard still blocks with TRIA satisfied', modal.style.display !== 'flex');
+    gal.sanctions = {screens:[],reviews:[],extraParties:[]};
+    runSanctionsScreening(gal, 'manual');
+    // producer guard still blocks with TRIA satisfied
+    var realBroker = gal.broker; gal.broker = 'Zeta Unknown Brokers';
+    window.openESignatureModal();
+    t('producer guard still blocks with TRIA satisfied', modal.style.display !== 'flex');
+    gal.broker = realBroker; gal.producerCheck = null;
+    window.openESignatureModal();
+    t('all three guards pass again -> opens', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    t('issue quote entry point is a function', typeof window.issueQuoteAction === 'function');
+    t('step 7 render still draws the TRIA card', (function(){ try { renderStep7View(SUBMISSIONS_DATASET[0]); } catch (e) { return false; } return /TRIA/.test((document.getElementById('triaOfferContainer')||{innerHTML:''}).innerHTML); })());
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

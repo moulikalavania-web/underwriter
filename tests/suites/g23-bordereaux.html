@@ -1,0 +1,142 @@
+<!-- Suite G23: bordereaux. Run with: python tests/run.py --suite g23 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return (sub.decisionLog||[]).filter(function(x){return x.decision===d;}); }
+  function pm(n){ var d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - n); return d.toISOString().slice(0,7); }
+  var P1 = pm(2), P2 = pm(1);
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0];
+  var CARR = PRODUCER_DEFAULT_CARRIER;
+  function mk(id, pol, bindMonth, over){
+    var s = clone(seedG); s.id = id; s.broker = 'Marsh & McLennan Commercial Brokerage'; s.channelType = 'broker'; s.address = '9 Elm Road, Dallas, TX 75201'; s.insured = 'Ins ' + id;
+    ['pasSync','commission','slFiling','policyChanges','cancellation','policyLedger','renewalOf','carrier','policyState','placementType','slTaxBasis'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.exposureVal = 1000000; s.effectiveDate = '01/01/2026'; s.expirationDate = '01/01/2027';
+    s.discretionaryPricing = { finalPremium: 10000 }; s.importedRatingData = { quote: { finalPremium: 10485, tax: 485, countyTax: 0, fees: [] } };
+    s.pasSync = { status:'success', policyNumber: pol, pasRecordId:'PAS-'+id, effectiveDate:'2026-01-01', syncedAt: bindMonth + '-12 10:00' };
+    s.slTaxBasis = { state:'TX', taxPct:4.85, stampingPct:0.04, basedOn:'manual entry', reference:'ref1234', asOf:'2026-01-01' };
+    for (var k in (over||{})) s[k] = over[k]; return s; }
+  var origToast = window.showToast; var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    localStorage.removeItem(BDX_STORAGE_KEY); BDX_STATE = { reports: [] };
+    t('RBAC resource and permissions', RBAC_RESOURCES.some(function(r){return r.key==='bordereaux';}) && PERMISSIONS_MATRIX.senior_uw.bordereaux.edit && !PERMISSIONS_MATRIX.senior_uw.bordereaux.approve && PERMISSIONS_MATRIX.senior.bordereaux.approve && !PERMISSIONS_MATRIX.admin.bordereaux.edit && PERMISSIONS_MATRIX.carrier_auditor.bordereaux.view && !PERMISSIONS_MATRIX.broker_user.bordereaux.view);
+
+    // ---------- helpers
+    t('period end handles month length and leap years', bdxPeriodEnd('2028-02')==='2028-02-29' && bdxPeriodEnd('2026-02')==='2026-02-28' && bdxPeriodEnd('2026-12')==='2026-12-31');
+    t('due date', bdxDue('2026-08') === '2026-09-15');
+    t('CSV: quotes, injection guard on text only', bdxCsvCell('a,b','text')==='"a,b"' && bdxCsvCell('=1+1','text')==="'=1+1" && bdxCsvCell('@x','text')==="'@x" && bdxCsvCell(-12.5,'money')==='-12.50' && bdxCsvCell('say "hi"','text')===('"say ' + '""hi""' + '"'));
+    t('checksum is stable', bdxChecksum('abc') === bdxChecksum('abc') && bdxChecksum('abc') !== bdxChecksum('abd'));
+
+    // ---------- transactions
+    var A = mk('SUB-A','POL-A-1',P1);
+    A.commission = { locked:true, rate:12, amount:1200, adjustments:[] };
+    A.slFiling = { status:'pending', state:'TX', taxDue:485, stampingDue:4, basis:10000, taxPct:4.85, stampingPct:0.04 };
+    var ra = bdxTransactionsFor(A);
+    t('NEW row: gross excludes tax, commission from the lock, net = gross - commission', ra.length===1 && ra[0].txnType==='NEW' && ra[0].gross===10000 && ra[0].commission===1200 && ra[0].net===8800, JSON.stringify(ra[0] && [ra[0].gross, ra[0].commission, ra[0].net]));
+    t('tax and stamping at the rates filed at bind', ra[0].slTax===485 && ra[0].stamping===4);
+    t('dated from the bind', ra[0].txnDate === P1 + '-12' && ra[0].txnId === 'POL-A-1:NEW');
+    t('no errors or flags on a clean policy', ra[0].errors.length===0 && ra[0].flags.length===0, JSON.stringify(ra[0].flags));
+    var R = mk('SUB-R','POL-R-1',P1,{renewalOf:'SUB-OLD'}); R.commission = { locked:true, rate:10, amount:1000, adjustments:[] };
+    t('renewal business is labelled RENEWAL', bdxTransactionsFor(R)[0].txnType==='RENEWAL');
+    t('unbound policies are not reported', bdxTransactionsFor(mk('SUB-U','',P1,{pasSync:{status:'failed'}})).length===0);
+    var N = mk('SUB-N','POL-N-1',P1,{ address:'Somewhere' }); delete N.slTaxBasis; N.placementType = 'surplus';
+    var rn = bdxTransactionsFor(N)[0];
+    t('missing state is an error; missing tax basis and unlocked commission are warnings', rn.errors.indexOf('risk state unknown')>-1 && rn.flags.some(function(f){return /no confirmed tax basis/.test(f);}) && rn.flags.some(function(f){return /commission not yet locked/.test(f);}));
+    var AD = mk('SUB-AD','POL-AD-1',P1,{placementType:'admitted'}); AD.commission = { locked:true, rate:10, amount:1000, adjustments:[] };
+    t('admitted business carries no surplus lines tax', bdxTransactionsFor(AD)[0].slTax===0 && bdxTransactionsFor(AD)[0].stamping===0);
+
+    // endorsement, cancellation, reinstatement
+    var E = mk('SUB-E','POL-E-1',P1); E.commission = { locked:true, rate:10, amount:1000, adjustments:[{label:'Endorsement 1', commission:20}] };
+    E.slFiling = { taxPct:4.85, stampingPct:0.04 };
+    E.policyChanges = [
+      { type:'endorsement', status:'issued', number:1, proRata:200, at: P2 + '-05 09:00' },
+      { type:'cancellation', id:'CAN-E-1', status:'effective', effective: P2 + '-20', refund:{ refund: 3000 } },
+      { type:'reinstatement', id:'RIN-E-1', status:'issued', reinstateType:'without_lapse', at: P2 + '-28 09:00' }
+    ];
+    E.cancellation = { eventId:'CAN-E-1' };
+    var re = bdxTransactionsFor(E);
+    t('endorsement, cancellation and reinstatement rows', re.map(function(r){return r.txnType;}).join()==='NEW,ENDORSEMENT,CANCELLATION,REINSTATEMENT', re.map(function(r){return r.txnType;}).join());
+    t('endorsement uses the recorded commission adjustment', re[1].gross===200 && re[1].commission===20);
+    t('cancellation is negative premium and negative commission at the locked rate', re[2].gross===-3000 && re[2].commission===-300 && re[2].net===-2700 && re[2].slTax===-145.5);
+    t('reinstatement without lapse reverses the return', re[3].gross===3000 && re[3].commission===300);
+    var E2 = clone(E); E2.policyChanges[2].reinstateType = 'with_lapse';
+    var rl = bdxTransactionsFor(E2)[3];
+    t('reinstatement with a lapse is not guessed: zero amount and a flag', rl.gross===0 && rl.flags.some(function(f){return /settled by accounting/.test(f);}));
+    t('a cancellation that has not taken effect is not reported', bdxTransactionsFor(Object.assign(clone(E), {policyChanges:[{ type:'cancellation', id:'CAN-E-1', status:'pending', effective:P2+'-20', refund:{refund:3000} }]})).length===1);
+
+    // ---------- build: period, late, report-once, corrections
+    var live = bdxAllTransactions([A, R, AD, E]);
+    var b1 = bdxBuild(CARR, P1, live, []);
+    t('first period gets the policies bound in it', b1.map(function(r){return r.txnId;}).sort().join() === 'POL-A-1:NEW,POL-AD-1:NEW,POL-E-1:NEW,POL-R-1:NEW');
+    var b2 = bdxBuild(CARR, P2, live, []);
+    t('a later period also picks up unreported earlier items, flagged LATE', b2.length === 7 && b2.filter(function(r){return r.flags.some(function(f){return /^LATE/.test(f);});}).length === 4);
+    t('transactions after the period end are held back', bdxBuild(CARR, P1, live, []).every(function(r){ return r.txnDate <= bdxPeriodEnd(P1); }) && bdxBuild(CARR, P1, live, []).length === 4);
+    t('another carrier gets nothing', bdxBuild('Nobody Mutual', P1, live, []).length === 0);
+    t('control totals reconcile', bdxControlCheck(b2) && bdxTotals(b1).gross === 10000 + 10000 + 10000 + 10000);
+
+    // ---------- submit
+    SUBMISSIONS_DATASET.length = 0; [A, R, AD, E].forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = A.id;
+    currentUserRole = 'senior_uw'; renderBordereaux();
+    el('bdx_carrier').value = CARR; el('bdx_period').value = P1;
+    bdxSubmit();
+    t('senior UW cannot submit (no approval authority)', BDX_STATE.reports.length === 0);
+    currentUserRole = 'senior'; renderBordereaux(); el('bdx_carrier').value = CARR; el('bdx_period').value = pm(0);
+    bdxSubmit();
+    t('cannot submit before the period has ended', BDX_STATE.reports.length === 0 && toasts.some(function(m){return /not ended/.test(m);}));
+    el('bdx_period').value = P1; bdxSubmit();
+    var rep = BDX_STATE.reports[0];
+    t('submitted: numbered, frozen snapshot with totals and checksum', rep && rep.id === 'BDX-' + bdxSlug(CARR).toUpperCase() + '-' + P1 + '-01' && rep.totals.count === 4 && rep.status === 'submitted' && /^[0-9a-f]{8}$/.test(rep.checksum));
+    t('checksum matches the exported text', rep.checksum === bdxChecksum(bdxCsv(rep.rows, { carrier: rep.carrier, period: rep.period, reportId: rep.id, generatedAt: rep.submittedAt })));
+    t('each policy logged as reported', logs(A,'bdx_reported').length === 1 && /BDX-/.test(logs(A,'bdx_reported')[0].notes));
+    t('persisted', JSON.parse(localStorage.getItem(BDX_STORAGE_KEY)).reports.length === 1);
+    var again = bdxBuild(CARR, P1, bdxAllTransactions(SUBMISSIONS_DATASET), BDX_STATE.reports);
+    t('reported transactions are not reported twice', again.length === 0);
+    bdxSubmit();
+    t('submitting an empty period is refused', BDX_STATE.reports.length === 1);
+
+    // late + correction in the next period
+    var snapshotGross = rep.rows[0].gross;
+    A.discretionaryPricing.finalPremium = 12000; A.importedRatingData.quote.finalPremium = 12485; A.commission.amount = 1440;
+    A.slFiling.taxPct = 4.85;
+    var b3 = bdxBuild(CARR, P2, bdxAllTransactions(SUBMISSIONS_DATASET), BDX_STATE.reports);
+    var corr = b3.filter(function(r){ return r.txnType === 'CORRECTION'; })[0];
+    t('a change after submission appears as a CORRECTION for the difference', corr && corr.gross === 2000 && corr.commission === 240 && corr.net === 1760 && corr.correctsTxn === 'POL-A-1:NEW', JSON.stringify(corr && [corr.gross, corr.commission]));
+    t('the submitted report was not altered', rep.rows.filter(function(r){return r.policyNumber==='POL-A-1';})[0].gross === snapshotGross && BDX_STATE.reports[0].totals.gross === 40000);
+    t('endorsement and cancellation for the policy come in the later period', b3.filter(function(r){return r.txnType==='ENDORSEMENT'||r.txnType==='CANCELLATION'||r.txnType==='REINSTATEMENT';}).length === 3);
+    el('bdx_period').value = P2; bdxSubmit();
+    t('second report is numbered for its own period', BDX_STATE.reports.length === 2 && BDX_STATE.reports[1].period === P2 && /-01$/.test(BDX_STATE.reports[1].id));
+    var again2 = bdxBuild(CARR, P2, bdxAllTransactions(SUBMISSIONS_DATASET), BDX_STATE.reports);
+    t('a second correction compares with the cumulative reported amount', again2.length === 0);
+    A.discretionaryPricing.finalPremium = 13000; A.importedRatingData.quote.finalPremium = 13485;
+    var c2 = bdxBuild(CARR, P2, bdxAllTransactions(SUBMISSIONS_DATASET), BDX_STATE.reports).filter(function(r){return r.txnType==='CORRECTION';})[0];
+    t('...so only the new difference is reported', c2 && c2.gross === 1000, c2 && String(c2.gross));
+
+    // errors block submission
+    var bad = mk('SUB-BAD','POL-BAD-1',P1,{ address:'nowhere' }); bad.commission = { locked:true, rate:10, amount:1, adjustments:[] };
+    SUBMISSIONS_DATASET.push(bad); var nBefore = BDX_STATE.reports.length;
+    el('bdx_period').value = P2; bdxSubmit();
+    t('a line with a missing state blocks submission', BDX_STATE.reports.length === nBefore && toasts.some(function(m){return /error/.test(m);}));
+
+    // visibility and rendering
+    renderBordereaux();
+    t('screen renders totals and history', /Submitted bordereaux/.test(el('bordereauxRoot').innerHTML) && /BDX-/.test(el('bordereauxRoot').innerHTML) && /Exceptions/.test(el('bordereauxRoot').innerHTML));
+    changeUserRole('carrier_auditor');
+    t('carrier auditor sees only their carrier\'s reports', bdxVisibleReports().length === BDX_STATE.reports.length && bdxVisibleReports().every(function(r){return r.carrier === 'Vikram & Sons';}));
+    BDX_STATE.reports.push({ id:'BDX-OTHER', carrier:'Other Mutual', period:P1, rows:[], totals:{count:0,gross:0,net:0}, status:'submitted', submittedAt:'x', submittedBy:'y', checksum:'0' });
+    t('...and not another carrier\'s', bdxVisibleReports().every(function(r){return r.id !== 'BDX-OTHER';}));
+    BDX_STATE.reports.pop();
+    changeUserRole('broker_user');
+    renderBordereaux();
+    t('a producer is refused the screen', /do not have access/.test(el('bordereauxRoot').innerHTML));
+    changeUserRole('senior');
+    t('XSS-safe', bdxEsc('<b>') === '&lt;b&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  try { localStorage.removeItem(BDX_STORAGE_KEY); } catch(e) {}
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

@@ -10,6 +10,21 @@
 //    single highlighted next action, not a general-purpose table.
 //  - Auditor: read-only compliance snapshot, no action affordances at all.
 // ============================================================================
+/** Create / Import are available to the Head of Underwriting alone, at all times (not only when the queue is empty). */
+function intakeToolbarHtml() {
+  if (!canCreateSubmissions()) return "";
+  return `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <button class="btn btn-primary" id="btnCreateSubmission" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
+      <button class="btn btn-outline" id="btnImportEmail" onclick="openEmailDigestModal()"><i class="ph ph-envelope-open"></i> Import from Email</button>
+    </div>`;
+}
+
+/** A pending authority referral puts the case on the desk of the role that must decide it, without anyone assigning it. */
+function referredToRole(sub, role) {
+  return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending" && sub.authorityRef.requiredRole === role);
+}
+function isMyCase(sub) { return sub.assignedTo === currentUserRole || referredToRole(sub, currentUserRole); }
+
 function renderRoleDashboard() {
   const container = document.getElementById("roleDashboardContainer");
   const titleEl = document.getElementById("intakeDashboardTitle");
@@ -21,11 +36,11 @@ function renderRoleDashboard() {
   if (canManageAssignments()) {
     if (titleEl) titleEl.textContent = "Assignment Dashboard";
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
-    container.innerHTML = renderManagerDashboardHtml();
+    container.innerHTML = intakeToolbarHtml() + renderManagerDashboardHtml();
   } else {
     if (titleEl) titleEl.textContent = "";
     if (subtitleEl) subtitleEl.textContent = "";
-    container.innerHTML = renderWorkerDashboardHtml();
+    container.innerHTML = intakeToolbarHtml() + renderWorkerDashboardHtml();
   }
 }
 
@@ -88,10 +103,10 @@ function renderManagerDashboardHtml() {
             <tbody>
               ${myAssigned.map(sub => {
                 const roleConfig = USER_ROLES_CONFIG[currentUserRole] || {};
-                const authorityLimit = sub.authorityLimit || roleConfig.limit || 0;
-                const overLimit = (sub.exposureVal || 0) > authorityLimit;
+                const cover = authRoleCovers(currentUserRole, authMeasures(sub));
+                const overLimit = !cover.ok;
                 const authorityBadge = overLimit
-                  ? `<span class="badge badge-danger text-xs" title="Exposure $${(sub.exposureVal || 0).toLocaleString()} exceeds your $${authorityLimit.toLocaleString()} authority limit"><i class="ph ph-warning"></i> Exceeds Authority — Refer/Escalate</span>`
+                  ? `<span class="badge badge-danger text-xs" title="${cover.reasons.join("; ").replace(/"/g, '&quot;')}"><i class="ph ph-warning"></i> Exceeds Authority — Refer/Escalate</span>`
                   : `<span class="badge badge-success text-xs"><i class="ph ph-check-circle"></i> Within Authority</span>`;
                 return `
                 <tr onclick="openCaseAtCurrentStep('${sub.id}')" style="cursor:pointer;">
@@ -117,11 +132,7 @@ function renderManagerDashboardHtml() {
     <div class="card" style="border-color:#93c5fd; background:#eff6ff;">
       <div class="card-body">
         <h3 style="margin:0 0 4px;"><i class="ph ph-rocket-launch"></i> Get Started — No Submissions Yet</h3>
-        <p class="text-sm text-muted" style="margin:0 0 12px;">Nothing has been ingested into this desk yet. Bring in your first case one of these ways:</p>
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-          <button class="btn btn-primary" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
-          <button class="btn btn-outline" onclick="openEmailDigestModal()"><i class="ph ph-envelope-open"></i> Import from Email</button>
-        </div>
+        <p class="text-sm text-muted" style="margin:0;">Nothing has been ingested into this desk yet. ${canCreateSubmissions() ? "Use Create New Submission or Import from Email above to bring in the first case." : "The Head of Underwriting creates or imports cases and assigns them; yours will appear here."}</p>
       </div>
     </div>` : "";
 
@@ -135,7 +146,7 @@ function renderManagerDashboardHtml() {
 }
 
 function renderWorkerDashboardHtml() {
-  const mine = SUBMISSIONS_DATASET.filter(s => s.apiSourced && s.assignedTo === currentUserRole);
+  const mine = SUBMISSIONS_DATASET.filter(s => s.apiSourced && isMyCase(s));
   const notStarted = mine.filter(s => (s.currentStep || 1) === 1 && (!s.completedSteps || s.completedSteps.length === 0));
   const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < WORKFLOW_STEPS.length);
   const readyToQuote = mine.filter(s => (s.currentStep || 1) === WORKFLOW_STEPS.length);
@@ -206,17 +217,17 @@ function renderSubmissionsTable() {
   // until a manager hands it to them.
   const isManagerView = canManageAssignments();
   // External and oversight personas (js/external-access.js) are scoped by agency, program or carrier, not by assignment.
-  const scopedByRole = typeof extIsRestricted === "function" && extIsRestricted(currentUserRole);
+  const scopedByRole = typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole);
   const filteredByLOB = (isManagerView || scopedByRole)
     ? filteredByLOB0
-    : filteredByLOB0.filter(sub => sub.assignedTo === currentUserRole);
+    : filteredByLOB0.filter(sub => isMyCase(sub));
 
   // 2. Filter by Channel Type tab (All / Broker / Direct / Referrals) and Search Query
   let filtered = filteredByLOB.filter(sub => {
     let matchChannel = true;
     if (currentTableFilter === "broker") matchChannel = sub.channelType === "broker";
     else if (currentTableFilter === "direct") matchChannel = sub.channelType === "direct";
-    else if (currentTableFilter === "referral") matchChannel = sub.exposureVal > sub.authorityLimit || sub.statusText.includes("Referral") || sub.priority === "P1";
+    else if (currentTableFilter === "referral") matchChannel = authNeedsReferral(sub) || sub.statusText.includes("Referral") || sub.priority === "P1";
 
     const term = currentSearchTerm.toLowerCase();
     const matchSearch = term === "" ||
@@ -248,7 +259,7 @@ function renderSubmissionsTable() {
   const total = filteredByLOB.length;
   const brokerCount = filteredByLOB.filter(s => s.channelType === "broker").length;
   const directCount = filteredByLOB.filter(s => s.channelType === "direct").length;
-  const referralCount = filteredByLOB.filter(s => s.exposureVal > s.authorityLimit || s.statusText.includes("Referral") || s.priority === "P1").length;
+  const referralCount = filteredByLOB.filter(s => authNeedsReferral(s) || s.statusText.includes("Referral") || s.priority === "P1").length;
   
   const elTotal = document.getElementById("countTotalSubs");
   const elBroker = document.getElementById("countBrokerSubs");
@@ -312,7 +323,7 @@ function renderSubmissionsTable() {
     if (sub.priority === "P1") { pClass = "badge-priority-p1"; pIcon = "ph-fire"; }
     else if (sub.priority === "P2") { pClass = "badge-priority-p2"; pIcon = "ph-lightning"; }
 
-    const isReferralCase = sub.exposureVal > sub.authorityLimit || sub.statusText.includes("Referral");
+    const isReferralCase = authNeedsReferral(sub) || sub.statusText.includes("Referral");
     const stepNum = sub.currentStep || 1;
     const stepObj = SCREEN_ORDER.find(s => s.num === stepNum) || SCREEN_ORDER[0];
 
@@ -712,38 +723,6 @@ function selectSubmission(id, autoNavigate = false) {
     currentLOBFilter = sub.lobKey;
   }
 
-  // Update Screen 1 Selected Detail Card
-  const dTitle = document.getElementById("detailInsuredTitle");
-  const dChan = document.getElementById("detailChannelBadge");
-  const dName = document.getElementById("detailInsuredName");
-  const dFein = document.getElementById("detailFEIN");
-  const dOrigin = document.getElementById("detailOriginType");
-  const dEmail = document.getElementById("detailSubmitterEmail");
-  const dLob = document.getElementById("detailLOBName");
-
-  if (dTitle) dTitle.textContent = `${sub.insured} (${sub.id})`;
-  if (dChan) dChan.textContent = sub.channelName;
-  if (dName) dName.textContent = sub.insured;
-  if (dFein) dFein.textContent = sub.fein;
-  if (dOrigin) dOrigin.textContent = sub.channelType === 'broker' ? `Broker Submission (${sub.broker})` : "Direct Insured Customer Self-Service Portal";
-  if (dEmail) dEmail.textContent = sub.email;
-  if (dLob) dLob.textContent = sub.lobName;
-
-  // Render docs list in detail card
-  const docContainer = document.getElementById("detailDocList");
-  if (docContainer) {
-    docContainer.innerHTML = sub.docs.map((d, docIdx) => `
-      <div class="doc-item" onclick="previewDocModal(${docIdx}, '${sub.id}')" style="cursor:pointer;">
-        <div class="doc-icon ${d.type}"><i class="ph ${d.type === 'pdf' ? 'ph-file-pdf' : 'ph-file-xls'}"></i></div>
-        <div class="doc-details">
-          <span class="doc-name">${d.name}</span>
-          <span class="doc-meta">${d.desc} • <span class="tag-ready">Normalized</span></span>
-        </div>
-        <button class="btn-icon" title="View Document" aria-label="View Document" onclick="event.stopPropagation(); previewDocModal(${docIdx}, '${sub.id}')"><i class="ph ph-eye"></i></button>
-      </div>
-    `).join("");
-  }
-
   // Refresh Table highlights
   renderSubmissionsTable();
 
@@ -764,9 +743,9 @@ function openCaseAtCurrentStep(id) {
   // "No Assignment → No Underwriting" gate — enforced here too, not just via
   // queue visibility, so this can't be bypassed by a direct call, a stale
   // reference, or a future entry point that doesn't go through the table.
-  if (!canManageAssignments() && sub.assignedTo !== currentUserRole) {
+  if (!canManageAssignments() && !(typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole)) && !isMyCase(sub)) {
     if (!sub.assignedTo) {
-      showToast(`⛔ ${sub.id} is Unassigned. Ask your Underwriting Manager to assign it to you before you can begin underwriting.`, "danger");
+      showToast(`⛔ ${sub.id} is Unassigned. Ask the Head of Underwriting to assign it to you before you can begin underwriting.`, "danger");
     } else {
       showToast(`⛔ ${sub.id} is assigned to ${(USER_ROLES_CONFIG[sub.assignedTo] || {}).name || 'another underwriter'}, not you.`, "danger");
     }
@@ -777,10 +756,6 @@ function openCaseAtCurrentStep(id) {
   const targetStep = sub.currentStep || 1;
   showWorkflowPage(targetStep);
   showToast(`📂 Loaded Case: ${sub.insured} (${sub.id}) at Step ${targetStep}: ${WORKFLOW_STEPS[targetStep - 1].shortTitle}!`, "success");
-}
-
-function viewCase(id) {
-  openCaseAtCurrentStep(id);
 }
 
 // "View Quote" (Submission Intake table, Flow Status column) — only ever
@@ -798,89 +773,6 @@ function viewIssuedQuote(subId) {
   showToast(`📄 Viewing issued quote for ${sub.id}`, "info");
 }
 window.viewIssuedQuote = viewIssuedQuote;
-
-function resumeCaseFlow(id) {
-  openCaseAtCurrentStep(id);
-}
-
-function resumeActiveCaseWorkflow() {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  const targetStep = (sub && sub.currentStep) ? sub.currentStep : 1;
-  showWorkflowPage(targetStep);
-}
-
-// Modal: View Case Details & Pre-Normalization Inspection
-function openViewCaseModal(id) {
-  activeSubmissionId = id;
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === id);
-  if (!sub) return;
-
-  // Sync underlying state
-  selectSubmission(id, false);
-
-  // Populate View Case Details Modal
-  const mTitle = document.getElementById("modalDetailInsuredTitle");
-  const mChan = document.getElementById("modalDetailChannelBadge");
-  const mName = document.getElementById("modalDetailInsuredName");
-  const mFein = document.getElementById("modalDetailFEIN");
-  const mOrigin = document.getElementById("modalDetailOriginType");
-  const mEmail = document.getElementById("modalDetailSubmitterEmail");
-  const mLob = document.getElementById("modalDetailLOBName");
-  const mDate = document.getElementById("modalDetailEffectiveDate");
-  const mPriority = document.getElementById("modalDetailPriority");
-
-  if (mTitle) mTitle.textContent = `${sub.insured} (${sub.id})`;
-  if (mChan) mChan.textContent = sub.channelName;
-  if (mName) mName.textContent = sub.insured;
-  if (mFein) mFein.textContent = sub.fein;
-  if (mOrigin) mOrigin.textContent = sub.channelType === 'broker' ? `Broker Submission (${sub.broker})` : "Direct Insured Customer Self-Service Portal";
-  if (mEmail) mEmail.textContent = sub.email;
-  if (mLob) mLob.textContent = sub.lobName;
-  if (mDate) mDate.textContent = "2026-09-01 (12 Months)";
-  if (mPriority) {
-    mPriority.className = sub.priority === 'P1' ? 'text-danger font-bold' : (sub.priority === 'P2' ? 'text-warning font-bold' : 'text-primary font-bold');
-    mPriority.textContent = `${sub.priority} - ${sub.priority === 'P1' ? 'Highest' : (sub.priority === 'P2' ? 'High' : 'Standard FIFO')} (${sub.slaText})`;
-  }
-
-  // Render docs list in modal with clickable live preview triggers
-  const modalDocContainer = document.getElementById("modalDetailDocList");
-  if (modalDocContainer) {
-    modalDocContainer.innerHTML = sub.docs.map((d, docIdx) => `
-      <div class="doc-item" onclick="previewDocModal(${docIdx})">
-        <div class="doc-icon ${d.type}"><i class="ph ${d.type === 'pdf' ? 'ph-file-pdf' : 'ph-file-xls'}"></i></div>
-        <div class="doc-details">
-          <span class="doc-name">${d.name}</span>
-          <span class="doc-meta">${d.desc} • <span class="tag-ready">Normalized</span></span>
-        </div>
-        <button class="btn btn-xs btn-outline" onclick="event.stopPropagation(); previewDocModal(${docIdx})" title="Preview Document PDF">
-          <i class="ph ph-eye text-primary"></i> Preview
-        </button>
-      </div>
-    `).join("");
-  }
-
-  // Show Modal
-  const modal = document.getElementById("viewCaseModal");
-  if (modal) modal.classList.add("active");
-}
-
-function closeViewCaseModal() {
-  const modal = document.getElementById("viewCaseModal");
-  if (modal) modal.classList.remove("active");
-}
-
-function resumeActiveCaseFlow() {
-  closeViewCaseModal();
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (!sub) return;
-  const targetStep = sub.currentStep || 1;
-  showWorkflowPage(targetStep);
-  showToast(`📂 Resumed ${sub.insured} directly at Step ${targetStep}: ${WORKFLOW_STEPS[targetStep - 1].shortTitle}!`, "success");
-}
-
-function proceedToNormalizationFromModal() {
-  resumeActiveCaseFlow();
-}
 
 // Current Preview State
 let currentPreviewSubId = null;
@@ -1153,7 +1045,6 @@ function closeDocPreviewModal() {
 
 function proceedToNormalizationFromDocModal() {
   closeDocPreviewModal();
-  closeViewCaseModal();
   const targetId = currentPreviewSubId || activeSubmissionId;
   const sub = SUBMISSIONS_DATASET.find(s => s.id === targetId);
   if (sub) {

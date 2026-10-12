@@ -140,7 +140,7 @@ function seniorUWAction(action) {
       badge.className = "badge badge-warning";
       badge.textContent = "Returned for Revision";
     }
-    showToast("🔄 Returned to Junior Underwriter (Sarah Jenkins) for revision.", "warning");
+    showToast("🔄 Returned to the Underwriter I (Sarah Jenkins) for revision.", "warning");
   } else {
     if (stamp) {
       stamp.style.display = "block";
@@ -156,7 +156,10 @@ function seniorUWAction(action) {
 }
 
 // RFI Modal Handlers
-function openRFIModal() {
+let rfiTargetSubId = null;   // the case an RFI is about; defaults to the active case
+
+function openRFIModal(subId) {
+  rfiTargetSubId = subId || null;
   const modal = document.getElementById("rfiModal");
   if (modal) modal.classList.add("active");
 }
@@ -167,7 +170,8 @@ function closeRFIModal() {
 }
 
 function sendRFIAction() {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === (rfiTargetSubId || activeSubmissionId));
+  rfiTargetSubId = null;
   const recipient = (document.getElementById("rfiRecipientEmail") || {}).value || "";
   const subject = (document.getElementById("rfiSubject") || {}).value || "";
   const message = ((document.getElementById("rfiMessageText") || {}).value || "").replace(/\s+/g, " ").trim();
@@ -484,24 +488,6 @@ function issueQuoteAction() {
   if (sub && typeof openIssueQuoteActionsModal === "function") {
     openIssueQuoteActionsModal(sub);
   }
-}
-
-function bindPolicyAction() {
-  issueQuoteAction();
-}
-
-function requestBrokerRevision() {
-  showToast("Revision request logged. File returned to Rating Studio for recalculation", "info");
-  goToScreen("screen-7");
-}
-
-function expireQuoteAction() {
-  showToast("Quote validity window expired (30-day term ended). File closed.", "warning");
-  goToScreen("screen-9");
-}
-
-function printQuote() {
-  window.print();
 }
 
 // ============================================================================
@@ -944,6 +930,19 @@ function renderQuoteVersionsLedger() {
   if (kpiTotal) kpiTotal.textContent = `${allQuotes.length} Quotes`;
   const boundCount = allQuotes.filter(q => q.isBound).length;
   if (kpiBound) kpiBound.textContent = `${boundCount} Bound`;
+  const kpiSubs = document.getElementById("kpiActiveSubs"), kpiActive = document.getElementById("kpiActiveQuotes");
+  if (kpiSubs) kpiSubs.textContent = `${QUOTE_VERSIONS_DATASET.length} Submission${QUOTE_VERSIONS_DATASET.length === 1 ? "" : "s"}`;
+  if (kpiActive) kpiActive.textContent = `${allQuotes.filter(q => q.isLatest && !q.isBound).length} Active`;
+
+  // The submission picker lists the submissions that actually have quotes (it used to hold fixed demo entries).
+  const subSel = document.getElementById("versionSubSelect");
+  if (subSel) {
+    const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    subSel.innerHTML = `<option value="all">All Submissions (${allQuotes.length} Quote${allQuotes.length === 1 ? "" : "s"})</option>` +
+      QUOTE_VERSIONS_DATASET.map(s => `<option value="${esc(s.subId)}">${esc(s.subId)} • ${esc(s.insured)} (${s.quotes.length} Version${s.quotes.length === 1 ? "" : "s"})</option>`).join("");
+    if (!QUOTE_VERSIONS_DATASET.some(s => s.subId === activeVersionSubFilter)) activeVersionSubFilter = "all";
+    subSel.value = activeVersionSubFilter;
+  }
 
   let matchingSubs = QUOTE_VERSIONS_DATASET;
 
@@ -1119,12 +1118,12 @@ function openQuoteVersionPreviewModal(verId) {
   if (title) title.textContent = `Quote Document: ${q.quoteNo} (${q.versionTag}) • $${q.premium.toLocaleString()}.00`;
   if (sub) sub.textContent = `${q.insured} • ${q.subId} • Issued: ${q.date} • ${q.type}`;
 
-  const payload = q.ratingPayload || DEFAULT_IMPORTED_RATING_JSON;
-  modalBody.innerHTML = `
+  const payload = q.ratingPayload || null;
+  modalBody.innerHTML = payload ? `
     <div style="max-height: 78vh; overflow-y: auto; padding: 4px;">
       ${getGeneratedQuoteHtml(payload, q)}
     </div>
-  `;
+  ` : `<div class="alert alert-warning u-fs-12-5"><i class="ph ph-info"></i> The rating payload for this version was not stored, so the quote sheet cannot be shown. The figures in the version history are the ones recorded when it was issued.</div>`;
 
   modal.style.display = "flex";
   document.body.style.overflow = "hidden";

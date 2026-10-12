@@ -8,7 +8,7 @@
  *
  * The output keeps the exact quote/coverages/eligibility/adapter top-level
  * shape from the rating payload the underwriter is already working with
- * (currentImportedRatingData, falling back to DEFAULT_IMPORTED_RATING_JSON —
+ * (currentImportedRatingData —
  * same structure as the uploaded SUB-GOLD-001 Official Quote Payload), and
  * adds new top-level sections carrying everything else worked on:
  * submission identity, full Underwriting Workbench data, the Risk Score
@@ -120,47 +120,6 @@ function generateAndDownloadFinalJson() {
   downloadFinalJson();
 }
 
-function openGenerateFinalJsonModal() {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (!sub) { showToast("⚠️ No active submission selected.", "warning"); return; }
-
-  const finalJson = buildFinalUnderwritingJSON(sub);
-  if (!finalJson) return;
-
-  window._lastGeneratedFinalJson = finalJson;
-  window._lastGeneratedFinalJsonSubId = sub.id;
-
-  const modal = document.getElementById("generateFinalJsonModal");
-  const codeBlock = document.getElementById("finalJsonCodeBlock");
-  const titleSub = document.getElementById("finalJsonModalSubId");
-  if (codeBlock) codeBlock.textContent = JSON.stringify(finalJson, null, 2);
-  if (titleSub) titleSub.textContent = sub.id;
-  if (modal) modal.classList.add("active");
-
-  showToast(`✅ Final underwriting JSON generated for ${sub.id} — all submission, Workbench, Risk Score & Authority data carried over.`, "success");
-}
-
-function closeGenerateFinalJsonModal() {
-  const modal = document.getElementById("generateFinalJsonModal");
-  if (modal) modal.classList.remove("active");
-}
-
-function copyFinalJsonToClipboard() {
-  if (!window._lastGeneratedFinalJson) return;
-  const jsonStr = JSON.stringify(window._lastGeneratedFinalJson, null, 2);
-  const textArea = document.createElement("textarea");
-  textArea.value = jsonStr;
-  document.body.appendChild(textArea);
-  textArea.select();
-  try {
-    document.execCommand("copy");
-    showToast("📋 Final underwriting JSON copied to clipboard!", "success");
-  } catch (err) {
-    showToast("Could not copy JSON", "warning");
-  }
-  document.body.removeChild(textArea);
-}
-
 function downloadFinalJson() {
   if (!window._lastGeneratedFinalJson) return;
   const subId = window._lastGeneratedFinalJsonSubId || "SUBMISSION";
@@ -179,7 +138,3 @@ function downloadFinalJson() {
 
 window.buildFinalUnderwritingJSON = buildFinalUnderwritingJSON;
 window.generateAndDownloadFinalJson = generateAndDownloadFinalJson;
-window.openGenerateFinalJsonModal = openGenerateFinalJsonModal;
-window.closeGenerateFinalJsonModal = closeGenerateFinalJsonModal;
-window.copyFinalJsonToClipboard = copyFinalJsonToClipboard;
-window.downloadFinalJson = downloadFinalJson;

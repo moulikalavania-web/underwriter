@@ -1,0 +1,282 @@
+<!-- Suite G18: broker-commission. Run with: python tests/run.py --suite g18 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return (sub.decisionLog||[]).filter(function(x){return x.decision===d;}); }
+  function has(arr, re){ return arr.some(function(x){return re.test(x);}); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; if (/^com_bor(Attest|Consent)$/.test(id) || /^pc_(endNoLoss|riNoLoss)$/.test(id)) e.type = 'checkbox'; document.body.appendChild(e); }
+      if (e.type === 'checkbox') e.checked = !!map[id]; else if (e.tagName === 'SELECT') { if (!Array.prototype.some.call(e.options, function(o){return o.value===map[id];})) e.innerHTML += '<option value="'+map[id]+'">'+map[id]+'</option>'; e.value = map[id]; } else e.value = map[id]; }); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0];
+  function mkSub(id, broker, fein, daysAgo, over){
+    var s = clone(seedT); s.id = id; s.insured = 'Orion Freight LLC'; s.fein = fein; s.broker = broker; s.channelType = 'broker';
+    s.address = '1 Main St, Houston, TX 77040'; s.receivedTimestamp = Date.now() - daysAgo * 86400000; s.receivedAt = plus(-daysAgo);
+    delete s.lifecycleStatus; delete s.pasSync; delete s.quoteIssued; for (var k in (over||{})) s[k] = over[k]; return s;
+  }
+  try {
+    // ---------- config
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='brokerRelations';}));
+    t('assistant logs letters only', PERMISSIONS_MATRIX.assistant.brokerRelations.edit && !PERMISSIONS_MATRIX.assistant.brokerRelations.approve);
+    t('junior accepts a submission BOR but cannot override', PERMISSIONS_MATRIX.junior.brokerRelations.approve && !PERMISSIONS_MATRIX.junior.brokerRelations.override);
+    t('senior UW and CUO can override', PERMISSIONS_MATRIX.senior_uw.brokerRelations.override && PERMISSIONS_MATRIX.senior.brokerRelations.override);
+    t('admin read only', PERMISSIONS_MATRIX.admin.brokerRelations.view && !PERMISSIONS_MATRIX.admin.brokerRelations.edit);
+    t('audit meta added', !!AUDIT_ACTION_META.bor_effective && !!AUDIT_ACTION_META.commission_locked && !!AUDIT_ACTION_META.market_conflict_detected);
+
+    // ---------- agency matching
+    t('same agency under different names', comSameBroker('Marsh & McLennan Commercial Brokerage', 'Marsh & McLennan') && comSameBroker('Arora & Sons', 'Arora and Sons Inc'));
+    t('different agencies do not match', !comSameBroker('Aon Commercial Risk Solutions', 'Marsh & McLennan') && !comSameBroker('', 'Arora') && !comSameBroker('Mar', 'Marsh'));
+
+    // ---------- commission rate resolution
+    var tr = clone(seedT); tr.broker = 'Marsh & McLennan Commercial Brokerage'; tr.lobKey = 'trucking';
+    var r = comResolveRate(tr, '2026-10-08');
+    t('Marsh trucking new business: agreement 12%', r.rate === 12 && r.source === 'agreement' && r.contractId === 'AGR-MARSH-2026' && r.businessType === 'new' && r.band.max === 15, JSON.stringify(r));
+    var rn = clone(tr); rn.renewalOf = 'SUB-X';
+    t('renewal business uses the renewal rate', comResolveRate(rn, '2026-10-08').rate === 10 && comResolveRate(rn, '2026-10-08').businessType === 'renewal');
+    var ar = clone(tr); ar.broker = 'Arora & Sons';
+    t('Arora trucking: 15% (the figure the old generated data used)', comResolveRate(ar, '2026-10-08').rate === 15);
+    var other = clone(tr); other.lobKey = 'prd016';
+    t('a line with no specific rate uses the agreement default row', comResolveRate(other, '2026-10-08').rate === 10 && comResolveRate(other, '2026-10-08').source === 'agreement');
+    var unk = clone(tr); unk.broker = 'Zeta Unknown Brokers';
+    t('unknown producer: default 10%, no contract', comResolveRate(unk, '2026-10-08').rate === 10 && comResolveRate(unk, '2026-10-08').source === 'default' && comResolveRate(unk, '2026-10-08').contractId === null);
+    t('an expired agreement falls back to the default', comResolveRate(tr, '2027-03-01').source === 'default');
+    var ov = clone(tr); ov.commissionOverride = { rate: 14, reason: 'x' };
+    t('override beats the agreement', comResolveRate(ov, '2026-10-08').rate === 14 && comResolveRate(ov, '2026-10-08').source === 'override' && comResolveRate(ov, '2026-10-08').agreementRate === 12);
+    t('the ceiling is the agreement maximum, never above the hard cap', comResolveRate(tr, '2026-10-08').band.max === 15 && comResolveRate(unk, '2026-10-08').band.max === 15 && COMMISSION_SCHEDULE.every(function(a){return Math.min(COMMISSION_HARD_CAP, a.max) <= COMMISSION_HARD_CAP;}));
+
+    // ---------- commissionable premium
+    var cq = { importedRatingData:{ quote:{ finalPremium:39260, tax:1590, countyTax:180, fees:[{amt:150},{amt:750}] } } };
+    var cp = comCommissionable(cq);
+    t('commissionable premium excludes taxes and fees (rating engine figure only)', cp.final === 39260 && cp.deducted === 2670 && cp.commissionable === 36590, JSON.stringify(cp));
+    t('a priced premium (discretionary pricing) is already before tax and fees, so it is commissionable as it stands', comCommissionable({ discretionaryPricing:{finalPremium:39260}, importedRatingData:cq.importedRatingData }).commissionable === 39260 && comCommissionable({ discretionaryPricing:{finalPremium:39260}, importedRatingData:cq.importedRatingData }).deducted === 0);
+    t('no rating data: the final premium is used', comCommissionable({ discretionaryPricing:{finalPremium:5000} }).commissionable === 5000);
+    t('commission amount', comAmount(36590, 12) === 4390.8);
+
+    // ---------- market conflicts (pure)
+    var now = Date.now();
+    var A = mkSub('SUB-A', 'Marsh & McLennan Commercial Brokerage', '12-3456789', 10);
+    var B = mkSub('SUB-B', 'Arora & Sons', '12-3456789', 2);
+    var c1 = comFindConflicts(B, [A, B], now);
+    t('later submission from another broker is in conflict', c1.state === 'conflict' && c1.holder.id === 'SUB-A');
+    t('earlier submission holds the lock', comFindConflicts(A, [A, B], now).state === 'holder');
+    t('same agency (different spelling) is not a conflict', comFindConflicts(mkSub('SUB-C','Marsh & McLennan','12-3456789',1), [A], now).state === 'clear');
+    t('different line of business is not a conflict', comFindConflicts(mkSub('SUB-D','Arora & Sons','12-3456789',1,{lobKey:'property'}), [A], now).state === 'clear');
+    t('a direct submission is never in conflict', comFindConflicts(mkSub('SUB-E','Arora & Sons','12-3456789',1,{channelType:'direct'}), [A], now).state === 'clear');
+    t('a declined holder releases the lock', comFindConflicts(B, [mkSub('SUB-A2','Marsh & McLennan','12-3456789',10,{lifecycleStatus:'declined'}), B], now).state === 'clear');
+    t('match by insured name when the FEIN differs', comFindConflicts(mkSub('SUB-F','Arora & Sons','99-0000000',1), [A], now).state === 'conflict');
+    t('different insured and FEIN: clear', comFindConflicts(mkSub('SUB-G','Arora & Sons','99-0000000',1,{insured:'Someone Else Inc'}), [A], now).state === 'clear');
+    var oldA = mkSub('SUB-OLD', 'Marsh & McLennan Commercial Brokerage', '12-3456789', MARKET_LOCK_DAYS + 5);
+    t('an unquoted lock expires after the lock period', comFindConflicts(B, [oldA, B], now).state === 'lock_expired');
+    oldA.quoteIssued = true;
+    t('a lock on a quoted submission does not expire', comFindConflicts(B, [oldA, B], now).state === 'conflict');
+    t('a renewal of the same policy is not a conflict', comFindConflicts(mkSub('SUB-R','Arora & Sons','12-3456789',1,{renewalOf:'SUB-A'}), [A], now).state === 'clear');
+
+    // ---------- BOR validation and waiting (pure)
+    function bor(o){ var f = { toBroker:'Arora & Sons', fromBroker:'Marsh & McLennan', signedByInsured:true, signerName:'Pat Orion', signerTitle:'CFO', docRef:'BOR-LTR-1', signedOn:'2026-10-01', receivedOn:'2026-10-02', effectiveOn:'2026-10-08', incumbentNotifiedOn:'2026-10-03', incumbentConsented:false }; for (var k in (o||{})) f[k]=o[k]; return f; }
+    var bctx = { today:'2026-10-08', producerStatus:'verified' };
+    t('a complete BOR letter validates', comValidateBor(bctx, bor()).length === 0);
+    t('must be signed by the insured, with signer details and a reference', has(comValidateBor(bctx, bor({signedByInsured:false})), /authorized officer/) && has(comValidateBor(bctx, bor({signerName:'', signerTitle:'', docRef:''})), /who signed/) && has(comValidateBor(bctx, bor({docRef:''})), /reference of the filed letter/));
+    t('dates must be coherent', has(comValidateBor(bctx, bor({signedOn:'2026-10-05'})), /signed after it was received/) && has(comValidateBor(bctx, bor({receivedOn:'2026-10-20', signedOn:'2026-10-01'})), /future/) && has(comValidateBor(bctx, bor({effectiveOn:'2026-09-01'})), /before the letter was received/));
+    t('incumbent must be notified or consent', has(comValidateBor(bctx, bor({incumbentNotifiedOn:''})), /incumbent broker was notified/) && comValidateBor(bctx, bor({incumbentNotifiedOn:'', incumbentConsented:true})).length === 0);
+    t('same agency cannot replace itself', has(comValidateBor(bctx, bor({fromBroker:'Arora & Sons Inc'})), /same agency/));
+    t('new broker must be licensed and appointed', has(comValidateBor({ today:'2026-10-08', producerStatus:'failed' }, bor()), /not verified \(failed\)/));
+    t('waiting period: runs from the incumbent notice', comBorWaiting(bor({incumbentNotifiedOn:'2026-10-03', effectiveOn:'2026-10-03'}), '2026-10-08').ok === true && comBorWaiting(bor({incumbentNotifiedOn:'2026-10-06', effectiveOn:'2026-10-06'}), '2026-10-08').ok === false && comBorWaiting(bor({incumbentNotifiedOn:'2026-10-06', effectiveOn:'2026-10-06'}), '2026-10-08').earliest === '2026-10-11');
+    t('incumbent consent skips the waiting period', comBorWaiting(bor({incumbentConsented:true, incumbentNotifiedOn:'', effectiveOn:'2026-10-02'}), '2026-10-08').ok === true);
+    t('effective date later than the waiting period governs', comBorWaiting(bor({incumbentNotifiedOn:'2026-10-03', effectiveOn:'2026-10-20'}), '2026-10-08').ok === false);
+
+    // ---------- commission split on a mid-term BOR (worked by hand)
+    var sp = comSplit({ commissionable:10000, oldRate:10, newRate:12, policyEffective:'2026-01-01', policyExpiration:'2027-01-01', borEffective:'2026-07-02' });
+    t('split: 182 of 365 days to the old broker, the rest to the new', sp.elapsedDays === 182 && sp.oldShare === 498.63 && sp.newShare === 601.64, JSON.stringify(sp));
+    t('split at inception gives the whole term to the new broker', comSplit({ commissionable:10000, oldRate:10, newRate:12, policyEffective:'2026-01-01', policyExpiration:'2027-01-01', borEffective:'2026-01-01' }).oldShare === 0);
+
+    // ---------- market clearance flow (stateful)
+    SUBMISSIONS_DATASET.length = 0;
+    var SA = mkSub('SUB-A', 'Marsh & McLennan Commercial Brokerage', '12-3456789', 10);
+    var SB = mkSub('SUB-B', 'Arora & Sons', '12-3456789', 2);
+    SUBMISSIONS_DATASET.push(SA, SB); activeSubmissionId = SB.id;
+    currentUserRole = 'junior';
+    var mcB = runMarketCheck(SB, 'test');
+    t('check marks the later submission as in conflict, and logs it once', mcB.status === 'conflict' && logs(SB, 'market_conflict_detected').length === 1 && /cannot proceed/.test(logs(SB, 'market_conflict_detected')[0].notes));
+    runMarketCheck(SB, 'test');
+    t('no duplicate log for an unchanged result', logs(SB, 'market_conflict_detected').length === 1);
+    runMarketCheck(SA, 'test');
+    t('the holder is told it holds the lock (its own audit type)', logs(SA, 'market_lock_held').length === 1 && /holds the market lock/.test(logs(SA, 'market_lock_held')[0].notes) && !!AUDIT_ACTION_META.market_lock_held);
+    renderMarketCard(SB);
+    t('card shows the conflict, the BOR form and the duplicate-decline button', /Market conflict/.test(el('marketClearanceContainer').innerHTML) && el('com_borSigner') !== null && /Decline as duplicate/.test(el('marketClearanceContainer').innerHTML));
+
+    SB.currentStep = 2; currentWorkflowStep = 2;
+    goToNextStep();
+    t('Step 2 cannot be completed while the conflict stands', SB.currentStep === 2 && logs(SB, 'bor_bind_blocked').some(function(d){return /Step 2 exit blocked/.test(d.notes);}));
+    t('PAS bind is blocked too', comBorGuardBind('PAS bind', SB.id) === false);
+
+    // log a BOR letter
+    currentUserRole = 'assistant'; renderMarketCard(SB);
+    setf({ com_borSigner:'Pat Orion', com_borTitle:'CFO', com_borSigned:plus(-8), com_borReceived:plus(-7), com_borEffective:plus(0), com_borDoc:'BOR-LTR-1', com_borAttest:true, com_borNotified:plus(-6), com_borConsent:false });
+    comRecordBor(SB.id);
+    t('assistant can log a BOR letter', comBors(SB).length === 1 && comBors(SB)[0].status === 'pending' && comBors(SB)[0].fromBroker === 'Marsh & McLennan Commercial Brokerage' && logs(SB, 'bor_recorded').length === 1);
+    comRecordBor(SB.id);
+    t('a second letter cannot be logged while one is pending', comBors(SB).length === 1);
+    t('a pending BOR holds the bind even when the conflict itself is cleared', (function(){ SB.marketClearance.resolution = { type:'separate_risk', reason:'test', by:'t', at:'t' }; var g = comBorGuardBind('PAS bind', SB.id); SB.marketClearance.resolution = null; return g === false && logs(SB, 'bor_bind_blocked').some(function(d){return /pending/.test(d.notes);}); })());
+    comAcceptBor(SB.id, comBors(SB)[0].id);
+    t('assistant cannot accept', comBors(SB)[0].status === 'pending');
+    currentUserRole = 'junior';
+    comAcceptBor(SB.id, comBors(SB)[0].id);
+    t('junior accepts: conflict resolved by BOR', comBors(SB)[0].status === 'accepted' && SB.marketClearance.status === 'resolved' && SB.marketClearance.resolution.type === 'bor', JSON.stringify(SB.marketClearance.resolution));
+    t('the earlier submission is told the lock moved', SA.marketClearance.lockReleased && SA.marketClearance.lockReleased.to === 'SUB-B' && logs(SA, 'bor_effective').length === 1);
+    t('Step 2 and bind are no longer blocked by the conflict', comBlocksStep(SB) === false && comBorGuardBind('PAS bind', SB.id) === true);
+    t('resolved card names the BOR letter', (renderMarketCard(SB), /broker-of-record letter accepted/.test(el('marketClearanceContainer').innerHTML)));
+
+    // waiting period blocks acceptance
+    var SC = mkSub('SUB-C', 'Arora & Sons', '77-1234567', 1, { insured:'Waiting Co' }), SD = mkSub('SUB-D', 'Marsh & McLennan Commercial Brokerage', '77-1234567', 9, { insured:'Waiting Co' });
+    SUBMISSIONS_DATASET.push(SC, SD); activeSubmissionId = SC.id; currentUserRole = 'junior';
+    runMarketCheck(SC, 'test'); renderMarketCard(SC);
+    setf({ com_borSigner:'Lee Wait', com_borTitle:'Owner', com_borSigned:plus(0), com_borReceived:plus(0), com_borEffective:plus(0), com_borDoc:'BOR-LTR-2', com_borAttest:true, com_borNotified:plus(0), com_borConsent:false });
+    comRecordBor(SC.id); comAcceptBor(SC.id, comBors(SC)[0].id);
+    t('acceptance refused until the waiting period has run', comBors(SC)[0].status === 'pending' && SC.marketClearance.status === 'conflict');
+    comBors(SC)[0].incumbentConsented = true;
+    comAcceptBor(SC.id, comBors(SC)[0].id);
+    t('incumbent consent lets it through', comBors(SC)[0].status === 'accepted');
+
+    // reject a letter
+    var SE = mkSub('SUB-E', 'Arora & Sons', '55-1234567', 1, { insured:'Reject Co' }), SF = mkSub('SUB-F', 'Marsh & McLennan Commercial Brokerage', '55-1234567', 9, { insured:'Reject Co' });
+    SUBMISSIONS_DATASET.push(SE, SF); activeSubmissionId = SE.id;
+    runMarketCheck(SE, 'test'); renderMarketCard(SE);
+    setf({ com_borSigner:'Kim Reject', com_borTitle:'CEO', com_borSigned:plus(-8), com_borReceived:plus(-7), com_borEffective:plus(0), com_borDoc:'BOR-LTR-3', com_borAttest:true, com_borNotified:plus(-6) });
+    comRecordBor(SE.id); renderMarketCard(SE);
+    setf({ com_borReject:'x' }); comRejectBor(SE.id, comBors(SE)[0].id);
+    t('rejecting needs a reason', comBors(SE)[0].status === 'pending');
+    setf({ com_borReject:'Signature does not match the officer on file.' }); comRejectBor(SE.id, comBors(SE)[0].id);
+    t('rejected letter keeps the conflict', comBors(SE)[0].status === 'rejected' && SE.marketClearance.status === 'conflict' && logs(SE, 'bor_rejected').length === 1);
+
+    // separate risks
+    renderMarketCard(SE);
+    t('junior is not offered "separate risks"', el('com_ovrWhy') === null || !/Or clear as separate risks/.test(el('marketClearanceContainer').innerHTML));
+    currentUserRole = 'senior_uw'; renderMarketCard(SE);
+    setf({ com_ovrWhy:'short' }); comOverrideConflict(SE.id);
+    t('separate-risk clearance needs a real explanation', SE.marketClearance.status === 'conflict');
+    setf({ com_ovrWhy:'Different operating entity at a different address; FEIN reused in error by the broker.' }); comOverrideConflict(SE.id);
+    t('senior UW clears it as separate risks', SE.marketClearance.status === 'resolved' && SE.marketClearance.resolution.type === 'separate_risk' && /separate risks/.test(logs(SE, 'market_conflict_resolved')[0].notes));
+
+    // direct submission card
+    var DS = mkSub('SUB-DIR', 'Direct Customer (Online Intake)', '11-1111111', 1, { channelType:'direct' });
+    renderMarketCard(DS);
+    t('direct submission: no conflict possible', /no broker, so no market conflict/.test(el('marketClearanceContainer').innerHTML));
+
+    // ---------- commission: override and lock at bind
+    function mkPolicy(id, broker, lob, over){
+      var s = clone(seedG); s.id = id; s.broker = broker; s.lobKey = lob || 'gl_cpc'; s.channelType = 'broker'; s.address = '9 Elm Road, Dallas, TX 75201';
+      s.pasSync = null; delete s.pasSync; s.effectiveDate = '01/01/2026'; s.expirationDate = '01/01/2027'; s.subjectivities = []; s.certificates = [];
+      s.discretionaryPricing = { finalPremium: 11100 };
+      s.importedRatingData = { quote: { finalPremium: 12000, tax: 0, countyTax: 0, fees: [{code:'FEE_POLICY',amt:150},{code:'FEE_BROKER',amt:750}] } };
+      for (var k in (over||{})) s[k] = over[k]; return s; }
+    SUBMISSIONS_DATASET.length = 0;
+    var P = mkPolicy('SUB-P', 'Marsh & McLennan Commercial Brokerage'); SUBMISSIONS_DATASET.push(P); activeSubmissionId = P.id;
+    var cur = comCurrent(P);
+    t('commission estimate before bind: 12% of the commissionable premium', cur.rate === 12 && cur.commissionable === 11100 && cur.amount === 1332 && cur.source === 'agreement', JSON.stringify(cur));
+    renderCommissionCard(P);
+    t('card shows the agreement, rate and amount', /AGR-MARSH-2026/.test(el('commissionContainer').innerHTML) && /12%/.test(el('commissionContainer').innerHTML) && /\$1,332\.00/.test(el('commissionContainer').innerHTML) && /Estimate until bound/.test(el('commissionContainer').innerHTML));
+    currentUserRole = 'junior'; renderCommissionCard(P);
+    setf({ com_ovrRate:'14', com_ovrReason:'Competitive pressure on this account.' }); comSetOverride(P.id);
+    t('junior cannot override the rate', !P.commissionOverride);
+    currentUserRole = 'senior_uw'; renderCommissionCard(P);
+    setf({ com_ovrRate:'20', com_ovrReason:'Competitive pressure on this account.' }); comSetOverride(P.id);
+    t('rate above the agreement ceiling is refused', !P.commissionOverride);
+    setf({ com_ovrRate:'14', com_ovrReason:'x' }); comSetOverride(P.id);
+    t('override needs a reason', !P.commissionOverride);
+    setf({ com_ovrRate:'14', com_ovrReason:'Competitive pressure on this account.' }); comSetOverride(P.id);
+    t('senior UW overrides within the ceiling', P.commissionOverride && P.commissionOverride.rate === 14 && comCurrent(P).rate === 14 && comCurrent(P).amount === 1554 && logs(P, 'commission_override').length === 1);
+    comClearOverride(P.id);
+    t('override can be removed', !P.commissionOverride && comCurrent(P).rate === 12);
+    setf({ com_ovrRate:'14', com_ovrReason:'Competitive pressure on this account.' }); comSetOverride(P.id);
+
+    // lock at bind through the real hook
+    P.pasSync = { status:'success', policyNumber:'GLC-2026-777001', pasRecordId:'PAS-7', effectiveDate:'2026-01-01' };
+    recordQuoteVersion(P, true);
+    t('commission is locked when the bound version is recorded', P.commission.locked === true && P.commission.rate === 14 && P.commission.amount === 1554 && logs(P, 'commission_locked').length === 1);
+    recordQuoteVersion(P, true);
+    t('locking happens once', logs(P, 'commission_locked').length === 1);
+    renderCommissionCard(P);
+    comSetOverride(P.id);
+    t('no override after bind', P.commissionOverride.rate === 14 && P.commission.rate === 14);
+    P.commissionOverride.rate = 5;   // even if the override record were changed later, the locked rate holds
+    t('the locked rate does not move', comNet(P).base === 1554);
+    P.commissionOverride.rate = 14;
+
+    // endorsement and cancellation adjustments (real wrappers)
+    currentUserRole = 'junior';
+    pcLedger(P);
+    renderPolicyChangesCard(P);
+    setf({ pc_endType:'vehicle', pc_endEff:plus(0), pc_endDesc:'Add a 2025 Ford F-150 to the schedule.', pc_endPrem:'600', pc_endPremWhy:'Rated at schedule rate', pc_endForm:'', pc_endNoLoss:false });
+    pcIssueEndorsement();
+    var endAdj = P.commission.adjustments[0];
+    t('endorsement premium earns commission at the locked rate', !!endAdj && /Endorsement/.test(endAdj.label) && endAdj.commission === comRound(endAdj.premium * 14 / 100) && endAdj.premium > 0, JSON.stringify(endAdj));
+    t('commission adjustment is logged and shown', logs(P, 'commission_adjusted').length === 1 && /Endorsement/.test(el('commissionContainer').innerHTML));
+    renderPolicyChangesCard(P);
+    setf({ pc_cxBy:'insured', pc_cxReason:'SOLD', pc_cxEff:plus(0), pc_cxNotes:'Business sold.' });
+    pcSubmitCancellation();
+    var cxAdj = P.commission.adjustments[1];
+    t('cancellation returns commission on the returned premium', P.policyState === 'cancelled' && !!cxAdj && /Cancellation/.test(cxAdj.label) && cxAdj.commission < 0 && cxAdj.commission === -comRound(-cxAdj.premium * 14 / 100), JSON.stringify(cxAdj));
+    t('net commission = locked amount plus adjustments', comNet(P).net === comRound(1554 + endAdj.commission + cxAdj.commission));
+    pcApplyDue(P);
+    t('applying the cancellation again does not return commission twice', P.commission.adjustments.length === 2);
+
+    // ---------- the issue-quote email uses the agreement
+    var E = mkPolicy('SUB-EM', 'Arora & Sons', 'trucking', { coverageRows: clone(seedT.coverageRows) });
+    SUBMISSIONS_DATASET.push(E);
+    var figs = null; try { figs = buildFuturisticQuoteFigures(E); } catch (e) { out.push('INFO email figures threw: ' + e.message); }
+    t('email commission follows the producer agreement, not a fixed 10%', !!figs && figs.commissionRate === 0.15, figs ? String(figs.commissionRate) : 'no figures');
+
+    // ---------- broker change on a bound policy
+    COMMISSION_SCHEDULE.find(function(a){return a.id==='AGR-AON-2026';}).rates.gl_cpc.new = 14;
+    SUBMISSIONS_DATASET.length = 0;
+    var Q = mkPolicy('SUB-Q', 'Marsh & McLennan Commercial Brokerage'); Q.pasSync = { status:'success', policyNumber:'GLC-2026-888001', pasRecordId:'PAS-8', effectiveDate:'2026-01-01' };
+    Q.certificates = [{ id:'C1', status:'issued', holderName:'Acme', holderType:'Certificate holder' }];
+    SUBMISSIONS_DATASET.push(Q); activeSubmissionId = Q.id;
+    recordQuoteVersion(Q, true);
+    t('policy locked at the Marsh gl_cpc rate', Q.commission.locked && Q.commission.rate === 12 && Q.commission.amount === 1332);
+    currentUserRole = 'junior'; renderCommissionCard(Q);
+    t('bound policy shows the BOR form to a user who can log letters', el('com_borTo') !== null);
+    setf({ com_borTo:'Aon Commercial Risk Solutions', com_borFrom:'Marsh & McLennan Commercial Brokerage', com_borSigner:'Dana Insured', com_borTitle:'President', com_borSigned:plus(-9), com_borReceived:plus(-8), com_borEffective:plus(-2), com_borDoc:'BOR-POL-1', com_borAttest:true, com_borNotified:plus(-7), com_borConsent:false });
+    comRecordBor(Q.id);
+    t('BOR on a bound policy is logged as policy scope', comBors(Q).length === 1 && comBors(Q)[0].scope === 'policy' && comBors(Q)[0].toBroker === 'Aon Commercial Risk Solutions');
+    renderCommissionCard(Q); comAcceptBor(Q.id, comBors(Q)[0].id);
+    t('junior cannot accept a mid-term BOR (senior authority needed)', comBors(Q)[0].status === 'pending' && Q.broker === 'Marsh & McLennan Commercial Brokerage');
+    currentUserRole = 'senior_uw'; renderCommissionCard(Q);
+    comAcceptBor(Q.id, comBors(Q)[0].id);
+    t('senior UW accepts: broker on the policy changes', comBors(Q)[0].status === 'accepted' && Q.broker === 'Aon Commercial Risk Solutions' && Q.borHistory.length === 1);
+    t('commission rate moves to the new broker agreement and the split is recorded', Q.commission.rate === 14 && Q.commission.producer === 'Aon Commercial Risk Solutions' && Q.borHistory[0].oldRate === 12 && Q.borHistory[0].newRate === 14 && Q.borHistory[0].split && Q.borHistory[0].split.oldShare > 0 && Q.borHistory[0].split.newShare > 0, JSON.stringify(Q.borHistory[0].split));
+    var q = Q.borHistory[0].split, tot = Q.borHistory[0].split.totalDays, el0 = q.elapsedDays;
+    t('split matches the formula', q.oldShare === comRound(11100 * 12 / 100 * el0 / tot) && q.newShare === comRound(11100 * 14 / 100 * (1 - el0 / tot)));
+    t('transfer audit entry warns about certificates', /1 issued certificate\(s\) still name the previous producer/.test(logs(Q, 'bor_policy_transfer')[0].notes));
+    t('the producer licence check is re-run for the new broker', Q.producerCheck && Q.producerCheck.result && /Aon/.test(Q.producerCheck.result.producerName));
+
+    // BOR with an unlicensed new broker
+    var Q2 = mkPolicy('SUB-Q2', 'Marsh & McLennan Commercial Brokerage'); Q2.pasSync = { status:'success', policyNumber:'GLC-2026-888002', pasRecordId:'PAS-9', effectiveDate:'2026-01-01' };
+    SUBMISSIONS_DATASET.push(Q2); activeSubmissionId = Q2.id; currentUserRole = 'junior'; renderCommissionCard(Q2);
+    setf({ com_borTo:'Zeta Unknown Brokers', com_borFrom:'Marsh & McLennan Commercial Brokerage', com_borSigner:'Dana Insured', com_borTitle:'President', com_borSigned:plus(-9), com_borReceived:plus(-8), com_borEffective:plus(-2), com_borDoc:'BOR-POL-2', com_borAttest:true, com_borNotified:plus(-7) });
+    comRecordBor(Q2.id);
+    t('a new broker who is not licensed and appointed is refused', comBors(Q2).length === 0);
+
+    // at renewal treatment
+    BOR_COMMISSION_TREATMENT = 'at_renewal';
+    var Q3 = mkPolicy('SUB-Q3', 'Marsh & McLennan Commercial Brokerage'); Q3.pasSync = { status:'success', policyNumber:'GLC-2026-888003', pasRecordId:'PAS-10', effectiveDate:'2026-01-01' };
+    SUBMISSIONS_DATASET.push(Q3); activeSubmissionId = Q3.id; currentUserRole = 'junior'; recordQuoteVersion(Q3, true); renderCommissionCard(Q3);
+    setf({ com_borTo:'Aon Commercial Risk Solutions', com_borFrom:'Marsh & McLennan Commercial Brokerage', com_borSigner:'Dana Insured', com_borTitle:'President', com_borSigned:plus(-9), com_borReceived:plus(-8), com_borEffective:plus(-2), com_borDoc:'BOR-POL-3', com_borAttest:true, com_borNotified:plus(-7) });
+    comRecordBor(Q3.id);
+    currentUserRole = 'senior_uw'; renderCommissionCard(Q3); comAcceptBor(Q3.id, comBors(Q3)[0].id);
+    t('"at renewal" treatment: accepted but the policy keeps its broker', comBors(Q3)[0].status === 'accepted_at_renewal' && Q3.broker === 'Marsh & McLennan Commercial Brokerage' && !Q3.borHistory);
+    var ren = rnCreateRenewalSubmission(Q3);
+    t('the renewal submission is placed through the new broker', ren.broker === 'Aon Commercial Risk Solutions' && !ren.borRecords && !ren.commission && !ren.marketClearance);
+    BOR_COMMISSION_TREATMENT = 'prorata';
+    COMMISSION_SCHEDULE.find(function(a){return a.id==='AGR-AON-2026';}).rates.gl_cpc.new = 12;
+
+    t('XSS-safe', comEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

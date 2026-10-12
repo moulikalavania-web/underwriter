@@ -1,0 +1,87 @@
+<!-- Suite G31: external-access. Run with: python tests/run.py --suite g31 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  function mk(id, broker, lob, over){
+    var s = clone(seedT); s.id = id; s.broker = broker; s.lobKey = lob || 'trucking'; s.channelType = 'broker'; s.apiSourced = true; s.address = '9 Elm Road, Dallas, TX 75201'; s.decisionLog = []; s.insured = 'Insured ' + id;
+    delete s.lifecycleStatus; delete s.carrier; for (var k in (over||{})) s[k] = over[k]; return s; }
+  var origToast = window.showToast; var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    var KEYS = ['broker_user','broker_user_2','mga_user','carrier_auditor','compliance'];
+    t('personas registered', KEYS.every(function(k){return !!USER_ROLES_CONFIG[k] && !!PERMISSIONS_MATRIX[k];}));
+    t('personas in the team roster and login list', KEYS.every(function(k){return TEAM_USERS.some(function(u){return u.roleKey===k;});}) && (function(){ var s = document.getElementById('loginUserSelect'); return !s || /Jordan Reyes/.test(s.innerHTML); })());
+    t('defaults rebuild keeps them', KEYS.every(function(k){ return !!defaultPermissionsMatrix()[k]; }));
+
+    // permissions
+    function anyAction(role, act){ return Object.keys(PERMISSIONS_MATRIX[role]).some(function(r){ return PERMISSIONS_MATRIX[role][r][act]; }); }
+    function anyActionExcept(role, act, skip){ return Object.keys(PERMISSIONS_MATRIX[role]).some(function(r){ return r !== skip && PERMISSIONS_MATRIX[role][r][act]; }); }
+    t('no external or read-only persona can approve, override or archive anything (the Compliance Officer only records access reviews)', KEYS.every(function(k){ return !anyActionExcept(k,'approve','accessReview') && !anyAction(k,'override') && !anyAction(k,'archive'); }));
+    t('read-only personas cannot edit anything', ['carrier_auditor','compliance'].every(function(k){ return !anyAction(k,'edit'); }));
+    t('broker can add documents but nothing else', PERMISSIONS_MATRIX.broker_user.documents.edit && Object.keys(PERMISSIONS_MATRIX.broker_user).filter(function(r){return PERMISSIONS_MATRIX.broker_user[r].edit;}).join() === 'documents');
+    t('broker cannot see internal resources', ['sanctions','authority','surplusLines','producerLicensing','auditLog','rateConfig','notices','brokerRelations'].every(function(r){ return !PERMISSIONS_MATRIX.broker_user[r].view; }));
+    t('compliance reads the audit log; the carrier auditor does not', PERMISSIONS_MATRIX.compliance.auditLog.view && !PERMISSIONS_MATRIX.carrier_auditor.auditLog.view && PERMISSIONS_MATRIX.carrier_auditor.authority.view);
+
+    // scope (pure)
+    var A = mk('SUB-A','Marsh & McLennan Commercial Brokerage'), A2 = mk('SUB-A2','Marsh & McLennan','gl_cpc'), B = mk('SUB-B','Arora & Sons'), C = mk('SUB-C','Gallagher Commercial Brokers','gl_cas'), D = mk('SUB-D','Marsh & McLennan Commercial Brokerage','trucking',{channelType:'direct'}), E = mk('SUB-E','Aon Commercial Risk Solutions','property',{carrier:'Other Mutual'});
+    var all = [A,A2,B,C,D,E];
+    function ids(role){ return extVisible(role, all).map(function(s){return s.id;}).join(','); }
+    t('producer sees only their agency (name variants included, direct excluded)', ids('broker_user') === 'SUB-A,SUB-A2', ids('broker_user'));
+    t('another producer sees only theirs', ids('broker_user_2') === 'SUB-B');
+    t('program administrator sees the program lines across brokers', ids('mga_user') === 'SUB-A2,SUB-C', ids('mga_user'));
+    t('carrier auditor sees only that carrier\'s paper', ids('carrier_auditor') === 'SUB-A,SUB-A2,SUB-B,SUB-C,SUB-D', ids('carrier_auditor'));
+    t('compliance sees everything', ids('compliance') === 'SUB-A,SUB-A2,SUB-B,SUB-C,SUB-D,SUB-E');
+    t('internal underwriters are unrestricted', ids('junior') === 'SUB-A,SUB-A2,SUB-B,SUB-C,SUB-D,SUB-E' && extCanSee('senior', E));
+    var Pst = clone(EXTERNAL_ROLES.mga_user); EXTERNAL_ROLES.mga_user.scope.states = ['OH'];
+    t('program state restriction applies', ids('mga_user') === '');
+    EXTERNAL_ROLES.mga_user.scope.states = null;
+
+    // enforcement
+    SUBMISSIONS_DATASET.length = 0; all.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = 'SUB-A';
+    changeUserRole('broker_user');
+    t('external persona flagged in the UI', document.body.classList.contains('role-external'));
+    var tb = document.getElementById('submissionsTableBody');
+    t('queue lists only own submissions', tb && /SUB-A/.test(tb.innerHTML) && !/SUB-B/.test(tb.innerHTML) && !/SUB-C/.test(tb.innerHTML), tb ? tb.querySelectorAll('tr').length + ' rows' : 'no tbody');
+    t('the full dataset is restored after rendering', SUBMISSIONS_DATASET.length === 6);
+    var logsBefore = (B.decisionLog||[]).length;
+    selectSubmission('SUB-B', false);
+    t('opening another agency\'s submission is refused and logged', activeSubmissionId === 'SUB-A' && B.decisionLog.length === logsBefore + 1 && B.decisionLog[B.decisionLog.length-1].decision === 'ext_access_denied');
+    openCaseAtCurrentStep('SUB-C');
+    t('...also via openCaseAtCurrentStep', activeSubmissionId !== 'SUB-C');
+    selectSubmission('SUB-A2', false);
+    t('own submission opens', activeSubmissionId === 'SUB-A2');
+    showDeclinePage();
+    t('internal pages are refused for external users', toasts.some(function(m){return /not available to external users/.test(m);}));
+    var css = document.getElementById('extAccessStyle');
+    t('internal panels hidden for external users', css && /marketClearanceContainer/.test(css.textContent) && /authorityContainer/.test(css.textContent) && /surplusLinesContainer/.test(css.textContent));
+
+    // switching persona re-scopes
+    activeSubmissionId = 'SUB-B';
+    changeUserRole('broker_user');
+    t('persona switch moves the active case into scope', activeSubmissionId === 'SUB-A' || activeSubmissionId === 'SUB-A2');
+    changeUserRole('broker_user_2');
+    t('second producer lands on their own case', activeSubmissionId === 'SUB-B');
+    t('their queue shows only theirs', !/SUB-A/.test(document.getElementById('submissionsTableBody').innerHTML) && /SUB-B/.test(document.getElementById('submissionsTableBody').innerHTML));
+    changeUserRole('junior');
+    t('internal persona sees the whole queue again', !document.body.classList.contains('role-external') && /SUB-A/.test(document.getElementById('submissionsTableBody').innerHTML) && /SUB-B/.test(document.getElementById('submissionsTableBody').innerHTML));
+    selectSubmission('SUB-B', false);
+    t('and may open any case', activeSubmissionId === 'SUB-B');
+
+    // read-only persona cannot act
+    changeUserRole('compliance');
+    t('compliance has no action permission on referrals or tax basis', !hasPermission('authority','approve') && !hasPermission('surplusLines','edit') && !hasPermission('subjectivities','edit'));
+    t('audit meta', !!AUDIT_ACTION_META.ext_access_denied);
+    // workload lists exclude external personas
+    changeUserRole('admin');
+    var g = typeof getAssignSubmissionModalRoleGroups === 'function' ? JSON.stringify(getAssignSubmissionModalRoleGroups()) : '';
+    t('external personas are not assignable underwriters', !/broker_user|carrier_auditor|mga_user/.test(g));
+    t('roles intact after the assignment helper', !!USER_ROLES_CONFIG.broker_user && !!USER_ROLES_CONFIG.compliance);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

@@ -1,5 +1,8 @@
 // 8. EXPOSE GLOBALS ON WINDOW OBJECT (100% Reliability)
 // ============================================================================
+// The ingested product definition. Declared up front: with no product uploaded yet it must read as null, not throw.
+var ACTIVE_INSURANCE_PRODUCT = window.ACTIVE_INSURANCE_PRODUCT || null;
+
 window.showIntakePage = showIntakePage;
 window.showWorkflowPage = showWorkflowPage;
 window.showArchivePage = showArchivePage;
@@ -11,20 +14,13 @@ window.searchQuoteVersionsTable = searchQuoteVersionsTable;
 window.openQuoteVersionPreviewModal = openQuoteVersionPreviewModal;
 window.closeQuoteVersionPreviewModal = closeQuoteVersionPreviewModal;
 window.exportQuoteVersionsCSV = exportQuoteVersionsCSV;
-window.viewCase = viewCase;
 window.resumeActiveCaseWorkflow = resumeActiveCaseWorkflow;
 window.changeUserRole = changeUserRole;
 window.submitJuniorEscalation = submitJuniorEscalation;
 window.goToScreen = goToScreen;
-window.navigateStep = navigateStep;
 window.toggleSidebar = toggleSidebar;
 window.selectSubmission = selectSubmission;
 window.openCaseAtCurrentStep = openCaseAtCurrentStep;
-window.resumeCaseFlow = resumeCaseFlow;
-window.resumeActiveCaseFlow = resumeActiveCaseFlow;
-window.openViewCaseModal = openViewCaseModal;
-window.closeViewCaseModal = closeViewCaseModal;
-window.proceedToNormalizationFromModal = proceedToNormalizationFromModal;
 window.previewDocModal = previewDocModal;
 window.closeDocPreviewModal = closeDocPreviewModal;
 window.proceedToNormalizationFromDocModal = proceedToNormalizationFromDocModal;
@@ -37,7 +33,6 @@ window.openNewIntakeModal = openNewIntakeModal;
 window.closeNewIntakeModal = closeNewIntakeModal;
 window.toggleModalBrokerField = toggleModalBrokerField;
 window.handleCreateNewIntake = handleCreateNewIntake;
-window.switchDocTab = switchDocTab;
 window.renderRatingEnginePayload = renderRatingEnginePayload;
 window.exportRatingPayloadToCSV = exportRatingPayloadToCSV;
 window.copyRatingJSON = copyRatingJSON;
@@ -52,11 +47,6 @@ window.closeRFIModal = closeRFIModal;
 window.sendRFIAction = sendRFIAction;
 window.addNewSubjectivity = addNewSubjectivity;
 window.issueQuoteAction = issueQuoteAction;
-window.bindPolicyAction = bindPolicyAction;
-window.requestBrokerRevision = requestBrokerRevision;
-window.expireQuoteAction = expireQuoteAction;
-window.printQuote = printQuote;
-window.downloadQuoteDoc = downloadQuoteDoc;
 window.closeFlowchartModal = closeFlowchartModal;
 window.navFromDiagram = navFromDiagram;
 window.toggleBrowserFullscreen = toggleBrowserFullscreen;
@@ -75,13 +65,9 @@ window.openAllStepsSummaryModal = openAllStepsSummaryModal;
 window.closeAllStepsSummaryModal = closeAllStepsSummaryModal;
 window.switchSummaryModalTab = switchSummaryModalTab;
 window.renderAllStepsSummaryModal = renderAllStepsSummaryModal;
-window.renderStep7InlineSummary = renderStep7InlineSummary;
 window.renderStep7View = renderStep7View;
-window.toggleStep7View = toggleStep7View;
 window.getGeneratedQuoteHtml = getGeneratedQuoteHtml;
 window.updateIssuanceRecipientUI = updateIssuanceRecipientUI;
-window.openImportQuoteJsonModal = openImportQuoteJsonModal;
-window.closeImportQuoteJsonModal = closeImportQuoteJsonModal;
 window.handleJsonDragLeave = handleJsonDragLeave;
 window.handleJsonFileDrop = handleJsonFileDrop;
 
@@ -91,343 +77,7 @@ window.renderAppetiteRules = renderAppetiteRules;
 window.toggleAppetiteRuleOverride = toggleAppetiteRuleOverride;
 window.validateVehicleBaseRateOverride = validateVehicleBaseRateOverride;
 
-
-
-
-
 /* ===== Merged: Product Studio JSON Ingestion — helper builders (from app_combined.html) ===== */
-function refreshUserRoleDropdown() {
-  const select = document.getElementById("userRoleSelect");
-  if (!select) return;
-  const roleKeys = Object.keys(USER_ROLES_CONFIG);
-  select.innerHTML = roleKeys.map(key => {
-    const r = USER_ROLES_CONFIG[key];
-    const limText = r.limit >= 99999999 ? "Full Access" : (r.limit >= 1000000 ? `$${(r.limit/1000000).toFixed(1)}M Limit` : `$${(r.limit/1000).toFixed(0)}k Limit`);
-    return `<option value="${key}" ${key === currentUserRole ? "selected" : ""}>${r.icon} ${r.title} (${r.name} - ${limText})</option>`;
-  }).join("");
-}
-
-function generateDocPreviewHTML(sub, doc) {
-  if (!sub || !doc) {
-    return `
-      <div class="doc-preview-sheet" style="text-align: center; padding: 40px 20px;">
-        <i class="ph ph-file text-muted" style="font-size: 48px; margin-bottom: 12px; display: block;"></i>
-        <h4 style="color: #475569; margin-bottom: 8px;">Document Unavailable</h4>
-        <p class="text-secondary text-sm">The requested document could not be loaded.</p>
-      </div>
-    `;
-  }
-
-  const docName = (doc.name || "").toLowerCase();
-  const docType = (doc.type || "").toLowerCase();
-
-  // Safe fallbacks for submission properties
-  const safeInsured = sub.insured || sub.accountName || "Insured Applicant";
-  const safeId = sub.id || "SUB-000";
-  const safeLob = sub.lobName || "Commercial Auto Liability";
-  const safeBroker = sub.broker || "Standard Brokerage";
-  const safeEmail = sub.email || "broker@agency.com";
-  const safeChannel = sub.channelName || "Broker Channel";
-  const safeFein = sub.fein || "N/A";
-  const safeDot = sub.dot || "N/A";
-  const safeAddress = sub.address || "100 Commercial Way, Suite 400";
-  const safeDate = "2026-09-01 (12 Months)";
-  const safeReceivedAt = sub.receivedAt || "2026-09-01 09:15 AM";
-  const safeExposure = sub.exposure || "$1,850,000";
-  const safeAuthLimit = sub.authorityLimit ? (sub.authorityLimit / 1000000).toFixed(1) + "M" : "2.0M";
-
-  // Coverage rows fallback
-  const covRows = (sub.coverageRows && Array.isArray(sub.coverageRows) && sub.coverageRows.length > 0)
-    ? sub.coverageRows
-    : [
-        { line: "Commercial Auto Liability (CSL)", limit: "$1,000,000", ded: "$0", prem: "$14,850.00" },
-        { line: "Physical Damage / Comprehensive", limit: "Stated Value (" + safeExposure + ")", ded: "$2,500", prem: "$6,200.00" },
-        { line: "Motor Truck Cargo Legal Liability", limit: "$250,000", ded: "$1,000", prem: "$2,450.00" },
-        { line: "Hired & Non-Owned Auto Liability", limit: "$1,000,000", ded: "$0", prem: "$950.00" }
-      ];
-
-  // Losses fallback
-  const lossRows = (sub.losses && Array.isArray(sub.losses) && sub.losses.length > 0)
-    ? sub.losses
-    : [
-        { year: "2024 - 2025", desc: "No losses reported / 100% clean loss history", status: "Clean", incurred: "$0" },
-        { year: "2023 - 2024", desc: "No losses reported / 100% clean loss history", status: "Clean", incurred: "$0" },
-        { year: "2022 - 2023", desc: "No losses reported / 100% clean loss history", status: "Clean", incurred: "$0" }
-      ];
-
-  // Vehicles fallback
-  const vehicleRows = (sub.vehicles && Array.isArray(sub.vehicles) && sub.vehicles.length > 0)
-    ? sub.vehicles
-    : [
-        { id: 903101, year: 2024, make: "Freightliner", model: "Cascadia 126", stated_value: 185000, miles_driven: 450, primary_code: 332 },
-        { id: 903102, year: 2023, make: "Kenworth", model: "T680 Next Gen", stated_value: 175000, miles_driven: 450, primary_code: 332 },
-        { id: 903103, year: 2024, make: "Peterbilt", model: "579 Ultraloft", stated_value: 190000, miles_driven: 450, primary_code: 332 }
-      ];
-
-  // Drivers fallback
-  const driverRows = (sub.drivers && Array.isArray(sub.drivers) && sub.drivers.length > 0)
-    ? sub.drivers
-    : [
-        { given_name: "Robert", last_name: "Miller", dob: "14/05/1982", licensestate: "AL", licenseclasstype: "Class A CDL", experience: "14 Years", tenure: 6, status: "Active Verified" },
-        { given_name: "Marcus", last_name: "Johnson", dob: "22/09/1988", licensestate: "AL", licenseclasstype: "Class A CDL", experience: "9 Years", tenure: 4, status: "Active Verified" },
-        { given_name: "David", last_name: "Williams", dob: "03/11/1991", licensestate: "AL", licenseclasstype: "Class A CDL", experience: "7 Years", tenure: 3, status: "Active Verified" }
-      ];
-
-  // 1. ACORD Application / Commercial Application Preview
-  if (docName.includes("acord") || docName.includes("app") || docName.includes("application")) {
-    return `
-      <div class="doc-preview-sheet acord-pdf-sheet">
-        <div class="acord-top-header">
-          <div class="acord-logo-badge">
-            <i class="ph ph-shield-check"></i> ACORD <strong>FORM</strong>
-          </div>
-          <div class="acord-form-title">
-            <h4>Commercial Insurance Application</h4>
-            <span>Standard ISO Certified Format • ${safeLob}</span>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 1: Producer & Agency Information</span><span>Submission ID: ${safeId}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Broker / Agency:</span><span class="val">${safeBroker}</span></div>
-            <div class="acord-field"><span class="lbl">Producer Email:</span><span class="val font-mono">${safeEmail}</span></div>
-            <div class="acord-field"><span class="lbl">Channel Origin:</span><span class="val">${safeChannel}</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 2: Named Insured & Risk Profile</span><span>LOB: ${safeLob}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Legal Named Insured:</span><strong class="val">${safeInsured}</strong></div>
-            <div class="acord-field"><span class="lbl">FEIN / Tax ID:</span><span class="val font-mono">${safeFein}</span></div>
-            <div class="acord-field"><span class="lbl">USDOT / Registration:</span><span class="val font-mono">${safeDot}</span></div>
-            <div class="acord-field" style="grid-column: span 2;"><span class="lbl">Mailing Address:</span><span class="val">${safeAddress}</span></div>
-            <div class="acord-field"><span class="lbl">Target Effective Date:</span><span class="val">${safeDate}</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 3: Scheduled Coverages & Limits Requested</span><span>Binding Authority Limit: $${safeAuthLimit}</span></div>
-          <table class="excel-sheet-table u-m0">
-            <thead>
-              <tr>
-                <th>Coverage Line</th>
-                <th>Requested Limit</th>
-                <th>Deductible</th>
-                <th>Estimated Premium</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${covRows.map(c => `
-                <tr>
-                  <td><strong>${c.line || 'Coverage Line'}</strong></td>
-                  <td>${c.limit || '$1,000,000'}</td>
-                  <td>${c.ded || '$0'}</td>
-                  <td class="font-mono font-bold">${c.prem || '$0.00'}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-
-        <div class="acord-section-box" style="margin-bottom: 0;">
-          <div class="acord-sec-title"><span>Section 4: Electronic Signatures & Compliance Verification</span><span>ISO Verified</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Applicant Signature:</span><span class="val">/s/ Authorized Officer (${safeInsured})</span></div>
-            <div class="acord-field"><span class="lbl">Broker Stamp:</span><span class="val font-mono">BROKER-VERIFIED-CERT</span></div>
-            <div class="acord-field"><span class="lbl">Timestamp:</span><span class="val">${safeReceivedAt}</span></div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // 2. SOV / Vehicle / Fleet Schedule Preview
-  if (docType === "xls" || docType === "xlsx" || docName.includes("sov") || docName.includes("schedule") || docName.includes("vehicle") || docName.includes("fleet")) {
-    return `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-xls text-success"></i> STATEMENT OF VALUES (SOV) & ASSET SCHEDULE</h4>
-            <span class="text-secondary text-sm">Insured: ${safeInsured} • Line of Business: ${safeLob}</span>
-          </div>
-          <span class="badge badge-success">Schedule Normalized</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Item #</th>
-              <th>Asset / Vehicle / Location Description</th>
-              <th>Identifier / VIN / Class</th>
-              <th>Territory / Radius</th>
-              <th>Stated Value / Exposure</th>
-              <th>Safety Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${vehicleRows.map((v, i) => `
-              <tr>
-                <td><strong>${String(i + 1).padStart(3, '0')}</strong></td>
-                <td>${v.year || 2024} ${v.make || 'Commercial'} ${v.model || 'Tractor Unit'}</td>
-                <td class="font-mono">1FTNE31L${8 + i}HDA${89210 + i}</td>
-                <td>${v.miles_driven ? v.miles_driven + ' Miles Radius' : 'Regional Hub'}</td>
-                <td class="font-mono font-bold">${typeof v.stated_value === 'number' ? '$' + v.stated_value.toLocaleString() : (v.stated_value || safeExposure)}</td>
-                <td><span class="badge badge-success">Verified Clear</span></td>
-              </tr>
-            `).join("")}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4"><strong>TOTAL SCHEDULED EXPOSURE VALUATION:</strong></td>
-              <td class="font-mono" style="color: var(--primary); font-size: 14px;"><strong>${safeExposure}</strong></td>
-              <td><span class="badge badge-primary">Within Appetite</span></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
-  }
-
-  // 3. Driver CDL & MVR Audit Report Preview
-  if (docName.includes("driver") || docName.includes("cdl") || docName.includes("mvr")) {
-    return `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-identification-card text-primary"></i> OFFICIAL DRIVER CDL & MVR AUDIT REPORT</h4>
-            <span class="text-secondary text-sm">Insured: ${safeInsured} • State Licensing Verification</span>
-          </div>
-          <span class="badge badge-success"><i class="ph ph-check-circle"></i> 100% CDL Verified</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Driver ID</th>
-              <th>Driver Name</th>
-              <th>DOB</th>
-              <th>License State</th>
-              <th>License Class</th>
-              <th>Experience</th>
-              <th>Tenure</th>
-              <th>MVR Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${driverRows.map((d, i) => `
-              <tr>
-                <td class="font-mono">DRV-2026-${String(101 + i).padStart(3, '0')}</td>
-                <td><strong>${d.given_name || ''} ${d.last_name || ''}</strong></td>
-                <td class="font-mono text-muted">${d.dob || '14/05/1985'}</td>
-                <td><span class="badge badge-light">${d.licensestate || 'AL'}</span></td>
-                <td><strong>${d.licenseclasstype || 'Class A CDL'}</strong></td>
-                <td>${d.experience || '8+ Years'}</td>
-                <td>${d.tenure ? d.tenure + ' Yrs' : '4 Yrs'}</td>
-                <td><span class="badge badge-success"><i class="ph ph-check"></i> ${d.status || 'Active Verified'}</span></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-
-        <div style="margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span class="lbl" style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Clearinghouse & MVR Status:</span>
-            <strong style="color: #15803d; font-size: 14px; margin-left: 8px;">0 Violations / 0 Suspensions (Full Clean Compliance)</strong>
-          </div>
-          <div class="text-sm font-mono text-muted">
-            <i class="ph ph-shield-check text-success"></i> State DMV Certified
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // 4. FMCSA Safety Audit Certificate Preview
-  if (docName.includes("fmcsa") || docName.includes("safety") || docName.includes("audit") || docName.includes("cert")) {
-    return `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-shield-check text-success"></i> FMCSA SAFETY AUDIT & COMPLIANCE CERTIFICATE</h4>
-            <span class="text-secondary text-sm">Federal Motor Carrier Safety Administration • DOT: ${safeDot}</span>
-          </div>
-          <span class="badge badge-success">Grade: 96th Percentile</span>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Carrier Safety Fitness Record</span><span>USDOT: ${safeDot}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Legal Entity Name:</span><strong class="val">${safeInsured}</strong></div>
-            <div class="acord-field"><span class="lbl">Safety Rating:</span><strong class="val text-success">Satisfactory (Highest Rating)</strong></div>
-            <div class="acord-field"><span class="lbl">ISS-D Recommendation:</span><strong class="val text-success">PASS (Fast-Track)</strong></div>
-            <div class="acord-field"><span class="lbl">Vehicle Out-Of-Service Rate:</span><span class="val font-mono">0.0% (National Avg: 20.7%)</span></div>
-            <div class="acord-field"><span class="lbl">Driver Out-Of-Service Rate:</span><span class="val font-mono">0.0% (National Avg: 5.5%)</span></div>
-            <div class="acord-field"><span class="lbl">Crash Indicator Percentile:</span><span class="val font-mono text-success">4.2% (Superior)</span></div>
-          </div>
-        </div>
-
-        <div style="margin-top: 16px; padding: 12px; background: #ecfdf5; border-radius: 6px; border: 1px solid #a7f3d0; display: flex; justify-content: space-between; align-items: center;">
-          <div style="color: #065f46; font-size: 13px;">
-            <i class="ph ph-check-circle" style="font-size: 16px; margin-right: 6px;"></i> <strong>FMCSA Safer System Verification:</strong> Carrier is authorized for interstate commerce with valid active insurance filings.
-          </div>
-          <div class="text-sm font-mono" style="color: #047857;">
-            <i class="ph ph-stamp"></i> OFFICIAL USDOT CERTIFIED
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  // 5. Loss Run Report / Claims History Preview (Default for loss runs or any other document)
-  return `
-    <div class="doc-preview-sheet">
-      <div class="u-section-header">
-        <div>
-          <h4 class="u-title-16-dark"><i class="ph ph-file-pdf text-danger"></i> OFFICIAL CARRIER SIGNED LOSS RUN REPORT</h4>
-          <span class="text-secondary text-sm">Insured: ${safeInsured} • Prior 3-Year Valuation as of 2026-08-01</span>
-        </div>
-        <span class="badge badge-primary">Carrier Signed Official</span>
-      </div>
-
-      <table class="excel-sheet-table">
-        <thead>
-          <tr>
-            <th>Policy Year</th>
-            <th>Claim Number</th>
-            <th>Loss Description</th>
-            <th>Status</th>
-            <th>Paid Losses</th>
-            <th>Total Incurred</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${lossRows.map((l, i) => `
-            <tr>
-              <td><strong>${l.year || '2024 - 2025'}</strong></td>
-              <td class="font-mono">CLM-2026-${1000 + i * 42}</td>
-              <td>${l.desc || 'Clean history'}</td>
-              <td><span class="badge ${l.status === 'Clean' || l.status === 'Closed' ? 'badge-success' : 'badge-info'}">${l.status || 'Clean'}</span></td>
-              <td class="font-mono">${l.incurred || '$0'}</td>
-              <td class="font-mono font-bold">${l.incurred || '$0'}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-
-      <div style="margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <span class="lbl" style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">3-Year Cumulative Loss Ratio:</span>
-          <strong style="color: #15803d; font-size: 15px; margin-left: 8px;">9.2% (Highly Favorable)</strong>
-        </div>
-        <div class="text-sm font-mono text-muted">
-          <i class="ph ph-stamp text-primary"></i> Certified Carrier Loss Audit
-        </div>
-      </div>
-    </div>
-  `;
-}
 
 function buildProductAppetiteRules(schemaObj, sub) {
   const p = schemaObj || window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== 'undefined' ? ACTIVE_INSURANCE_PRODUCT : null) || {};
@@ -708,39 +358,6 @@ function buildProductCoverageRows(productSchema, exposureVal, subIdx) {
   ];
 }
 
-function buildProductDocs(productSchema, subIdx, jurisdictions) {
-  const p = productSchema || window.ACTIVE_INSURANCE_PRODUCT || {};
-  const pInfo = p.product || p.identity || {};
-  const pId = p.productId || pInfo.id || "PRD-021";
-  const pName = pInfo.name || "Commercial Product";
-  const state = (jurisdictions && jurisdictions[subIdx]) || "AL";
-
-  const docs = [
-    { name: `ACORD_137_${pId}_Application.pdf`, type: "pdf", desc: `Application Form • 4 Pages • 1.4 MB` },
-    { name: `${pName.replace(/\s+/g, '_')}_Vehicle_SOV_Schedule.xlsx`, type: "xls", desc: `Statement of Values (SOV) • ${state} Fleet • 420 KB` },
-    { name: `Prior_3_Years_Loss_Runs_Official.pdf`, type: "pdf", desc: `Loss History Summary • Clean Incurred • 1.8 MB` },
-    { name: `Driver_CDL_MVR_Audit_Report.pdf`, type: "pdf", desc: `Official MVR Audit • 100% CDL Active Verified • 850 KB` }
-  ];
-
-  const covers = (p.studios && p.studios.coverage) || p.coverages || [];
-  covers.forEach(c => {
-    if (c.wordingDocs && Array.isArray(c.wordingDocs)) {
-      c.wordingDocs.forEach(w => {
-        const docName = w.name.endsWith('.pdf') ? w.name : `${w.name}.pdf`;
-        if (!docs.some(d => d.name === docName)) {
-          docs.push({
-            name: docName,
-            type: "pdf",
-            desc: `Legal Policy Wording • Code: ${w.code || w.version || 'DOC-01'} • Attached`
-          });
-        }
-      });
-    }
-  });
-
-  return docs;
-}
-
 function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
   const p = productSchema || window.ACTIVE_INSURANCE_PRODUCT || {};
   const pInfo = p.product || p.identity || {};
@@ -754,14 +371,9 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
 
   const state = (sub && sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (pInfo.jurisdictions && pInfo.jurisdictions[0]) || "AL";
   const brokerFee = (sub && sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValue === "function" ? cfgValue("broker_fee_quote_default") : 1500);
-  // Use the same schema-driven tax rate as the discretionary pricing stage
-  // (DISCRETIONARY_TAX_RATE_PCT, set from the ingested product's pricing.taxRatePct)
-  // rather than an independently hardcoded 4.85% — otherwise ingesting a
-  // product with a custom tax rate would only apply it at the underwriter's
-  // credit/debit stage and not here, producing two different tax
-  // assumptions for the same submission.
+  // Tax comes from the confirmed surplus lines basis (js/surplus-lines.js); with no confirmed basis the fallback quote shows none.
   const slR = (typeof slRatesFor === "function" && sub) ? slRatesFor(sub) : null; // js/surplus-lines.js
-  const effectiveTaxRatePct = slR ? slR.taxPct : (typeof DISCRETIONARY_TAX_RATE_PCT === "number" ? DISCRETIONARY_TAX_RATE_PCT : 4.85);
+  const effectiveTaxRatePct = slR ? slR.taxPct : 0;
   const surplusTax = Math.round(totalCoveragePrem * (effectiveTaxRatePct / 100));
   const stampingFee = Math.round(totalCoveragePrem * (slR ? slR.stampingPct / 100 : 0.0015));
   const discountAmt = Math.round(totalCoveragePrem * 0.08);
@@ -835,326 +447,6 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
       status: "COMPUTED_SUCCESS"
     }
   };
-}
-
-function generateOfficialQuotePayload(sub, ratingData) {
-  if (!sub) {
-    sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0] || {};
-  }
-  const baseData = ratingData || currentImportedRatingData || (typeof DEFAULT_IMPORTED_RATING_JSON !== 'undefined' ? DEFAULT_IMPORTED_RATING_JSON : {}) || {};
-  const existingQuote = baseData.quote || {};
-  const existingCoverages = baseData.coverages || [];
-
-  let finalPrem = existingQuote.finalPremium || (sub.exposureVal ? Math.round(sub.exposureVal * 0.08) : 378893);
-  let covPrem = existingQuote.coveragePremium || (sub.exposureVal ? Math.round(sub.exposureVal * 0.075) : 375544);
-  let baseLossCost = existingQuote.baseLossCost || (sub.exposureVal ? Math.round(sub.exposureVal * 0.007) : 34650);
-  let netPrem = existingQuote.netPremium || (sub.exposureVal ? Math.round(sub.exposureVal * 0.073) : 36720);
-
-  // Discretionary pricing sync if available
-  if (typeof ensureDiscretionaryPricingSeed === 'function' && sub.id) {
-    const dp = ensureDiscretionaryPricingSeed(sub);
-    if (dp && dp.finalPremium) {
-      finalPrem = dp.finalPremium;
-      if (dp.basePremium) covPrem = dp.basePremium;
-    }
-  }
-
-  const fees = existingQuote.fees && existingQuote.fees.length > 0 ? existingQuote.fees : [
-    { name: "Policy Fee", code: "FEE_POLICY", valueType: "Fixed", unit: 150, qty: 1, amt: 150, chargeType: "Per Policy", taxable: false },
-    { name: "Broker Fee", code: "FEE_BROKER", valueType: "Percent", pct: 8, percentOf: "Premium Before Fees", base: 345500, capped: "max", minFee: 250, maxFee: 2500, qty: 1, amt: 2500, chargeType: "Per Policy", taxable: false },
-    { name: "Inspection Fee", code: "FEE_INSPECT", valueType: "Fixed", unit: 75, qty: 1, amt: 75, chargeType: "Per Policy", taxable: false },
-    { name: "MVR / CSA Report Fee", code: "FEE_MVR", valueType: "Fixed", unit: 12, qty: (sub.drivers && sub.drivers.length) || 1, amt: 12 * ((sub.drivers && sub.drivers.length) || 1), chargeType: "Per Driver", taxable: false },
-    { name: "Vehicle Inspection Fee", code: "FEE_VEHINSP", valueType: "Fixed", unit: 45, qty: (sub.vehicles && sub.vehicles.length) || 5, amt: 45 * ((sub.vehicles && sub.vehicles.length) || 5), chargeType: "Per Vehicle", taxable: false },
-    { name: "Managing General Agent Fee", code: "FEE_MGA", valueType: "Percent", pct: 5, percentOf: "Premium Before Fees", base: 345500, capped: null, minFee: 100, maxFee: 0, qty: 1, amt: 17275, chargeType: "Per Policy", taxable: false },
-    { name: "Surplus Lines Filing Fee", code: "FEE_SLFILE", valueType: "Percent", pct: 0.35, percentOf: "Premium + Taxes", base: 352410, capped: "max", minFee: 25, maxFee: 500, qty: 1, amt: 500, chargeType: "Per Policy", taxable: false },
-    { name: "Terrorism (TRIA) Charge", code: "FEE_TRIA", valueType: "Percent", pct: 1.5, percentOf: "Coverage Premium", base: covPrem, capped: null, minFee: 0, maxFee: 0, qty: 1, amt: Math.round(covPrem * 0.015) || 5633, chargeType: "Per Policy", taxable: true }
-  ];
-
-  const discounts = existingQuote.discounts && existingQuote.discounts.length > 0 ? existingQuote.discounts : [
-    { name: "Claims-Free Credit", value: -0.08, amt: -Math.round(covPrem * 0.08) || -30044, why: "No claims in prior 3 years" }
-  ];
-
-  const creditsNotApplied = existingQuote.creditsNotApplied || [
-    { name: "Renewal Discount", code: "DISC_RENEWAL", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "CDL Experience Discount", code: "DISC_CDL", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "Dashcam / Telematics", code: "DISC_DASHCAM", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "Multi-Policy Discount", code: "DISC_MULTI", reason: "Submission does not carry the data to evaluate: Bundled with GL or Property", undetermined: true },
-    { name: "Paid-In-Full Discount", code: "DISC_PIF", reason: "Condition not met: Premium paid in full at binding", undetermined: false },
-    { name: "Safety Program Credit", code: "DISC_SAFETY", reason: "Submission does not carry the data to evaluate: Documented written safety program", undetermined: true },
-    { name: "FMCSA Alert Surcharge", code: "SUR_FMCSA", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "OOS Vehicle Violations", code: "SUR_OOSV", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "OOS Driver Violations", code: "SUR_OOSD", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "Hazmat Operations", code: "SUR_HAZMAT", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "High-Risk Driver", code: "SUR_DRV", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "No Dashcam Surcharge", code: "SUR_NODASH", reason: "Already priced in the rating chain", undetermined: false },
-    { name: "Unassigned Driver", code: "SUR_UNASSIGN", reason: "Submission does not carry the data to evaluate: Vehicle with no rated driver assigned", undetermined: true },
-    { name: "New Venture Debit", code: "SUR_NEWVEN", reason: "Already priced in the rating chain", undetermined: false }
-  ];
-
-  const feesTotal = fees.reduce((sum, f) => sum + (f.amt || 0), 0);
-  const tax = existingQuote.tax || 7023;
-  const countyTax = existingQuote.countyTax || 180;
-  const taxTotal = tax + countyTax;
-
-  // Address components
-  let city = "";
-  let state = "";
-  let zip = "";
-  let street = "";
-  let full_address = sub.address || (sub.insuredInfo && sub.insuredInfo.address) || "1420 Commerce Dr, Mobile, AL 36608";
-  if (sub.address) {
-    const parts = sub.address.split(",").map(p => p.trim());
-    if (parts.length >= 3) {
-      street = parts[0] || "";
-      city = parts[1] || "";
-      const stateZip = parts[2].split(" ").filter(Boolean);
-      state = stateZip[0] || "";
-      zip = stateZip[1] || "";
-    } else {
-      street = sub.address;
-      city = (sub.insuredInfo && sub.insuredInfo.insured_garaging_city) || "Mobile";
-      state = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (sub.id ? sub.id.split("-").pop() : "AL") || "AL";
-      zip = (sub.insuredInfo && sub.insuredInfo.insured_garaging_zip) || "75201";
-    }
-  } else {
-    street = "1420 Commerce Dr";
-    city = "Mobile";
-    state = (sub.id ? sub.id.split("-").pop() : "AL") || "AL";
-    zip = "75201";
-  }
-
-  // Coverages
-  let coverages = existingCoverages.length > 0 ? existingCoverages : [
-    {
-      name: "Auto Liability",
-      subtotal: Math.round(covPrem * 0.12) || 44069,
-      factors: [
-        { label: "Territory Base Loss Cost (per unit)", value: 300, base: null, driver: "Garaging State", input: city || "Mobile", matched: `CA_Liab_LC — ${city || 'Mobile'}, first territory on file (no ZIP supplied)` },
-        { label: "Increased Limits Factor (ILF)", value: 2.05, base: 1, driver: "Liability Limit", input: "$1,250,000", matched: `$1,250,000 limit in ${city || 'Mobile'}` },
-        { label: "Liability Deductible Factor", value: 0, base: 0, driver: "Liability Deductible", input: "$0", matched: "$0 deductible × 0.75 program deviation" },
-        { label: "Loss Cost Multiplier (LCM)", value: 1.67, base: 1.67, driver: null, input: null, matched: "Program constant — same for every quote" },
-        { label: "Primary Class Factor", value: 1.8, base: null, driver: "Vehicle Class (per unit)", input: "Heavy Truck-Tractor - Long Distance D", matched: "Class 332" },
-        { label: "Secondary Class Factor", value: 1.98, base: 1.98, driver: "Secondary Class (per unit)", input: "Account default", matched: "Account default" },
-        { label: "Fleet Size Factor", value: 1.061, base: 1, driver: "Number of rated power units", input: `${(sub.vehicles && sub.vehicles.length) || 5} units`, matched: `${(sub.vehicles && sub.vehicles.length) || 5}-unit band, Heavy Trucks curve` },
-        { label: "Vehicle Age Factor", value: 1.08, base: 1, driver: "Model Year (per unit)", input: "1 yr old", matched: "1 model years old" },
-        { label: "OCN Factor", value: 1.28, base: 1, driver: "Vehicle stated value (per unit)", input: "$1,250,000", matched: "value band containing $1,250,000" },
-        { label: "Liability Radius Factor", value: 1, base: 1, driver: "Radius of Operation", input: "Local / Intermediate", matched: "Local-Intermediate · Intermediate-300 (0 - 300 Miles)" },
-        { label: "NAICS Industry Factor", value: 1.1, base: 1, driver: "Industry Classification (NAICS)", input: "484110", matched: "484110 — General Freight Trucking, Local" },
-        { label: "Tort Limitation Factor", value: 1, base: 1, driver: "Garaging State", input: state || "Mobile", matched: `${state || 'Mobile'} — standard tort` },
-        { label: "Vehicle Ownership Factor", value: 0.95, base: 1, driver: "Vehicle ownership", input: "Owned", matched: "Owned" },
-        { label: "Pollution Factor", value: 1.03, base: 1, driver: "Auto liability pollution grade", input: "Low", matched: "Low" },
-        { label: "Driver Criteria Factor", value: 1, base: 1, driver: "Driver schedule vs filed criteria", input: "All drivers meet criteria", matched: "All drivers meet criteria" },
-        { label: "Loss Experience Factor", value: 1, base: 1, driver: "Prior-term loss ratio", input: "no prior experience", matched: "No prior experience" },
-        { label: "Payment Plan Factor", value: 1, base: 1, driver: "Bill type", input: "Agency Bill", matched: "Agency Bill" },
-        { label: "UW Credit / Debit", value: 1, base: 1, driver: "Underwriter judgment", input: "1", matched: "clamped to 0.75–1.25" },
-        { label: "Heavy Farm Factor", value: 1, base: 1, driver: "Vehicle use type", input: "General Freight", matched: "General Freight" },
-        { label: "Heavy Dumping Factor", value: 1, base: 1, driver: "Vehicle use type", input: "General Freight", matched: "General Freight" },
-        { label: "Miles Driven Factor", value: 0.95, base: 1, driver: "Annual Miles + Radius category", input: "450 mi", matched: "Local-Intermediate band" },
-        { label: "Rating Class Factor", value: 1, base: 1, driver: "Cargo / Hauling Type", input: "Dry Van or Box - Single Trailer", matched: "Dry Van or Box - Single Trailer" },
-        { label: "Dashcam Factor", value: 1.2, base: 1, driver: "Dashcams Installed", input: "NO Dashcams", matched: "NO Dashcams" },
-        { label: "CDL Experience Discount", value: 1, base: 1, driver: "Driver CDL experience (per driver)", input: "0 of 1 rated drivers have 3+ yrs", matched: "0% qualified × 10% max discount" },
-        { label: "Driver Class Factor", value: 1.672, base: 1, driver: "Driver age, violations & accidents", input: "1 driver, 0 with violations", matched: "average of best 1 driver + 4 unassigned slot(s)" },
-        { label: "Account-Level Factor", value: 0.87, base: 1, driver: "8 underwriting questions", input: "Business Experience -3%, Carrier Safety / FMCSA Alerts -5%, ICC Filing -5%", matched: "1 + sum of credits/debits" },
-        { label: "Experience Mod", value: 0.9, base: 1, driver: "Loss history (3yr claims & incurred)", input: "0 claims > $500, $0 incurred", matched: `credibility-weighted, ${(sub.vehicles && sub.vehicles.length) || 5} units × 36 mo` },
-        { label: "Rated Power Units", value: (sub.vehicles && sub.vehicles.length) || 5, base: null, driver: "Vehicle Schedule", input: `${(sub.vehicles && sub.vehicles.length) || 5} units`, matched: "count of vehicles on the schedule" }
-      ]
-    },
-    {
-      name: "Physical Damage",
-      subtotal: Math.round(covPrem * 0.88) || 331475,
-      factors: [
-        { label: "Total Insured Value (units + trailers)", value: 6250000, base: null, driver: "Vehicle & trailer stated values", input: `${(sub.vehicles && sub.vehicles.length) || 5} units`, matched: "sum of every unit's stated value plus its trailer" },
-        { label: "APD Rate (per $ of value)", value: 0.0475, base: 0.0475, driver: "Vehicle stated value (per unit)", input: "$1,250,000", matched: "value band containing $1,250,000" },
-        { label: "APD Deductible Factor", value: 0.875, base: 1, driver: "Physical Damage Deductible", input: "$5,000", matched: "$5,000 deductible" },
-        { label: "APD Radius Factor", value: 1, base: 1, driver: "Radius of Operation", input: "Local / Intermediate", matched: "Local-Intermediate · Intermediate-300 (0 - 300 Miles)" },
-        { label: "Trailer PhysDam Factor", value: 1, base: 1, driver: "Trailer Type (per unit)", input: "None", matched: "None" },
-        { label: "APD State Factor", value: 0.95, base: 1, driver: "Garaging State", input: state || "Mobile", matched: state || "Mobile" },
-        { label: "APD Package Factor", value: 0.9, base: 1, driver: "Coverages selected", input: "Liability + Physical Damage", matched: "Package policy — Yes" },
-        { label: "Miles Driven Factor", value: 0.95, base: 1, driver: "Annual Miles + Radius category", input: "450 mi", matched: "Local-Intermediate band" },
-        { label: "Rating Class Factor", value: 1, base: 1, driver: "Cargo / Hauling Type", input: "Dry Van or Box - Single Trailer", matched: "Dry Van or Box - Single Trailer" },
-        { label: "Dashcam Factor", value: 1.2, base: 1, driver: "Dashcams Installed", input: "NO Dashcams", matched: "NO Dashcams" },
-        { label: "Experience Mod", value: 0.9, base: 1, driver: "Loss history (3yr claims & incurred)", input: "0 claims > $500, $0 incurred", matched: "same mod as Auto Liability" }
-      ]
-    }
-  ];
-
-  // Scheduled Equipment
-  let scheduled_equipment = [];
-  if (baseData.scheduled_equipment && baseData.scheduled_equipment.length > 0) {
-    scheduled_equipment = baseData.scheduled_equipment;
-  } else if (sub.vehicles && sub.vehicles.length > 0) {
-    scheduled_equipment = sub.vehicles.map((v, idx) => ({
-      unit_number: v.unit_number || (v.model && (v.model.toLowerCase().includes("reefer") || v.model.toLowerCase().includes("trailer")) ? `TRL-0${idx + 1}` : `UNIT-0${idx + 1}`),
-      year: v.year || (idx === 1 ? 2023 : 2024),
-      make: v.make || (idx === 0 ? "Freightliner" : (idx === 1 ? "Kenworth" : "Great Dane")),
-      model: v.model || (idx === 0 ? "Cascadia 126 Sleeper" : (idx === 1 ? "T680 Next Gen" : "Everest Reefer 53ft")),
-      vin: v.vin || `1FUJGLDR8PL992${101 + idx}`,
-      stated_value: v.stated_value || (idx === 0 ? 165000 : (idx === 1 ? 158000 : 75000)),
-      class: v.class || v.weight || (idx === 2 ? "Refrigerated Semi-Trailer" : "Heavy Heavy-Duty Truck"),
-      garaging_zip: v.zip || zip || "75201"
-    }));
-  } else {
-    scheduled_equipment = [
-      { unit_number: "UNIT-01", year: 2024, make: "Freightliner", model: "Cascadia 126 Sleeper", vin: "1FUJGLDR8PL992101", stated_value: 165000, class: "Heavy Heavy-Duty Truck", garaging_zip: zip || "75201" },
-      { unit_number: "UNIT-02", year: 2023, make: "Kenworth", model: "T680 Next Gen", vin: "1NKHDB9X7PR884102", stated_value: 158000, class: "Heavy Heavy-Duty Truck", garaging_zip: zip || "75201" },
-      { unit_number: "TRL-01", year: 2024, make: "Great Dane", model: "Everest Reefer 53ft", vin: "1GRAA0624PR449102", stated_value: 75000, class: "Refrigerated Semi-Trailer", garaging_zip: zip || "75201" }
-    ];
-  }
-
-  // Scheduled Drivers
-  let scheduled_drivers = [];
-  if (baseData.scheduled_drivers && baseData.scheduled_drivers.length > 0) {
-    scheduled_drivers = baseData.scheduled_drivers;
-  } else if (sub.drivers && sub.drivers.length > 0) {
-    scheduled_drivers = sub.drivers.map((d, idx) => ({
-      driver_id: d.driver_id || `DRV-0${idx + 1}`,
-      full_name: d.full_name || (d.given_name ? `${d.given_name} ${d.last_name}` : (idx === 0 ? "Marcus Vance" : "James Henderson")),
-      cdl_number: d.cdl_number || `${d.licensestate || state || 'TX'}-CDL-${idx === 0 ? '889102' : '449102'}`,
-      cdl_state: d.cdl_state || d.licensestate || state || "TX",
-      years_experience: parseInt(d.experience, 10) || d.tenure || (idx === 0 ? 12 : 8),
-      mvr_status: d.mvr_status || "Clean (0 Violations, 0 Points)",
-      medical_card_current: d.medical_card_current !== undefined ? d.medical_card_current : true
-    }));
-  } else {
-    scheduled_drivers = [
-      { driver_id: "DRV-01", full_name: "Marcus Vance", cdl_number: `${state || 'TX'}-CDL-889102`, cdl_state: state || "TX", years_experience: 12, mvr_status: "Clean (0 Violations, 0 Points)", medical_card_current: true },
-      { driver_id: "DRV-02", full_name: "James Henderson", cdl_number: `${state || 'TX'}-CDL-449102`, cdl_state: state || "TX", years_experience: 8, mvr_status: "Clean (0 Violations, 0 Points)", medical_card_current: true }
-    ];
-  }
-
-  const roleConfig = (typeof USER_ROLES_CONFIG !== 'undefined' && USER_ROLES_CONFIG[currentUserRole]) ? USER_ROLES_CONFIG[currentUserRole] : { name: "Sarah Jenkins", title: "Junior Underwriter", authorityLimit: 2000000 };
-  const cuoConfig = (typeof USER_ROLES_CONFIG !== 'undefined' && USER_ROLES_CONFIG.cuo) ? USER_ROLES_CONFIG.cuo : { name: "David Vance", title: "Senior VP Underwriting" };
-
-  const quote_header = baseData.quote_header || {
-    quote_number: sub.quoteNo || `QT-${(sub.lobKey || 'PRD021').toUpperCase()}-2026-0091`,
-    quote_version: "v1.0-OFFICIAL",
-    status: "Quote Issued",
-    issuance_date: new Date().toISOString().slice(0, 10),
-    effective_date: (sub.genInfo && sub.genInfo.effective_date) || "2026-09-01",
-    expiration_date: (sub.genInfo && sub.genInfo.expiration_date) || "2027-09-01",
-    term_months: 12,
-    validity_window_days: 30,
-    binding_authority: `FUT Standard Binding Authority ($${(roleConfig.authorityLimit || 2000000).toLocaleString()} Limit)`
-  };
-
-  const safeInsuredSlug = (sub.insured || 'apex').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const insured_information = baseData.insured_information || {
-    entity_name: sub.insured || "Apex Hauling Logistics LLC (Freightliner Cascadia 2025 - AL)",
-    dba: sub.dba || `${sub.insured || "Apex Hauling Logistics LLC (Freightliner Cascadia 2025 - AL)"} Logistics`,
-    fein: sub.fein || "AL-8839012",
-    dot_number: sub.dot ? (sub.dot.startsWith("USDOT") ? sub.dot : `USDOT ${sub.dot}`) : "USDOT 4018291",
-    mc_number: sub.mcNumber || "MC-881924",
-    business_type: (sub.insuredInfo && sub.insuredInfo.entity_type) || "Limited Liability Company (LLC)",
-    primary_operation: sub.lobName || "PRD-021 Trucking_test (Commercial Auto v2026.10)",
-    years_in_business: (sub.insuredInfo && sub.insuredInfo.years_of_experience) || 5,
-    headquarters_address: {
-      full_address: full_address,
-      street: street || "1420 Commerce Dr",
-      city: city || "1420 Commerce Dr",
-      state: state || "Mobile",
-      zip_code: zip || "75201",
-      country: "United States"
-    },
-    primary_contact: {
-      name: (sub.primaryContact && sub.primaryContact.name) || "Marcus Vance",
-      title: (sub.primaryContact && sub.primaryContact.title) || "Managing Director / Safety Officer",
-      phone: (sub.primaryContact && sub.primaryContact.phone) || "+1 (214) 555-0192",
-      email: (sub.primaryContact && sub.primaryContact.email) || sub.email || `compliance@${safeInsuredSlug}.com`
-    },
-    operational_profile: {
-      radius_of_operation: (sub.radiusOfOperationsInfo && `${sub.radiusOfOperationsInfo.radius}+ Miles (${sub.radiusOfOperationsInfo.Intrastate_interstate} Long-haul)`) || "500+ Miles (Interstate Long-haul)",
-      annual_fleet_mileage: "650,000 miles",
-      operating_states: ["TX", "OK", "AR", "LA", "NM", "AL", "AZ", "OR"],
-      commodities_hauled: [
-        "General Freight",
-        "Dry Van Goods",
-        "Refrigerated Produce",
-        "Automotive Parts"
-      ],
-      hazmat_transport: false,
-      telematics_installed: true,
-      dashcam_type: "Dual-facing AI Telematics (Samsara)"
-    },
-    loss_history_summary: {
-      valuation_date: "2026-08-01",
-      past_5_years_claims_count: (sub.losses && sub.losses.length) || 0,
-      total_incurred_losses: (sub.canonicalJson && sub.canonicalJson.loss_history && `$${sub.canonicalJson.loss_history.total_incurred.toLocaleString()}.00`) || "$0.00",
-      loss_ratio_5yr: (sub.canonicalJson && sub.canonicalJson.loss_history && sub.canonicalJson.loss_history.loss_ratio) || "0.0%",
-      prior_carrier: sub.priorCarrier || "Travelers Commercial Insurance",
-      prior_policy_number: sub.priorPolicy || "TRV-882910-TX"
-    }
-  };
-
-  const safeBrokerSlug = (sub.broker || 'brokerage').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const producing_broker = baseData.producing_broker || {
-    agency_name: sub.broker || "Gulf Coast Commercial Insurance Group",
-    producer_name: (sub.producer && sub.producer.name) || "Thomas Sterling",
-    producer_email: (sub.producer && sub.producer.email) || `t.sterling@${safeBrokerSlug}.com`,
-    producer_phone: (sub.producer && sub.producer.phone) || "+1 (800) 555-4820",
-    license_number: (sub.producer && sub.producer.license) || "TX-BRK-99210",
-    commission_percentage: 15
-  };
-
-  const underwriting_metadata = baseData.underwriting_metadata || {
-    submission_id: sub.id || "SUB-PRD021-01-AL",
-    assigned_underwriter: (sub.underwriter || roleConfig.name).split('(')[0].trim(),
-    underwriter_title: `${roleConfig.title} ($${(roleConfig.authorityLimit >= 1000000 ? (roleConfig.authorityLimit/1000000) + "M" : (roleConfig.authorityLimit/1000) + "k")} Limit)`,
-    supervising_cuo: `${cuoConfig.name} (Senior VP Underwriting)`,
-    intake_channel: sub.channelName || "Broker Portal / Email Ingestion",
-    priority_tier: `${sub.priority || 'P1'} SLA`,
-    clearance_result: "PASSED (Zero Duplicate Submissions, FEIN Cleared)",
-    appetite_result: "IN-APPETITE (Commercial Auto Tier-1 Preferred)"
-  };
-
-  const quote_summary = {
-    finalPremium: finalPrem,
-    coveragePremium: covPrem,
-    baseLossCost: baseLossCost,
-    netPremium: netPrem,
-    feesTotal: feesTotal,
-    taxTotal: taxTotal,
-    tax: tax,
-    countyTax: countyTax,
-    ratingVersion: existingQuote.ratingVersion || "v2026.03",
-    lob: existingQuote.lob || sub.lobName || "Commercial Trucking",
-    state: existingQuote.state || state || "Mobile",
-    countyName: existingQuote.countyName || "Denton County",
-    fees: fees,
-    discounts: discounts,
-    creditsNotApplied: creditsNotApplied
-  };
-
-  const rating_engine_breakdown = baseData.rating_engine_breakdown || {
-    quote_summary: quote_summary,
-    coverages: coverages,
-    itemized_fees: fees,
-    itemized_taxes: [
-      {
-        name: "Texas Surplus Lines Tax (4.85%)",
-        amount: tax
-      },
-      {
-        name: `${existingQuote.countyName || "Denton County"} Emergency Services Assessment (${existingQuote.countyRate || "0.55"}%)`,
-        amount: countyTax
-      }
-    ]
-  };
-
-  return {
-    quote: quote_summary,
-    coverages: coverages,
-    quote_header: quote_header,
-    insured_information: insured_information,
-    producing_broker: producing_broker,
-    underwriting_metadata: underwriting_metadata,
-    scheduled_equipment: scheduled_equipment,
-    scheduled_drivers: scheduled_drivers,
-    rating_engine_breakdown: rating_engine_breakdown
-  };
-}
-
-function downloadQuoteDoc() {
-  showToast("📄 Downloading official bindable quote proposal PDF...", "info");
 }
 
 // generateDynamicSubmissions() was removed: uploading a Product JSON must
@@ -1247,10 +539,8 @@ function ingestProductSchema(schemaObj) {
   var pricingBlock = schemaObj.pricing || {};
   DISCRETIONARY_MAX_CREDIT_PCT = (typeof pricingBlock.maxCreditPct === "number") ? pricingBlock.maxCreditPct : (typeof cfgValue === "function" ? cfgValue("discretionary_max_credit") : 15);
   DISCRETIONARY_MAX_DEBIT_PCT = (typeof pricingBlock.maxDebitPct === "number") ? pricingBlock.maxDebitPct : (typeof cfgValue === "function" ? cfgValue("discretionary_max_debit") : 25);
-  DISCRETIONARY_TAX_RATE_PCT = (typeof pricingBlock.taxRatePct === "number") ? pricingBlock.taxRatePct : (typeof cfgValue === "function" ? cfgValue("discretionary_tax_pct") : 3.2);
   window.DISCRETIONARY_MAX_CREDIT_PCT = DISCRETIONARY_MAX_CREDIT_PCT;
   window.DISCRETIONARY_MAX_DEBIT_PCT = DISCRETIONARY_MAX_DEBIT_PCT;
-  window.DISCRETIONARY_TAX_RATE_PCT = DISCRETIONARY_TAX_RATE_PCT;
 
   // 2. Update LOB dropdown
   var lobSelect = document.getElementById("lobSelect");
@@ -1274,7 +564,7 @@ function ingestProductSchema(schemaObj) {
  * Renders the product details or shows blank placeholder state if nothing uploaded
  */
 function renderActiveInsuranceProduct() {
-  var p = window.ACTIVE_INSURANCE_PRODUCT || ACTIVE_INSURANCE_PRODUCT;
+  var p = window.ACTIVE_INSURANCE_PRODUCT || null;
 
   var emptyBox = document.getElementById("psEmptyStateBox");
   var contentBox = document.getElementById("psLoadedContentBox");
@@ -2551,43 +1841,6 @@ function loadSamplePrd021() {
   ingestProductSchema(SAMPLE_PRD021_JSON);
 }
 
-function deployProductToEngine() {
-  if (!window.ACTIVE_INSURANCE_PRODUCT) {
-    showToast("⚠️ Please upload a product schema first.", "warning");
-    return;
-  }
-  showToast("🚀 Product deployed & active in FUT Underwriting Engine!", "success");
-}
-
-function openAddCoverModal() {
-  if (!window.ACTIVE_INSURANCE_PRODUCT) {
-    showToast("⚠️ Please upload a product schema first.", "warning");
-    return;
-  }
-  var name = prompt("Enter Cover Name (e.g., Cargo & Freight Loss):");
-  if (!name) return;
-  var newCover = {
-    id: "COV-" + Date.now().toString(36),
-    name: name,
-    code: "COV-CUSTOM",
-    availability: "optional",
-    complete: true,
-    type: "Commercial Auto Endorsement",
-    description: name + " endorsement for Commercial Trucking policy.",
-    basisOfCoverage: "Agreed Value",
-    maxSingleLimit: "500,000",
-    deductibleAmount: "500",
-    lossBasis: "Per Occurrence",
-    wordingDocs: [{ name: name + " Schedule", code: "DOC-CUST-001" }]
-  };
-  var p = window.ACTIVE_INSURANCE_PRODUCT;
-  if (!p.studios) p.studios = {};
-  if (!p.studios.coverage) p.studios.coverage = [];
-  p.studios.coverage.push(newCover);
-  renderCoverageStudio();
-  showToast("🛡️ Added coverage " + name, "success");
-}
-
 /* Global Bindings */
 window.showIntegratingApiPage = showIntegratingApiPage;
 window.switchStudioTab = switchStudioTab;
@@ -2598,8 +1851,5 @@ window.ingestModalJson = ingestModalJson;
 window.applyJsonFromEditor = applyJsonFromEditor;
 window.exportStudioJson = exportStudioJson;
 window.loadSamplePrd021 = loadSamplePrd021;
-window.deployProductToEngine = deployProductToEngine;
-window.openAddCoverModal = openAddCoverModal;
 window.ingestProductSchema = ingestProductSchema;
-window.refreshUserRoleDropdown = refreshUserRoleDropdown;
 

@@ -35,90 +35,17 @@
 // ----------------------------------------------------------------------------
 const EMAIL_DIGEST_LOB_TEMPLATES = ["trucking", "property", "mpl", "gl_cpc", "gl_cas"];
 
-// Simulated inbox used by the "Demo Inbox Connector" tab. In a real
-// deployment this would instead be populated by a Gmail API / Microsoft
-// Graph / IMAP poller running server-side. Loading a message here still only
-// performs RAW CAPTURE — no AI runs until the worker explicitly triggers
-// Document Ingestion later.
-const DEMO_INBOX_MESSAGES = [
-  {
-    id: "demo-msg-1",
-    from: "submissions@westgatelogistics-broker.com",
-    subject: "New Business Submission — Westgate Logistics Fleet (Effective 10/1)",
-    receivedLabel: "8 minutes ago",
-    lobKey: "trucking",
-    body:
-`From: Dana Whitfield <submissions@westgatelogistics-broker.com>
-Subject: New Business Submission — Westgate Logistics Fleet (Effective 10/1)
-
-Hi Underwriting Desk,
-
-Please find below the new submission for our client, Westgate Logistics LLC
-(FEIN 46-2210987), a regional dry-van trucking operation based out of
-Nashville, TN. DOT# 2938411, MC-771205. They run 18 tractor units on a
-~350 mile average radius. Requesting quote for Commercial Auto Liability,
-$2,000,000 requested limit, effective 10/01/2026.
-
-Three-year loss history is clean — one small cargo claim in 2024,
-total incurred approx. $8,400. Broker of record is Highline Risk Partners.
-Please treat as fast-track, client's current policy lapses in 3 weeks.
-
-Thanks,
-Dana Whitfield
-Highline Risk Partners
-dana.whitfield@highlinerisk.com`
-  },
-  {
-    id: "demo-msg-2",
-    from: "riskmgmt@brightharbor-props.com",
-    subject: "Property Submission - Bright Harbor Distribution Center",
-    receivedLabel: "41 minutes ago",
-    lobKey: "property",
-    body:
-`From: Alan Reyes <riskmgmt@brightharbor-props.com>
-Subject: Property Submission - Bright Harbor Distribution Center
-
-Team,
-
-Submitting for coverage: Bright Harbor Distribution Center, a 240,000 sq ft
-warehouse in Savannah, GA. Insured legal entity is Bright Harbor Logistics
-Inc, FEIN 58-1120044. Building value approx $14,200,000, contents
-$2,100,000. Sprinklered, built 2016, no prior losses in past 5 years.
-Requested effective date is the 1st of next month. Broker: Gallagher
-Commercial Property Group.
-
-Let me know what else you need.
-
-Alan Reyes
-Gallagher Commercial Property Group`
-  },
-  {
-    id: "demo-msg-3",
-    from: "info@quicklane-couriers.com",
-    subject: "insurance quote please - small delivery fleet",
-    receivedLabel: "2 hours ago",
-    lobKey: "trucking",
-    body:
-`hey there, we need insurance for our delivery business. company name is
-QuickLane Couriers, we have about 6 vans. we're based in Phoenix AZ. can
-someone call me back. dot number is somewhere on our permit i think it
-starts with 39... will find it. thanks
-- Marco`
-  }
-];
-
 let emailDigestAttachedFiles = [];    // File objects staged for upload during raw capture
-let emailDigestActiveTab = "paste";   // 'paste' | 'inbox'
 let emailIngestionDraftBySubId = {};  // subId -> last AI extraction draft awaiting review (not yet applied)
 
 // ----------------------------------------------------------------------------
 // 1. MODAL OPEN / CLOSE / TAB SWITCHING (raw capture only, no AI)
 // ----------------------------------------------------------------------------
 function openEmailDigestModal() {
+  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
   const modal = document.getElementById("emailDigestModal");
   if (modal) modal.classList.add("active");
   resetEmailCaptureForm();
-  switchEmailDigestTab("paste");
 }
 
 function closeEmailDigestModal() {
@@ -126,27 +53,12 @@ function closeEmailDigestModal() {
   if (modal) modal.classList.remove("active");
 }
 
-function switchEmailDigestTab(tab) {
-  emailDigestActiveTab = tab;
-  const pasteTab = document.getElementById("emailDigestTabPaste");
-  const inboxTab = document.getElementById("emailDigestTabInbox");
-  const pastePanel = document.getElementById("emailDigestPastePanel");
-  const inboxPanel = document.getElementById("emailDigestInboxPanel");
-  if (pasteTab) pasteTab.classList.toggle("active", tab === "paste");
-  if (inboxTab) inboxTab.classList.toggle("active", tab === "inbox");
-  if (pastePanel) pastePanel.style.display = tab === "paste" ? "block" : "none";
-  if (inboxPanel) inboxPanel.style.display = tab === "inbox" ? "block" : "none";
-  if (tab === "inbox") renderDemoInboxList();
-}
-
 function resetEmailCaptureForm() {
   emailDigestAttachedFiles = [];
   const textarea = document.getElementById("emailDigestRawText");
-  const jsonTextarea = document.getElementById("emailDigestSubmissionJsonText");
   const fileList = document.getElementById("emailDigestFileList");
   const createBtn = document.getElementById("emailDigestCreateBtn");
   if (textarea) textarea.value = "";
-  if (jsonTextarea) jsonTextarea.value = "";
   if (fileList) fileList.innerHTML = "";
   if (createBtn) { createBtn.disabled = false; createBtn.innerHTML = '<i class="ph ph-tray-arrow-down"></i> Submit'; }
 }
@@ -187,50 +99,6 @@ function fileToBase64(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-}
-
-// ----------------------------------------------------------------------------
-// 3. DEMO INBOX CONNECTOR (simulated raw capture only — see header comment)
-// ----------------------------------------------------------------------------
-function renderDemoInboxList() {
-  const box = document.getElementById("emailDigestInboxList");
-  if (!box) return;
-  box.innerHTML = DEMO_INBOX_MESSAGES.map(msg => `
-    <div class="email-digest-inbox-row">
-      <div class="email-digest-inbox-meta">
-        <div class="email-digest-inbox-subject"><i class="ph ph-envelope-simple"></i> ${msg.subject}</div>
-        <div class="email-digest-inbox-from">${msg.from} • ${msg.receivedLabel}</div>
-      </div>
-      <button class="btn btn-sm btn-primary" onclick="loadDemoInboxMessage('${msg.id}')">
-        <i class="ph ph-clipboard-text"></i> Copy Into Paste Pane
-      </button>
-    </div>
-  `).join("");
-}
-
-function loadDemoInboxMessage(msgId) {
-  const msg = DEMO_INBOX_MESSAGES.find(m => m.id === msgId);
-  if (!msg) return;
-  switchEmailDigestTab("paste");
-  const textarea = document.getElementById("emailDigestRawText");
-  const lobSelect = document.getElementById("emailDigestLobSelect");
-  if (textarea) textarea.value = msg.body;
-  if (lobSelect && msg.lobKey) lobSelect.value = msg.lobKey;
-  showToast("📥 Raw message copied into the paste pane — review and click \"Submit\" (no AI runs yet).", "info");
-}
-
-// Stub for wiring a REAL inbox in production. Left here (unused by the demo
-// button) as the intended integration point:
-//   1. Server-side OAuth against Gmail API / Microsoft Graph, or an IMAP
-//      IDLE listener, watching the shared submissions@ mailbox.
-//   2. On new mail: strip MIME, pull plaintext/HTML body + attachment blobs.
-//   3. Write { rawEmailText, rawAttachments[] } straight onto a new
-//      Submission record — same as createRawSubmissionFromEmail() below —
-//      untouched. Do NOT run AI extraction at ingest time.
-//   4. AI normalization stays a separate, explicit Document Ingestion action
-//      (runDocIngestionNormalization) so raw data is always preserved.
-async function connectRealInboxStub() {
-  showToast("🔌 Real inbox connection (Gmail/Outlook/IMAP) requires a backend OAuth service — not available in this browser-only prototype. See code comments in email-intake-ingestion.js for the integration point.", "warning");
 }
 
 // ----------------------------------------------------------------------------
@@ -287,11 +155,10 @@ function getBlankSubmissionSkeleton() {
 }
 
 async function createRawSubmissionFromEmail() {
+  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
   const textarea = document.getElementById("emailDigestRawText");
   const lobSelect = document.getElementById("emailDigestLobSelect");
-  const jsonTextarea = document.getElementById("emailDigestSubmissionJsonText");
   const rawText = textarea ? textarea.value.trim() : "";
-  const rawSubmissionJsonText = jsonTextarea ? jsonTextarea.value.trim() : "";
   const lobKey = lobSelect ? lobSelect.value : "trucking";
 
   if (!rawText && emailDigestAttachedFiles.length === 0) {
@@ -381,7 +248,6 @@ async function createRawSubmissionFromEmail() {
     // --- The actual raw capture. Never mutated again by this module. ---
     newSub.rawEmailText = rawText;   // verbatim, as pasted
     newSub.rawAttachments = rawAttachments; // verbatim, as uploaded
-    newSub.rawSubmissionJsonText = rawSubmissionJsonText; // verbatim, as pasted — parsed only at Document Ingestion
     newSub.normalizationStatus = "pending"; // 'pending' | 'normalized' | 'needs_review'
     newSub.normalizedMeta = null;
 
@@ -485,56 +351,6 @@ function renderIngestionReviewDirect(sub, box) {
   const draft = emailIngestionDraftBySubId[sub.id] || buildLocalNormalizationDraft(sub);
   emailIngestionDraftBySubId[sub.id] = draft;
   renderNormalizationReview(sub.id, draft);
-}
-
-function renderNormalizedSummaryPanel(sub, box) {
-  const isReview = sub.normalizationStatus === "needs_review";
-  const meta = sub.normalizedMeta || {};
-  box.innerHTML = `
-    <div class="card raw-capture-card">
-      <div class="card-header">
-        <h3><i class="ph ph-check-circle"></i> Document Ingestion Complete</h3>
-        <span class="badge ${isReview ? 'badge-warning' : 'badge-success'}">
-          <i class="ph ${isReview ? 'ph-flag' : 'ph-check'}"></i> ${isReview ? 'Normalized — Needs Review' : 'Normalized — Standard Data'}
-        </span>
-      </div>
-      <div class="card-body">
-        <p class="text-xs text-muted" style="margin-top:0;">
-          Standard fields below were written by AI Document Ingestion${meta.normalizedAt ? " on " + new Date(meta.normalizedAt).toLocaleString() : ""}.
-          The original raw email/documents are preserved untouched and can be reviewed anytime.
-        </p>
-        <button class="btn btn-sm btn-outline" onclick="toggleRawEmailView('${sub.id}')" id="toggleRawViewBtn_${sub.id}">
-          <i class="ph ph-eye"></i> View Original Raw Email
-        </button>
-        <div id="rawEmailCollapsed_${sub.id}" style="display:none; margin-top:10px;">
-          <div class="raw-email-text-block">${escapeHtml(sub.rawEmailText || "(no text pasted — see attachments)")}</div>
-          <div class="email-digest-file-list mt-2">
-            ${(sub.rawAttachments || []).map(a => `
-              <div class="email-digest-file-chip" title="Raw file, unmodified">
-                <i class="ph ${a.type === 'application/pdf' ? 'ph-file-pdf' : 'ph-image'}"></i><span>${a.name}</span>
-              </div>`).join("") || ""}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function toggleRawEmailView(subId) {
-  const el = document.getElementById(`rawEmailCollapsed_${subId}`);
-  const btn = document.getElementById(`toggleRawViewBtn_${subId}`);
-  if (!el) return;
-  const showing = el.style.display !== "none";
-  el.style.display = showing ? "none" : "block";
-  if (btn) btn.innerHTML = showing
-    ? '<i class="ph ph-eye"></i> View Original Raw Email'
-    : '<i class="ph ph-eye-slash"></i> Hide Original Raw Email';
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 // Pulls per-driver details (name, age, CDL experience, license state/class)
@@ -875,70 +691,6 @@ function extractOperationsProfileFromEmail(raw) {
   return profile;
 }
 
-// A structured Submission JSON (pasted alongside the email) is a more
-// reliable source for these fields than regex guesswork — only recognized
-// keys are pulled out, everything else in the pasted JSON is ignored.
-function extractOperationsProfileFromJson(rawJsonText) {
-  if (!rawJsonText) return {};
-  try {
-    const parsed = JSON.parse(rawJsonText);
-    const source = parsed.operationsProfile || parsed.operations_profile || parsed;
-    const profile = {};
-    Object.keys(OPERATIONS_PROFILE_FIELD_PATTERNS).forEach(key => {
-      if (source[key] !== undefined && source[key] !== null && source[key] !== "") {
-        profile[key] = source[key];
-      }
-    });
-    return profile;
-  } catch (e) {
-    return {}; // invalid/malformed JSON — silently ignored, never blocks the raw-text extraction
-  }
-}
-
-// Extended Underwriting Workbench fields — Policy Information (expiration
-// date, policy type, program, prior policy period), Assigned Underwriter,
-// Coverages/Limits/Deductibles, UW rating add-ons (SAFER safety factor,
-// driver pool counts, pollution risk, UW discretionary factor), Primary
-// Commodity/Cargo Type, Endorsements, and per-record extras on vehicles/
-// drivers/losses (VIN, body/weight/ownership, actuarial rating factors,
-// base rate, item premium, driver tenure/status/factor, loss paid amount).
-// A structured Submission JSON is the only reliable source for most of
-// these (free-form email text rarely states a base rate or an ILF factor),
-// so this reads directly from recognized JSON keys — nothing is invented
-// when a key is absent.
-function extractExtendedWorkbenchFieldsFromJson(rawJsonText) {
-  if (!rawJsonText) return {};
-  let parsed;
-  try {
-    parsed = JSON.parse(rawJsonText);
-  } catch (e) {
-    return {};
-  }
-  const out = {};
-  const genInfo = parsed.genInfo || {};
-  if (genInfo.expiration_date) out.expirationDate = genInfo.expiration_date;
-  if (genInfo.policytype || genInfo.policyType) out.policyType = genInfo.policytype || genInfo.policyType;
-  if (genInfo.program || parsed.program) out.program = genInfo.program || parsed.program;
-  if (parsed.priorPolicyPeriod || parsed.prior_policy_period) out.priorPolicyPeriod = parsed.priorPolicyPeriod || parsed.prior_policy_period;
-  if (parsed.underwriter || parsed.assignedUnderwriter) out.assignedUnderwriter = parsed.underwriter || parsed.assignedUnderwriter;
-
-  if (parsed.coveragesInfo && typeof parsed.coveragesInfo === "object") out.coveragesInfo = parsed.coveragesInfo;
-  if (parsed.filingInfo && typeof parsed.filingInfo === "object") out.filingInfo = parsed.filingInfo;
-  if (parsed.uwReviewInfo && typeof parsed.uwReviewInfo === "object") out.uwReviewInfo = parsed.uwReviewInfo;
-  if (parsed.commoditiesInfo && typeof parsed.commoditiesInfo === "object") out.commoditiesInfo = parsed.commoditiesInfo;
-  if (Array.isArray(parsed.endorsements)) out.endorsements = parsed.endorsements;
-
-  // Per-unit / per-driver / per-loss extras, keyed the same way as the
-  // vehicle/driver/loss arrays are ordered (index 0 = Unit 1 / Driver 1 /
-  // first loss line) so they line up with whatever the email text (or this
-  // same JSON) already established for that record.
-  if (Array.isArray(parsed.vehicles)) out.vehicleExtras = parsed.vehicles;
-  if (Array.isArray(parsed.drivers)) out.driverExtras = parsed.drivers;
-  if (Array.isArray(parsed.losses)) out.lossExtras = parsed.losses;
-
-  return out;
-}
-
 // The insured's name is never explicitly labeled in this email template —
 // it's only the sign-off ("Thanks,\n<Name>" / "Regards,\n<Name>" / etc.).
 function extractSignOffName(raw) {
@@ -1048,14 +800,7 @@ function buildLocalNormalizationDraft(sub) {
   const driverDetails = extractDriverDetails(raw);
   const lossHistory = extractLossHistory(raw);
   const vehicleDetails = extractVehicleDetails(raw);
-  // Structured Submission JSON (if pasted) takes priority per-field over
-  // best-effort email-text extraction.
-  const operationsProfile = Object.assign(
-    {},
-    extractOperationsProfileFromEmail(raw),
-    extractOperationsProfileFromJson(sub.rawSubmissionJsonText)
-  );
-  const extendedFromJson = extractExtendedWorkbenchFieldsFromJson(sub.rawSubmissionJsonText);
+  const operationsProfile = extractOperationsProfileFromEmail(raw);
   const fields = { insured, fein, dot, mcNumber, broker, email, exposureVal: limit ? Number(limit.replace(/,/g, "")) : null };
   const confidence = {};
   Object.keys(fields).forEach(key => { if (fields[key] !== null) confidence[key] = "medium"; });
@@ -1071,20 +816,20 @@ function buildLocalNormalizationDraft(sub) {
     channelType: broker ? "broker" : "direct",
     address,
     effectiveDate,
-    expirationDate: extendedFromJson.expirationDate || expirationDate,
-    policyType: extendedFromJson.policyType || policyType,
-    program: extendedFromJson.program || program,
-    priorPolicyPeriod: extendedFromJson.priorPolicyPeriod || priorPolicyPeriod,
-    assignedUnderwriter: extendedFromJson.assignedUnderwriter || assignedUnderwriter,
+    expirationDate: expirationDate,
+    policyType: policyType,
+    program: program,
+    priorPolicyPeriod: priorPolicyPeriod,
+    assignedUnderwriter: assignedUnderwriter,
     primaryCommodity: primaryCommodity,
-    coveragesInfo: extendedFromJson.coveragesInfo || null,
-    filingInfo: extendedFromJson.filingInfo || null,
-    uwReviewInfo: extendedFromJson.uwReviewInfo || null,
-    commoditiesInfo: extendedFromJson.commoditiesInfo || null,
-    endorsements: extendedFromJson.endorsements || null,
-    vehicleExtras: extendedFromJson.vehicleExtras || null,
-    driverExtras: extendedFromJson.driverExtras || null,
-    lossExtras: extendedFromJson.lossExtras || null,
+    coveragesInfo: null,
+    filingInfo: null,
+    uwReviewInfo: null,
+    commoditiesInfo: null,
+    endorsements: null,
+    vehicleExtras: null,
+    driverExtras: null,
+    lossExtras: null,
     coverageSummary: "Coverage requested in the captured submission; verify details.",
     lossHistorySummary: lossHistory.length ? `${lossHistory.length} prior loss(es) captured from email` : null,
     brokerNote: null,
@@ -1097,7 +842,6 @@ function buildLocalNormalizationDraft(sub) {
 }
 
 window.renderRawEmailCapturePanel = renderRawEmailCapturePanel;
-window.toggleRawEmailView = toggleRawEmailView;
 
 // ----------------------------------------------------------------------------
 // 6. AI EXTRACTION (reads raw fields, writes nothing until confirmed)
@@ -1334,8 +1078,8 @@ function renderNormalizationReview(subId, draft) {
 // ----------------------------------------------------------------------------
 // 6b. REQUEST MISSING INFORMATION — lets the underwriter pick which blank/
 //     low-confidence fields to chase down, and from whom (broker or
-//     customer), without blocking the Confirm & Apply action. Prototype only:
-//     "sending" the request just confirms via toast, no email is dispatched.
+//     customer), without blocking the Confirm & Apply action. It now drafts the
+//     one shared RFI (actions-versions.js), which is logged on the case.
 // ----------------------------------------------------------------------------
 const MISSING_FIELD_DEFS = [
   { key: "insured", label: "Named Insured", required: true, requestTo: "Broker / Agency" },
@@ -1362,62 +1106,24 @@ function getCurrentFieldValue(key) {
   return v === null || v === undefined ? "" : String(v).trim();
 }
 
+/** Drafts the single RFI (actions-versions.js) for the required fields still blank in the review form, grouped by who should supply them. */
 function openMissingFieldsModal(subId) {
   missingFieldsModalSubId = subId;
-  const missing = MISSING_FIELD_DEFS.filter(f => !getCurrentFieldValue(f.key));
-
-  const body = document.getElementById("missingFieldsTableBody");
-  if (body) {
-    body.innerHTML = missing.length
-      ? missing.map(f => `
-        <tr>
-          <td><input type="checkbox" class="missing-field-checkbox" data-key="${f.key}" data-request-to="${f.requestTo}" ${f.required ? "checked" : ""} onchange="updateMissingFieldsSelectedCount()"></td>
-          <td>${f.label}</td>
-          <td class="text-muted">—</td>
-          <td>${f.required ? '<span class="text-danger" style="font-weight:600;">Yes</span>' : '<span class="text-muted">No</span>'}</td>
-          <td>${f.requestTo}</td>
-        </tr>`).join("")
-      : `<tr><td colspan="5" class="text-center text-muted" style="padding:16px;">No missing fields detected — everything required has a value.</td></tr>`;
-  }
-
-  updateMissingFieldsSelectedCount();
-  const modal = document.getElementById("missingFieldsModal");
-  if (modal) modal.classList.add("active");
-}
-
-function closeMissingFieldsModal() {
-  const modal = document.getElementById("missingFieldsModal");
-  if (modal) modal.classList.remove("active");
+  const missing = MISSING_FIELD_DEFS.filter(f => f.required && !getCurrentFieldValue(f.key));
   missingFieldsModalSubId = null;
-}
-
-function updateMissingFieldsSelectedCount() {
-  const count = document.querySelectorAll(".missing-field-checkbox:checked").length;
-  const countEl = document.getElementById("missingFieldsSelectedCount");
-  if (countEl) countEl.textContent = String(count);
-  const btn = document.getElementById("missingFieldsRequestBtn");
-  if (btn) btn.disabled = count === 0;
-}
-
-function sendMissingFieldsRequest() {
-  const checked = Array.from(document.querySelectorAll(".missing-field-checkbox:checked"));
-  if (!checked.length) return;
-
-  const byRecipient = {};
-  checked.forEach(cb => {
-    const to = cb.getAttribute("data-request-to");
-    byRecipient[to] = (byRecipient[to] || 0) + 1;
-  });
-  const summary = Object.entries(byRecipient).map(([to, n]) => `${n} to ${to}`).join(", ");
-
-  showToast(`📨 Missing information request sent — ${summary}.`, "success");
-  closeMissingFieldsModal();
+  if (!missing.length) { showToast("Nothing required is missing from the captured data.", "info"); return; }
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId) || {};
+  const groups = {};
+  missing.forEach(f => { (groups[f.requestTo] = groups[f.requestTo] || []).push(f.label); });
+  const body = Object.keys(groups).map(to => `From the ${to}:\n` + groups[to].map((l, i) => `  ${i + 1}. ${l}`).join("\n")).join("\n\n");
+  const setv = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
+  setv("rfiRecipientEmail", sub.email || "");
+  setv("rfiSubject", `Information needed to process: ${sub.insured || subId} (${subId})`);
+  setv("rfiMessageText", `Dear Submitter,\n\nTo process this submission we still need the following:\n\n${body}\n\nWe will continue as soon as these are received.`);
+  openRFIModal(subId);
 }
 
 window.openMissingFieldsModal = openMissingFieldsModal;
-window.closeMissingFieldsModal = closeMissingFieldsModal;
-window.updateMissingFieldsSelectedCount = updateMissingFieldsSelectedCount;
-window.sendMissingFieldsRequest = sendMissingFieldsRequest;
 
 function discardNormalizationDraft(subId) {
   delete emailIngestionDraftBySubId[subId];
@@ -1800,151 +1506,6 @@ function applyNormalizedDataToSubmission(subId) {
 window.applyNormalizedDataToSubmission = applyNormalizedDataToSubmission;
 window.openEmailDigestModal = openEmailDigestModal;
 window.closeEmailDigestModal = closeEmailDigestModal;
-window.switchEmailDigestTab = switchEmailDigestTab;
 window.handleEmailDigestFileSelect = handleEmailDigestFileSelect;
 window.removeEmailDigestFile = removeEmailDigestFile;
-window.loadDemoInboxMessage = loadDemoInboxMessage;
-window.connectRealInboxStub = connectRealInboxStub;
 
-// ============================================================================
-// 8. BULK SUBMISSION JSON UPLOAD (Submission Intake) — creates many real
-// submissions from ONE JSON file at once, instead of one-at-a-time. Each
-// array entry is mapped onto a fresh getBlankSubmissionSkeleton() using the
-// exact same "only set what's actually present" rule as every other
-// ingestion path in this app — nothing is fabricated for entries/fields the
-// file doesn't provide, they stay blank/"Not Provided". Accepts either a
-// bare JSON array, or { "submissions": [ ... ] }.
-// ============================================================================
-function mapBulkFieldsOntoSubmission(sub, item) {
-  if (!item || typeof item !== "object") return;
-
-  if (item.insured) sub.insured = item.insured;
-  if (item.fein) sub.fein = item.fein;
-  if (item.dot) sub.dot = item.dot;
-  if (item.mcNumber) sub.mcNumber = item.mcNumber;
-  if (item.address) sub.address = item.address;
-  if (item.broker) sub.broker = item.broker;
-  if (item.email) sub.email = item.email;
-  if (item.underwriter) sub.underwriter = item.underwriter;
-  if (item.effectiveDate) {
-    sub.effectiveDate = item.effectiveDate;
-    if (!sub.genInfo) sub.genInfo = {};
-    sub.genInfo.effective_date = item.effectiveDate;
-  }
-  if (item.exposureVal !== undefined) {
-    sub.exposureVal = Number(item.exposureVal) || 0;
-    sub.exposure = `$${sub.exposureVal.toLocaleString()}`;
-  }
-  if (item.lobKey) {
-    sub.lobKey = item.lobKey;
-    const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === item.lobKey) : null;
-    if (lobCatalogEntry) sub.lobName = lobCatalogEntry.name;
-  }
-  sub.channelType = item.channelType === "direct" ? "direct" : "broker";
-
-  if (Array.isArray(item.drivers)) {
-    sub.drivers = item.drivers.map((d, i) => Object.assign({
-      id: `DRV-${i + 1}`, given_name: null, last_name: null, age: null, dob: null, sex: null,
-      licenseNumber: null, licensestate: null, licenseclasstype: null, experience: null,
-      tenure: null, status: "Pending Verification", driver_factor: null, violations: undefined
-    }, d));
-  }
-  if (Array.isArray(item.vehicles)) {
-    sub.vehicles = item.vehicles.map((v, i) => Object.assign({ id: Date.now() + i, xid: i + 1 }, v));
-  }
-  if (Array.isArray(item.losses)) sub.losses = item.losses;
-  if (item.operationsProfile) sub.operationsProfile = Object.assign({}, sub.operationsProfile, item.operationsProfile);
-  if (item.coveragesInfo) sub.coveragesInfo = Object.assign({}, sub.coveragesInfo, item.coveragesInfo);
-  if (item.filingInfo) sub.filingInfo = Object.assign({}, sub.filingInfo, item.filingInfo);
-  if (item.uwReviewInfo) sub.uwReviewInfo = Object.assign({}, sub.uwReviewInfo, item.uwReviewInfo);
-  if (item.commoditiesInfo) sub.commoditiesInfo = Object.assign({}, sub.commoditiesInfo, item.commoditiesInfo);
-  if (item.radiusOfOperationsInfo) sub.radiusOfOperationsInfo = Object.assign({}, sub.radiusOfOperationsInfo, item.radiusOfOperationsInfo);
-  if (item.insuredInfo) sub.insuredInfo = Object.assign({}, sub.insuredInfo, item.insuredInfo);
-
-  const activeProduct = window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== "undefined" ? ACTIVE_INSURANCE_PRODUCT : null);
-  if (activeProduct && typeof buildProductAppetiteRules === "function") {
-    sub.appetiteRules = buildProductAppetiteRules(activeProduct, sub);
-  }
-  if (activeProduct && typeof mapQuestionnaireFromProduct === "function") {
-    mapQuestionnaireFromProduct(activeProduct, sub);
-  }
-}
-
-function handleBulkSubmissionJsonUpload(event) {
-  const file = event.target.files && event.target.files[0];
-  event.target.value = "";
-  if (!file) return;
-
-  const btn = document.getElementById("btnBulkSubmissionUpload");
-  const originalBtnHtml = btn ? btn.innerHTML : null;
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<i class="ph ph-circle-notch ph-spin"></i> Uploading...';
-  }
-  const restoreBtn = () => {
-    if (btn) { btn.disabled = false; btn.innerHTML = originalBtnHtml; }
-  };
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    let parsed;
-    try {
-      parsed = JSON.parse(e.target.result);
-    } catch (err) {
-      showToast("❌ Invalid JSON file: " + err.message, "danger");
-      restoreBtn();
-      return;
-    }
-
-    const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.submissions) ? parsed.submissions : null);
-    if (!items || !items.length) {
-      showToast("⚠️ File must contain a JSON array of submissions (or { \"submissions\": [...] }).", "warning");
-      restoreBtn();
-      return;
-    }
-
-    let created = 0;
-    items.forEach((item) => {
-      const newSub = getBlankSubmissionSkeleton();
-      newSub.id = `SUB-BULK${Math.floor(10000 + Math.random() * 90000)}`;
-      newSub.apiSourced = true;
-      newSub.lobKey = item.lobKey || "trucking";
-      const lobCatalogEntry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === newSub.lobKey) : null;
-      newSub.lobName = lobCatalogEntry ? lobCatalogEntry.name : newSub.lobKey;
-      newSub.channelName = "Bulk JSON Upload";
-      newSub.receivedAt = "Just Now";
-      newSub.receivedTimestamp = Date.now();
-      newSub.priority = "P3";
-      // Same as raw email capture — no real score has been calculated for
-      // this submission, so it stays null ("Pending") rather than a
-      // hardcoded placeholder number.
-      newSub.priorityScore = null;
-      newSub.slaText = "Pending Triage";
-      newSub.slaCountdown = "Awaiting Underwriter Assignment";
-      newSub.priorityReason = "Bulk JSON Upload — Awaiting Assignment";
-      newSub.statusText = "Intake Ingested";
-      newSub.statusBadge = "badge-primary";
-      newSub.currentStep = 1;
-      newSub.completedSteps = [];
-      newSub.docs = [];
-      newSub.ocrFields = [];
-      newSub.canonicalJson = { submission_id: newSub.id, source_channel: "Bulk JSON Upload", status: "ingested" };
-      newSub.normalizationStatus = "normalized";
-
-      mapBulkFieldsOntoSubmission(newSub, item);
-
-      SUBMISSIONS_DATASET.unshift(newSub);
-      created++;
-    });
-
-    if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
-    if (typeof renderRoleDashboard === "function") renderRoleDashboard();
-    if (typeof persistAppState === "function") persistAppState();
-
-    showToast(`✅ Bulk upload complete — ${created} submission${created === 1 ? "" : "s"} created from ${file.name}.`, "success");
-    restoreBtn();
-  };
-  reader.onerror = () => { showToast("❌ Could not read the file.", "danger"); restoreBtn(); };
-  reader.readAsText(file);
-}
-window.handleBulkSubmissionJsonUpload = handleBulkSubmissionJsonUpload;

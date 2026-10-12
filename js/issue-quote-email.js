@@ -106,87 +106,6 @@ function buildIssueQuoteEmailPayload(sub) {
   };
 }
 
-function renderIssueQuoteEmailText(payload) {
-  const p = payload;
-  const lines = [];
-  lines.push(`To: ${p.to.broker} <${p.to.contactEmail}>`);
-  lines.push(`Subject: Commercial Auto Quote Issued — ${p.parties.customer} (${p.submission.quoteNo})`);
-  lines.push("");
-  lines.push(`Dear ${p.to.broker} Team,`);
-  lines.push("");
-  lines.push(`A formal quote has been issued for the following submission. Please find the full details below.`);
-  lines.push("");
-  lines.push(`PARTIES`);
-  lines.push(`  Customer: ${p.parties.customer}`);
-  lines.push(`  Broker: ${p.parties.broker}`);
-  lines.push(`  MGA: ${p.parties.mga}`);
-  lines.push(`  Carrier: ${p.parties.carrier}`);
-  lines.push("");
-  lines.push(`SUBMISSION & QUOTE`);
-  lines.push(`  Submission ID: ${p.submission.submissionId}`);
-  lines.push(`  Quote No: ${p.submission.quoteNo}`);
-  lines.push(`  Line of Business: ${p.submission.lob}`);
-  lines.push("");
-  lines.push(`POLICY DATES`);
-  lines.push(`  Effective: ${p.policyDates.effectiveDate}`);
-  lines.push(`  Expiration: ${p.policyDates.expirationDate}`);
-  lines.push(`  Term: ${p.policyDates.term}`);
-  lines.push("");
-  lines.push(`COVERAGE & LIMITS`);
-  p.coverages.forEach(c => lines.push(`  - ${c.name}: $${(c.subtotal || 0).toLocaleString()}`));
-  lines.push(`  Liability Limit: ${p.limits.liabilityLimit}`);
-  lines.push("");
-  lines.push(`DEDUCTIBLES`);
-  lines.push(`  Physical Damage Deductible: ${p.deductibles.physicalDamage}`);
-  lines.push(`  Cargo Limit: ${p.deductibles.cargoLimit}`);
-  lines.push("");
-  lines.push(`PREMIUM`);
-  lines.push(`  Base Premium: $${p.premium.basePremium.toLocaleString()}`);
-  lines.push(`  Discounts: -$${p.premium.discounts.toLocaleString()}`);
-  lines.push(`  Taxes: $${p.premium.taxes.toLocaleString()}`);
-  lines.push(`  Fees: $${p.premium.fees.toLocaleString()}`);
-  lines.push(`  TOTAL PREMIUM: $${p.premium.finalPremium.toLocaleString()}${p.premium.premiumWasAdjusted ? "  (reflects underwriter's Post-Rating adjustment)" : ""}`);
-  lines.push("");
-  lines.push(`UNDERWRITING SUMMARY`);
-  if (p.underwritingSummary.riskScore !== null) lines.push(`  Risk Score: ${p.underwritingSummary.riskScore}/100 (${p.underwritingSummary.riskBand})`);
-  lines.push(`  ${p.underwritingSummary.pricingRationale}`);
-  if (p.underwritingSummary.priorityReason) lines.push(`  ${p.underwritingSummary.priorityReason}`);
-  lines.push("");
-  lines.push(`CONDITIONS TO BIND`);
-  if (p.conditionsToBind.length) {
-    p.conditionsToBind.forEach(c => lines.push(`  - ${c}`));
-  } else {
-    lines.push(`  None outstanding.`);
-  }
-  lines.push("");
-  lines.push(`BROKER ACTION REQUIRED`);
-  lines.push(`  ${p.brokerAction}`);
-  lines.push("");
-  lines.push(`Full quote payload (JSON) is attached separately.`);
-  lines.push("");
-  lines.push(`Regards,`);
-  lines.push(`Underwriting Team`);
-  return lines.join("\n");
-}
-
-function generateAndSendIssueQuoteEmail(sub) {
-  if (!sub) return;
-  const payload = buildIssueQuoteEmailPayload(sub);
-  if (!payload) return;
-
-  const emailText = renderIssueQuoteEmailText(payload);
-  sub.issuedQuoteEmail = { payload, text: emailText, sentAt: new Date().toISOString() };
-
-  const modal = document.getElementById("issueQuoteEmailModal");
-  const codeBlock = document.getElementById("issueQuoteEmailBody");
-  const recipientLabel = document.getElementById("issueQuoteEmailRecipient");
-  if (codeBlock) codeBlock.textContent = emailText;
-  if (recipientLabel) recipientLabel.textContent = `${payload.to.broker} <${payload.to.contactEmail}>`;
-  if (modal) modal.classList.add("active");
-
-  showToast(`📧 Quote email automatically generated and sent to ${payload.to.broker} — Total Premium: $${payload.premium.finalPremium.toLocaleString()}.`, "success");
-}
-
 function closeIssueQuoteEmailModal() {
   const modal = document.getElementById("issueQuoteEmailModal");
   if (modal) modal.classList.remove("active");
@@ -207,7 +126,6 @@ function copyIssueQuoteEmailToClipboard() {
 }
 
 window.buildIssueQuoteEmailPayload = buildIssueQuoteEmailPayload;
-window.generateAndSendIssueQuoteEmail = generateAndSendIssueQuoteEmail;
 window.closeIssueQuoteEmailModal = closeIssueQuoteEmailModal;
 window.copyIssueQuoteEmailToClipboard = copyIssueQuoteEmailToClipboard;
 
@@ -293,56 +211,6 @@ function buildOutputQuotePayload(sub) {
   };
 }
 
-// Readable quotation document for the customer — same underlying data +
-// Post-Rating override as the broker email, framed as a standalone
-// document instead of an email.
-function renderQuotationDocumentText(payload) {
-  const p = payload;
-  const lines = [];
-  lines.push(`QUOTATION`);
-  lines.push(`${p.parties.customer}`);
-  lines.push(`Quote No: ${p.submission.quoteNo}  |  Submission: ${p.submission.submissionId}`);
-  lines.push("=".repeat(60));
-  lines.push("");
-  lines.push(`PARTIES`);
-  lines.push(`  Customer: ${p.parties.customer}`);
-  lines.push(`  Broker: ${p.parties.broker}`);
-  lines.push(`  MGA: ${p.parties.mga}`);
-  lines.push(`  Carrier: ${p.parties.carrier}`);
-  lines.push("");
-  lines.push(`POLICY DATES`);
-  lines.push(`  Effective: ${p.policyDates.effectiveDate}`);
-  lines.push(`  Expiration: ${p.policyDates.expirationDate}`);
-  lines.push(`  Term: ${p.policyDates.term}`);
-  lines.push("");
-  lines.push(`COVERAGE & LIMITS`);
-  p.coverages.forEach(c => lines.push(`  - ${c.name}: $${(c.subtotal || 0).toLocaleString()}`));
-  lines.push(`  Liability Limit: ${p.limits.liabilityLimit}`);
-  lines.push("");
-  lines.push(`DEDUCTIBLES`);
-  lines.push(`  Physical Damage Deductible: ${p.deductibles.physicalDamage}`);
-  lines.push(`  Cargo Limit: ${p.deductibles.cargoLimit}`);
-  lines.push("");
-  lines.push(`PREMIUM`);
-  lines.push(`  Base Premium: $${p.premium.basePremium.toLocaleString()}`);
-  lines.push(`  Discounts: -$${p.premium.discounts.toLocaleString()}`);
-  lines.push(`  Taxes: $${p.premium.taxes.toLocaleString()}`);
-  lines.push(`  Fees: $${p.premium.fees.toLocaleString()}`);
-  lines.push(`  TOTAL PREMIUM: $${p.premium.finalPremium.toLocaleString()}${p.premium.premiumWasAdjusted ? "  (reflects underwriter's Post-Rating adjustment)" : ""}`);
-  lines.push("");
-  lines.push(`CONDITIONS TO BIND`);
-  if (p.conditionsToBind.length) {
-    p.conditionsToBind.forEach(c => lines.push(`  - ${c}`));
-  } else {
-    lines.push(`  None outstanding.`);
-  }
-  lines.push("");
-  lines.push(`Please review the enclosed quote details and confirm bind instructions within 30 days of this notice.`);
-  lines.push("");
-  lines.push(`Underwriting Team`);
-  return lines.join("\n");
-}
-
 function triggerFileDownload(filename, content, mimeType) {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -412,7 +280,7 @@ function buildFuturisticQuoteFigures(sub) {
   const garagingState = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (sub.address || "").match(/,\s*([A-Z]{2})\b/)?.[1] || "TX";
   const agentId = `${(sub.broker || "AGT").replace(/[^A-Za-z]/g, "").substring(0, 3).toUpperCase()}-${garagingState}-${String(sub.id || "000").replace(/[^0-9]/g, "").slice(-3).padStart(3, "0")}`;
 
-  const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValue === "function" ? cfgValue("broker_fee_invoice_default") : 50);
+  const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValueFor === "function" ? cfgValueFor(sub, "broker_fee_invoice_default") : 50);
   // Tax and stamping fee come from the confirmed state basis (js/surplus-lines.js). Admitted placements carry none.
   const slRates = typeof slRatesFor === "function" ? slRatesFor(sub) : null;
   const slAdmitted = typeof slIsSurplus === "function" && !slIsSurplus(sub);
@@ -810,15 +678,6 @@ function ensureIssueQuoteFlow(sub) {
     };
   }
   return sub.issueQuoteFlow;
-}
-
-function statusBadgeHtml(status) {
-  const map = {
-    pending: '<span class="badge badge-light">Pending</span>',
-    sent: '<span class="badge badge-success"><i class="ph ph-check"></i> Sent</span>',
-    failed: '<span class="badge badge-danger"><i class="ph ph-x"></i> Failed</span>'
-  };
-  return map[status] || map.pending;
 }
 
 function openIssueQuoteActionsModal(sub) {

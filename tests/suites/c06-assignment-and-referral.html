@@ -1,0 +1,47 @@
+<!-- Suite C06: only the Head of Underwriting assigns cases; everyone else refers. A pending referral puts the case on the
+     desk of the role that must decide it; the Head of Underwriting runs every workflow step. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='trucking';})[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.lobKey = 'trucking'; s.channelType = 'broker'; s.apiSourced = true; s.priority = 'P3'; s.statusText = 'UW Review';
+    ['pasSync','lifecycleStatus','authorityRef','assignedTo','riskScore','riskLevel','discretionaryPricing','importedRatingData','premiumAdjustments','insuredInfo'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 5; for (var k in (over||{})) s[k] = over[k]; return s; }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    var a = mk('R1', { assignedTo: 'junior' }), b = mk('R2', { assignedTo: 'assistant' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(a, b);
+    ['assistant','junior','senior_uw','senior','compliance'].forEach(function(r){ currentUserRole = r; t(r + ' cannot assign cases', canManageAssignments() === false); });
+    currentUserRole = 'admin';
+    t('the Head of Underwriting assigns cases', canManageAssignments() === true);
+    currentUserRole = 'senior_uw'; toasts.length = 0; assignSubmissionToUser('R1', 'senior_uw');
+    t('a senior underwriter\'s attempt to assign is refused and changes nothing', a.assignedTo === 'junior');
+    currentUserRole = 'admin'; assignSubmissionToUser('R2', 'junior');
+    t('the Head of Underwriting\'s assignment takes effect', b.assignedTo === 'junior');
+    t('the Head of Underwriting may advance workflow steps', hasPermission('workflow', 'approve') === true && hasPermission('workflow', 'view') === true);
+    t('and still may not approve a price or a referral', !hasPermission('premiumAdjustment', 'approve') && !hasPermission('authority', 'approve'));
+
+    // a referral puts the case on the deciding role's desk without anyone assigning it
+    currentUserRole = 'senior'; SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(a);
+    t('before any referral the CUO does not see the case', !isMyCase(a));
+    a.authorityRef = { status: 'pending', requiredRole: 'senior', raisedBy: 'x', raisedAt: 'now' };
+    t('a pending referral to the CUO puts it on the CUO\'s desk', isMyCase(a));
+    renderSubmissionsTable();
+    t('it shows in the CUO\'s queue', /R1/.test(el('submissionsTableBody').innerHTML));
+    toasts.length = 0; openCaseAtCurrentStep('R1');
+    t('and the CUO can open it', !toasts.some(function(m){ return /⛔/.test(m); }), toasts.join(' | '));
+    currentUserRole = 'senior_uw';
+    t('a different role is not given the case by that referral', !isMyCase(a));
+    a.authorityRef.status = 'approved'; currentUserRole = 'senior';
+    t('once decided, the case leaves the CUO\'s desk again', !isMyCase(a));
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

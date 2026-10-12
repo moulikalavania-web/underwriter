@@ -1,585 +1,7 @@
 // 6B. STEP 7: ACTUARIAL IMPORTED RATING ENGINE & FINAL QUOTE STUDIO
 // ============================================================================
-const DEFAULT_IMPORTED_RATING_JSON = {
-  "quote": {
-    "lob": "Commercial Trucking",
-    "state": "TX",
-    "ratingVersion": "v2026.03",
-    "coveragePremium": 35062,
-    "discounts": [
-      {
-        "name": "Claims-Free Credit",
-        "value": -0.08,
-        "amt": -2805,
-        "why": "No claims in prior 3 years"
-      }
-    ],
-    "surcharges": [],
-    "creditsNotApplied": [
-      {
-        "name": "Renewal Discount",
-        "code": "DISC_RENEWAL",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "CDL Experience Discount",
-        "code": "DISC_CDL",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "Dashcam / Telematics",
-        "code": "DISC_DASHCAM",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "Multi-Policy Discount",
-        "code": "DISC_MULTI",
-        "reason": "Submission does not carry the data to evaluate: Bundled with GL or Property",
-        "undetermined": true
-      },
-      {
-        "name": "Paid-In-Full Discount",
-        "code": "DISC_PIF",
-        "reason": "Condition not met: Premium paid in full at binding",
-        "undetermined": false
-      },
-      {
-        "name": "Safety Program Credit",
-        "code": "DISC_SAFETY",
-        "reason": "Submission does not carry the data to evaluate: Documented written safety program",
-        "undetermined": true
-      },
-      {
-        "name": "FMCSA Alert Surcharge",
-        "code": "SUR_FMCSA",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "OOS Vehicle Violations",
-        "code": "SUR_OOSV",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "OOS Driver Violations",
-        "code": "SUR_OOSD",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "Hazmat Operations",
-        "code": "SUR_HAZMAT",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "High-Risk Driver",
-        "code": "SUR_DRV",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "No Dashcam Surcharge",
-        "code": "SUR_NODASH",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      },
-      {
-        "name": "Unassigned Driver",
-        "code": "SUR_UNASSIGN",
-        "reason": "Submission does not carry the data to evaluate: Vehicle with no rated driver assigned",
-        "undetermined": true
-      },
-      {
-        "name": "New Venture Debit",
-        "code": "SUR_NEWVEN",
-        "reason": "Already priced in the rating chain",
-        "undetermined": false
-      }
-    ],
-    "fees": [
-      {
-        "name": "Policy Fee",
-        "code": "FEE_POLICY",
-        "valueType": "Fixed",
-        "unit": 150,
-        "qty": 1,
-        "amt": 150,
-        "chargeType": "Per Policy",
-        "taxable": false
-      },
-      {
-        "name": "Broker Fee",
-        "code": "FEE_BROKER",
-        "valueType": "Percent",
-        "pct": 8,
-        "percentOf": "Premium Before Fees",
-        "base": 32257,
-        "capped": "max",
-        "minFee": 250,
-        "maxFee": 2500,
-        "qty": 1,
-        "amt": 2500,
-        "chargeType": "Per Policy",
-        "taxable": false
-      },
-      {
-        "name": "Inspection Fee",
-        "code": "FEE_INSPECT",
-        "valueType": "Fixed",
-        "unit": 75,
-        "qty": 1,
-        "amt": 75,
-        "chargeType": "Per Policy",
-        "taxable": false
-      },
-      {
-        "name": "Driver Surcharge Fee",
-        "code": "FEE_DRVSUR",
-        "valueType": "Fixed",
-        "unit": 85,
-        "qty": 2,
-        "amt": 170,
-        "chargeType": "Per Driver",
-        "taxable": false
-      },
-      {
-        "name": "MVR / CSA Report Fee",
-        "code": "FEE_MVR",
-        "valueType": "Fixed",
-        "unit": 12,
-        "qty": 3,
-        "amt": 36,
-        "chargeType": "Per Driver",
-        "taxable": false
-      },
-      {
-        "name": "Vehicle Inspection Fee",
-        "code": "FEE_VEHINSP",
-        "valueType": "Fixed",
-        "unit": 45,
-        "qty": 1,
-        "amt": 45,
-        "chargeType": "Per Vehicle",
-        "taxable": false
-      },
-      {
-        "name": "Managing General Agent Fee",
-        "code": "FEE_MGA",
-        "valueType": "Percent",
-        "pct": 5,
-        "percentOf": "Premium Before Fees",
-        "base": 32257,
-        "capped": null,
-        "minFee": 100,
-        "maxFee": 0,
-        "qty": 1,
-        "amt": 1613,
-        "chargeType": "Per Policy",
-        "taxable": false
-      },
-      {
-        "name": "Surplus Lines Filing Fee",
-        "code": "FEE_SLFILE",
-        "valueType": "Percent",
-        "pct": 0.35,
-        "percentOf": "Premium + Taxes",
-        "base": 33821,
-        "capped": null,
-        "minFee": 25,
-        "maxFee": 500,
-        "qty": 1,
-        "amt": 118,
-        "chargeType": "Per Policy",
-        "taxable": false
-      },
-      {
-        "name": "Terrorism (TRIA) Charge",
-        "code": "FEE_TRIA",
-        "valueType": "Percent",
-        "pct": 1.5,
-        "percentOf": "Coverage Premium",
-        "base": 35062,
-        "capped": null,
-        "minFee": 0,
-        "maxFee": 0,
-        "qty": 1,
-        "amt": 526,
-        "chargeType": "Per Policy",
-        "taxable": true
-      }
-    ],
-    "taxPct": 0.048499999999999995,
-    "tax": 1590,
-    "countyName": "Denton County",
-    "countyRate": 0.55,
-    "countyTax": 180,
-    "finalPremium": 39260,
-    "minimumApplied": false
-  },
-  "coverages": [
-    {
-      "name": "Auto Liability",
-      "subtotal": 15440,
-      "factors": [
-        {
-          "label": "Territory Base Loss Cost (per unit)",
-          "value": 837,
-          "base": null,
-          "driver": "Garaging State + ZIP",
-          "input": "TX 76262",
-          "matched": "CA_Liab_LC — TX territory 027 (from ZIP 76262)"
-        },
-        {
-          "label": "Increased Limits Factor (ILF)",
-          "value": 2.06,
-          "base": 1,
-          "driver": "Liability Limit",
-          "input": "$1,000,000",
-          "matched": "$1,000,000 limit in TX"
-        },
-        {
-          "label": "Liability Deductible Factor",
-          "value": 0,
-          "base": 0,
-          "driver": "Liability Deductible",
-          "input": "$0",
-          "matched": "$0 deductible × 0.75 program deviation"
-        },
-        {
-          "label": "Loss Cost Multiplier (LCM)",
-          "value": 1.67,
-          "base": 1.67,
-          "driver": null,
-          "input": null,
-          "matched": "Program constant — same for every quote"
-        },
-        {
-          "label": "Primary Class Factor",
-          "value": 1.8,
-          "base": null,
-          "driver": "Vehicle Class (per unit)",
-          "input": "Heavy Truck-Tractor - Long Distance D",
-          "matched": "Class 332"
-        },
-        {
-          "label": "Secondary Class Factor",
-          "value": 1.98,
-          "base": 1.98,
-          "driver": "Secondary Class (per unit)",
-          "input": "Account default",
-          "matched": "Account default"
-        },
-        {
-          "label": "Fleet Size Factor",
-          "value": 0.97,
-          "base": 1,
-          "driver": "Number of rated power units",
-          "input": "1 unit",
-          "matched": "1-unit band, Heavy Trucks curve"
-        },
-        {
-          "label": "Vehicle Age Factor",
-          "value": 1.12,
-          "base": 1,
-          "driver": "Model Year (per unit)",
-          "input": "3 yr old",
-          "matched": "3 model years old"
-        },
-        {
-          "label": "OCN Factor",
-          "value": 1.14,
-          "base": 1,
-          "driver": "Vehicle stated value (per unit)",
-          "input": "$500,000",
-          "matched": "value band containing $500,000"
-        },
-        {
-          "label": "Liability Radius Factor",
-          "value": 0.95,
-          "base": 1,
-          "driver": "Radius of Operation",
-          "input": "Intermediate",
-          "matched": "Local-Intermediate · Local-200 (0 - 200 Miles)"
-        },
-        {
-          "label": "NAICS Industry Factor",
-          "value": 1.1,
-          "base": 1,
-          "driver": "Industry Classification (NAICS)",
-          "input": "484110",
-          "matched": "484110 — General Freight Trucking, Local"
-        },
-        {
-          "label": "Tort Limitation Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Garaging State",
-          "input": "TX",
-          "matched": "TX — standard tort"
-        },
-        {
-          "label": "Vehicle Ownership Factor",
-          "value": 0.95,
-          "base": 1,
-          "driver": "Vehicle ownership",
-          "input": "Owned",
-          "matched": "Owned"
-        },
-        {
-          "label": "Pollution Factor",
-          "value": 1.03,
-          "base": 1,
-          "driver": "Auto liability pollution grade",
-          "input": "Low",
-          "matched": "Low"
-        },
-        {
-          "label": "Driver Criteria Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Driver schedule vs filed criteria",
-          "input": "All drivers meet criteria",
-          "matched": "All drivers meet criteria"
-        },
-        {
-          "label": "Loss Experience Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Prior-term loss ratio",
-          "input": "no prior experience",
-          "matched": "No prior experience"
-        },
-        {
-          "label": "Payment Plan Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Bill type",
-          "input": "Agency Bill",
-          "matched": "Agency Bill"
-        },
-        {
-          "label": "UW Credit / Debit",
-          "value": 1,
-          "base": 1,
-          "driver": "Underwriter judgment",
-          "input": "1",
-          "matched": "clamped to 0.75–1.25"
-        },
-        {
-          "label": "Heavy Farm Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Vehicle use type",
-          "input": "General Freight",
-          "matched": "General Freight"
-        },
-        {
-          "label": "Heavy Dumping Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Vehicle use type",
-          "input": "General Freight",
-          "matched": "General Freight"
-        },
-        {
-          "label": "Miles Driven Factor",
-          "value": 1.03,
-          "base": 1,
-          "driver": "Annual Miles + Radius category",
-          "input": "87,500 mi",
-          "matched": "Local-Intermediate band"
-        },
-        {
-          "label": "Rating Class Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Cargo / Hauling Type",
-          "input": "Dry Van or Box - Single Trailer",
-          "matched": "Dry Van or Box - Single Trailer"
-        },
-        {
-          "label": "Dashcam Factor",
-          "value": 1.2,
-          "base": 1,
-          "driver": "Dashcams Installed",
-          "input": "NO Dashcams",
-          "matched": "NO Dashcams"
-        },
-        {
-          "label": "CDL Experience Discount",
-          "value": 1,
-          "base": 1,
-          "driver": "Driver CDL experience (per driver)",
-          "input": "0 of 1 rated drivers have 3+ yrs",
-          "matched": "0% qualified × 10% max discount"
-        },
-        {
-          "label": "Driver Class Factor",
-          "value": 0.95,
-          "base": 1,
-          "driver": "Driver age, violations & accidents",
-          "input": "3 drivers, 2 with violations",
-          "matched": "average of best 1 driver"
-        },
-        {
-          "label": "Account-Level Factor",
-          "value": 1.1,
-          "base": 1,
-          "driver": "8 underwriting questions",
-          "input": "Business Experience +5%, Carrier Safety / FMCSA Alerts +10%, ICC Filing -5%",
-          "matched": "1 + sum of credits/debits"
-        },
-        {
-          "label": "Experience Mod",
-          "value": 0.9,
-          "base": 1,
-          "driver": "Loss history (3yr claims & incurred)",
-          "input": "0 claims > $500, $0 incurred",
-          "matched": "credibility-weighted, 1 units × 36 mo"
-        },
-        {
-          "label": "Rated Power Units",
-          "value": 1,
-          "base": null,
-          "driver": "Vehicle Schedule",
-          "input": "1 unit",
-          "matched": "count of vehicles on the schedule"
-        }
-      ]
-    },
-    {
-      "name": "Physical Damage",
-      "subtotal": 19622,
-      "factors": [
-        {
-          "label": "Total Insured Value (units + trailers)",
-          "value": 500000,
-          "base": null,
-          "driver": "Vehicle & trailer stated values",
-          "input": "1 unit",
-          "matched": "sum of every unit's stated value plus its trailer"
-        },
-        {
-          "label": "APD Rate (per $ of value)",
-          "value": 0.0475,
-          "base": 0.0475,
-          "driver": "Vehicle stated value (per unit)",
-          "input": "$500,000",
-          "matched": "value band containing $500,000"
-        },
-        {
-          "label": "APD Deductible Factor",
-          "value": 0.875,
-          "base": 1,
-          "driver": "Physical Damage Deductible",
-          "input": "$5,000",
-          "matched": "$5,000 deductible"
-        },
-        {
-          "label": "APD Radius Factor",
-          "value": 0.95,
-          "base": 1,
-          "driver": "Radius of Operation",
-          "input": "Intermediate",
-          "matched": "Local-Intermediate · Local-200 (0 - 200 Miles)"
-        },
-        {
-          "label": "Trailer PhysDam Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Trailer Type (per unit)",
-          "input": "None",
-          "matched": "None"
-        },
-        {
-          "label": "APD State Factor",
-          "value": 0.95,
-          "base": 1,
-          "driver": "Garaging State",
-          "input": "TX",
-          "matched": "TX"
-        },
-        {
-          "label": "APD Package Factor",
-          "value": 0.9,
-          "base": 1,
-          "driver": "Coverages selected",
-          "input": "Liability + Physical Damage",
-          "matched": "Package policy — Yes"
-        },
-        {
-          "label": "Miles Driven Factor",
-          "value": 1.03,
-          "base": 1,
-          "driver": "Annual Miles + Radius category",
-          "input": "87,500 mi",
-          "matched": "Local-Intermediate band"
-        },
-        {
-          "label": "Rating Class Factor",
-          "value": 1,
-          "base": 1,
-          "driver": "Cargo / Hauling Type",
-          "input": "Dry Van or Box - Single Trailer",
-          "matched": "Dry Van or Box - Single Trailer"
-        },
-        {
-          "label": "Dashcam Factor",
-          "value": 1.2,
-          "base": 1,
-          "driver": "Dashcams Installed",
-          "input": "NO Dashcams",
-          "matched": "NO Dashcams"
-        },
-        {
-          "label": "Experience Mod",
-          "value": 0.9,
-          "base": 1,
-          "driver": "Loss history (3yr claims & incurred)",
-          "input": "0 claims > $500, $0 incurred",
-          "matched": "same mod as Auto Liability"
-        }
-      ]
-    }
-  ],
-  "eligibility": {
-    "declines": [],
-    "refers": [
-      "Fleet Size Minimum"
-    ]
-  },
-  "adapter": {
-    "fieldsMapped": 23,
-    "warnings": []
-  }
-};
-
 let isQuoteImported = false;
 let currentImportedRatingData = null;
-
-function toggleStep7View(mode) {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
-  if (mode === "summary") {
-    isQuoteImported = false;
-  } else {
-    isQuoteImported = true;
-    if (!currentImportedRatingData) {
-      currentImportedRatingData = DEFAULT_IMPORTED_RATING_JSON;
-    }
-  }
-  // Persist per-submission so this doesn't leak onto whichever submission
-  // gets selected next.
-  if (sub) {
-    sub.isQuoteImported = isQuoteImported;
-    sub.importedRatingData = currentImportedRatingData;
-  }
-  renderStep7View(sub);
-}
 
 function triggerSystemJsonUpload() {
   const input = document.getElementById("quoteJsonSystemDirectInput");
@@ -681,7 +103,7 @@ function recordQuoteVersion(sub, isBound = false) {
   sub.quoteNo = versionId;
   sub.quote_id = versionId;
 
-  if (currentPage === "quote-versions") {
+  if (currentPage === "quote-intel" && quoteIntelActiveTab === "versions") {
     renderQuoteVersionsLedger();
   }
 
@@ -709,18 +131,23 @@ function applyImportedRatingDataToSubmission(parsed, sub) {
       const numPrem = parseFloat(String(rawPrem).replace(/[^0-9.]/g, ""));
       if (!isNaN(numPrem) && numPrem > 0) {
         parsed.quote.finalPremium = numPrem;
-        
-        // Sync discretionary pricing so Final Quoted Premium, TOTAL BINDABLE POLICY PREMIUM, and Final Annual Total match
+
+        // The base premium is the premium before tax and fees (the rating engine's coverage premium). Its own
+        // final figure includes tax and fees, so it is only used when nothing better is given.
+        const covPrem = parseFloat(String(parsed.quote.coveragePremium == null ? "" : parsed.quote.coveragePremium).replace(/[^0-9.]/g, ""));
+        const baseFromQuote = (!isNaN(covPrem) && covPrem > 0) ? covPrem : numPrem;
+
+        // Sync discretionary pricing so Final Quoted Premium and TOTAL BINDABLE POLICY PREMIUM match
         sub.discretionaryPricing = {
-          basePremium: numPrem,
+          basePremium: baseFromQuote,
           adjustmentType: null,
           adjustmentPercent: 0,
           reason: "Imported Rating Engine Output JSON",
           appliedBy: "System Rating Import",
           appliedAt: new Date().toISOString(),
-          finalPremium: numPrem
+          finalPremium: baseFromQuote
         };
-        sub.currentPremium = numPrem;
+        sub.currentPremium = baseFromQuote;
       }
     }
   }
@@ -785,7 +212,6 @@ function readAndProcessJsonFile(file) {
 
       // Render quote directly below summary
       renderStep7View(sub);
-      closeImportQuoteJsonModal();
 
       setTimeout(() => {
         const quoteArea = document.getElementById("step7GeneratedQuoteArea");
@@ -807,66 +233,40 @@ function readAndProcessJsonFile(file) {
   reader.readAsText(file);
 }
 
-function openImportQuoteJsonModal() {
-  const modal = document.getElementById("importQuoteJsonModal");
-  const textarea = document.getElementById("importQuoteJsonTextarea");
-  if (!modal) return;
-
-  if (textarea) {
-    textarea.value = JSON.stringify(currentImportedRatingData || DEFAULT_IMPORTED_RATING_JSON, null, 2);
+/** The three stages after a quote exists: issue it, the customer accepts it, bind it. */
+function renderIssueAndBindCard(sub) {
+  const bound = !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+  const issued = !!sub.quoteIssued, approved = !!sub.customerApproved;
+  const failed = sub.pasSync && sub.pasSync.status === "failed" ? sub.pasSync : null;
+  const stage = (n, label, done, active) => `<div style="display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12.5px; font-weight:600; background:${done ? "#dcfce7" : (active ? "#fff7ed" : "#f1f5f9")}; color:${done ? "#166534" : (active ? "#c2410c" : "#64748b")};"><i class="ph ${done ? "ph-check-circle" : (active ? "ph-arrow-circle-right" : "ph-lock-simple")}"></i> ${n}. ${label}</div>`;
+  const tracker = `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${stage(1, "Issue quote", issued, !issued)}${stage(2, "Customer accepts", approved, issued && !approved)}${stage(3, "Bind &amp; sync to PAS", bound, issued && approved && !bound)}</div>`;
+  const badge = bound ? '<span class="badge badge-success">Bound</span>' : (!issued ? '<span class="badge badge-warning">Quote not issued</span>' : (!approved ? '<span class="badge badge-warning">Awaiting customer</span>' : (failed ? '<span class="badge badge-danger">Last bind failed</span>' : '<span class="badge badge-success">Ready to bind</span>')));
+  let body;
+  if (bound) {
+    const p = sub.pasSync;
+    body = `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:12px; font-size:13px;">
+        <div><span class="text-xs text-muted">Policy Number</span><br><strong class="font-mono">${p.policyNumber}</strong></div>
+        <div><span class="text-xs text-muted">PAS Record ID</span><br><strong class="font-mono">${p.pasRecordId}</strong></div>
+        <div><span class="text-xs text-muted">Effective Date</span><br><strong>${p.effectiveDate}</strong></div>
+        <div><span class="text-xs text-muted">Synced By</span><br><strong>${p.syncedBy}</strong></div>
+        <div><span class="text-xs text-muted">Synced At</span><br><strong>${p.syncedAt}</strong></div>
+      </div>`;
+  } else if (!issued) {
+    body = `<p class="text-xs text-muted mb-2">Issuing the quote needs the underwriter's e-signature and sends the quote to the broker. Binding opens once the customer has accepted it.</p>
+      <button class="btn btn-primary" id="issueQuoteBtn" onclick="openESignatureModal()"><i class="ph ph-paper-plane-tilt"></i> Issue Quote</button>`;
+  } else if (!approved) {
+    body = `<p class="text-xs text-muted mb-2">The quote has been issued. Binding stays locked until the customer accepts it (this prototype simulates the customer's acceptance).</p>
+      <button class="btn btn-outline" id="customerApproveBtn" onclick="simulateCustomerApproval('${sub.id}')"><i class="ph ph-user-check"></i> Simulate Customer Approval</button>`;
+  } else {
+    body = `<p class="text-xs text-muted mb-2">Binding submits a bind request to the Policy Admin System, which returns the policy number.</p>
+      ${typeof renderBindStageBanners === "function" ? renderBindStageBanners(sub) : ""}
+      <div id="pasSyncStatusArea">${failed ? `<div class="alert alert-danger u-fs-12"><i class="ph ph-warning-circle"></i> <strong>Bind failed (${failed.code}):</strong> ${failed.message}</div>` : ""}</div>
+      <button class="btn btn-primary" id="pasSyncBindBtn" onclick="simulatePASBindSync('${sub.id}')"><i class="ph ph-arrows-clockwise"></i> ${failed ? "Retry Bind &amp; Sync to PAS" : "Bind &amp; Sync to PAS"}</button>`;
   }
-
-  modal.style.display = "flex";
-  document.body.style.overflow = "hidden";
-}
-
-function closeImportQuoteJsonModal() {
-  const modal = document.getElementById("importQuoteJsonModal");
-  if (modal) {
-    modal.style.display = "none";
-    document.body.style.overflow = "auto";
-  }
-}
-
-function loadSampleRatingJson() {
-  const textarea = document.getElementById("importQuoteJsonTextarea");
-  if (textarea) {
-    textarea.value = JSON.stringify(DEFAULT_IMPORTED_RATING_JSON, null, 2);
-    showToast("Loaded standard Commercial Trucking rating JSON sample", "info");
-  }
-}
-
-function handleApplyImportedJson() {
-  const textarea = document.getElementById("importQuoteJsonTextarea");
-  if (!textarea) return;
-
-  try {
-    const parsed = JSON.parse(textarea.value);
-    const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || SUBMISSIONS_DATASET[0];
-    const normalized = normalizeRatingEngineJson(parsed, sub);
-    if (normalized.error) {
-      throw new Error(normalized.error);
-    }
-    const ratingPayload = normalized.payload;
-
-    applyImportedRatingDataToSubmission(ratingPayload, sub);
-
-    renderStep7View(sub);
-    closeImportQuoteJsonModal();
-
-    setTimeout(() => {
-      const quoteArea = document.getElementById("step7GeneratedQuoteArea");
-      if (quoteArea) {
-        quoteArea.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    }, 100);
-
-    const adaptedNote = normalized.adapted ? " (auto-adapted from a product-schema JSON)" : "";
-    showToast(`⚡ Rating JSON successfully applied${adaptedNote}! Final Quoted Premium: $${ratingPayload.quote.finalPremium ? ratingPayload.quote.finalPremium.toLocaleString() : '39,260'}`, "success");
-    persistAppState();
-  } catch (err) {
-    showToast("⛔ JSON Parsing Error: " + err.message, "danger");
-  }
+  return `<div class="card mt-3" id="pasSyncCard"${bound ? ' style="border-color:#a7f3d0;"' : ""}>
+      <div class="card-header"><h3><i class="ph ph-seal-check"></i> Issue Quote &amp; Bind</h3>${badge}</div>
+      <div class="card-body">${tracker}${body}</div>
+    </div>`;
 }
 
 function renderStep7View(sub) {
@@ -948,7 +348,11 @@ function renderStep7View(sub) {
   if (titleEl) titleEl.textContent = "Commercial Trucking Formal Quote & Binding";
   if (descEl) descEl.textContent = "Generated from imported rating engine output JSON. Actuarial factors decomposed, fees itemized, and terms bindable.";
 
-  container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub);
+  container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub) + renderIssueAndBindCard(sub);
+  // keep the bottom bar (Return to queue / bound) in step with the case
+  if (currentPage === "workflow" && currentWorkflowStep === 7 && sub && sub.id === activeSubmissionId && typeof updateBottomFooter === "function") {
+    try { updateBottomFooter(WORKFLOW_STEPS.find(s => s.step === 7), sub); } catch (e) { /* footer not mounted */ }
+  }
 }
 
 // ============================================================================
@@ -969,81 +373,6 @@ function generatePASPolicyNumber(sub) {
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   const serial = String(hash % 900000 + 100000);
   return `${prefix}-${year}-${serial}`;
-}
-
-function getPASSyncCardHtml(sub) {
-  if (sub.pasSync && sub.pasSync.status === "success") {
-    const p = sub.pasSync;
-    return `
-      <div class="card mt-3" style="border-color:#a7f3d0;">
-        <div class="card-header">
-          <h3><i class="ph ph-check-circle" style="color:var(--color-success);"></i> Synced to Policy Admin System (PAS)</h3>
-          <span class="badge badge-success">Sync Successful</span>
-        </div>
-        <div class="card-body">
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:12px; font-size:13px;">
-            <div><span class="text-xs text-muted">Policy Number</span><br><strong class="font-mono">${p.policyNumber}</strong></div>
-            <div><span class="text-xs text-muted">PAS Record ID</span><br><strong class="font-mono">${p.pasRecordId}</strong></div>
-            <div><span class="text-xs text-muted">Effective Date</span><br><strong>${p.effectiveDate}</strong></div>
-            <div><span class="text-xs text-muted">Synced By</span><br><strong>${p.syncedBy}</strong></div>
-            <div><span class="text-xs text-muted">Synced At</span><br><strong>${p.syncedAt}</strong></div>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  // Gate 1: Underwriter must have pressed "Issue Quote" first. Before that,
-  // there's nothing to bind — the quote hasn't gone to the customer/broker yet.
-  if (!sub.quoteIssued) {
-    return `
-      <div class="card mt-3" id="pasSyncCard">
-        <div class="card-header">
-          <h3><i class="ph ph-arrows-clockwise"></i> Policy Admin System (PAS) Integration</h3>
-          <span class="badge badge-secondary">Locked</span>
-        </div>
-        <div class="card-body">
-          <p class="text-xs text-muted mb-0"><i class="ph ph-lock"></i> Available once the quote has been issued to the broker/customer via <strong>Issue Quote</strong> above, and the customer has approved it.</p>
-        </div>
-      </div>`;
-  }
-
-  // Gate 2: Customer approval — the quote was sent, but nothing binds it to
-  // a policy until the customer has actually approved it. This simulates
-  // that external customer-side action (e.g. a signed acceptance in their
-  // portal) since there's no real customer system to call here.
-  if (!sub.customerApproved) {
-    return `
-      <div class="card mt-3" id="pasSyncCard">
-        <div class="card-header">
-          <h3><i class="ph ph-arrows-clockwise"></i> Policy Admin System (PAS) Integration</h3>
-          <span class="badge badge-warning">Awaiting Customer Approval</span>
-        </div>
-        <div class="card-body">
-          <p class="text-xs text-muted mb-2">Quote has been issued. Binding is disabled until the customer approves the quote (simulates the customer's acceptance of the issued quote).</p>
-          <button class="btn btn-outline" id="customerApproveBtn" onclick="simulateCustomerApproval('${sub.id}')">
-            <i class="ph ph-user-check"></i> Simulate Customer Approval
-          </button>
-        </div>
-      </div>`;
-  }
-
-  const priorFailure = (sub.pasSync && sub.pasSync.status === "failed") ? sub.pasSync : null;
-
-  return `
-    <div class="card mt-3" id="pasSyncCard">
-      <div class="card-header">
-        <h3><i class="ph ph-arrows-clockwise"></i> Policy Admin System (PAS) Integration</h3>
-        <span class="badge ${priorFailure ? 'badge-danger' : 'badge-success'}">${priorFailure ? 'Last Attempt Failed' : 'Customer Approved • Ready to Bind'}</span>
-      </div>
-      <div class="card-body">
-        <p class="text-xs text-muted mb-2">Binding this quote submits a bind request to the downstream Policy Admin System, which returns a system-of-record policy number and confirms issuance.</p>
-        ${typeof renderBindStageBanners === "function" ? renderBindStageBanners(sub) : ""}
-        <div id="pasSyncStatusArea">${priorFailure ? `<div class="alert alert-danger u-fs-12"><i class="ph ph-warning-circle"></i> <strong>Bind failed (${priorFailure.code}):</strong> ${priorFailure.message}</div>` : ''}</div>
-        <button class="btn btn-primary" id="pasSyncBindBtn" onclick="simulatePASBindSync('${sub.id}')">
-          <i class="ph ph-arrows-clockwise"></i> ${priorFailure ? 'Retry Bind &amp; Sync to PAS' : 'Bind &amp; Sync to PAS'}
-        </button>
-      </div>
-    </div>`;
 }
 
 function simulateCustomerApproval(subId) {
@@ -1163,10 +492,7 @@ function simulatePASBindSync(subId) {
 
       recordQuoteVersion(sub, true);
 
-      const container = document.getElementById("step7MainContentContainer");
-      if (container) {
-        container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub);
-      }
+      renderStep7View(sub);
 
       showToast(`✅ Bound and synced to PAS. Policy Number: ${policyNumber}`, "success");
       renderSubmissionsTable();
@@ -1304,7 +630,11 @@ function getGeneratedQuoteHtml(data, sub) {
   }
 
   const totalFeeAmt = fees.reduce((sum, f) => sum + (f.amt || 0), 0);
-  const totalTaxAmt = (q.tax || 0) + (q.countyTax || 0);
+  // Tax is shown once, from the confirmed surplus lines basis (surplus-lines.js); the rating engine's own tax figure is only reconciled there.
+  const taxInfo = isTrackedSubmission && typeof slTaxFor === "function" ? slTaxFor(sub) : null;
+  const totalTaxAmt = taxInfo ? taxInfo.total : ((q.tax || 0) + (q.countyTax || 0));
+  const taxNote = taxInfo ? taxInfo.note + (taxInfo.county ? ` + county $${taxInfo.county.toLocaleString()}` : "") : `SL 4.85% ($${(q.tax||1590).toLocaleString()}) + county ($${(q.countyTax||180).toLocaleString()})`;
+  const annualTotal = (q.finalPremium || 39260) + (taxInfo ? totalTaxAmt : 0);
   const discountAmt = discounts.reduce((sum, d) => sum + Math.abs(d.amt || 0), 0);
 
   return `
@@ -1372,11 +702,11 @@ function getGeneratedQuoteHtml(data, sub) {
       <div class="qkpi-card">
         <span class="qkpi-lbl"><i class="ph ph-bank text-danger"></i> 4. State & County Taxes</span>
         <strong class="qkpi-val text-danger">+$${totalTaxAmt.toLocaleString()}</strong>
-        <span class="qkpi-sub">SL 4.85% ($${(q.tax||1590).toLocaleString()}) + Denton 0.55% ($${(q.countyTax||180).toLocaleString()})</span>
+        <span class="qkpi-sub">${taxNote}</span>
       </div>
       <div class="qkpi-card" style="background: #f0fdf4; border-color: #86efac;">
-        <span class="qkpi-lbl text-success"><i class="ph ph-lock"></i> 5. Final Annual Total</span>
-        <strong class="qkpi-val text-success font-bold" style="font-size: 20px;">$${(q.finalPremium || 39260).toLocaleString()}</strong>
+        <span class="qkpi-lbl text-success"><i class="ph ph-lock"></i> 5. Final Annual Total (premium + taxes)</span>
+        <strong class="qkpi-val text-success font-bold" style="font-size: 20px;">$${annualTotal.toLocaleString()}</strong>
         <span class="qkpi-sub text-success font-bold">12-Month Bind Terms</span>
       </div>
     </div>

@@ -126,10 +126,15 @@ function comResolveRate(sub, today, producerOverride) {
   return { rate: base.rate, source: base.source, contractId: base.contractId, agreementRate: base.rate, band, producer, businessType: type };
 }
 
-/** Premium on which commission is paid: the final premium less taxes and fees. */
+/**
+ * Premium on which commission is paid. The Final Quoted Premium from discretionary pricing is already the policy premium
+ * before tax and fees, so it is commissionable as it stands. If only the rating engine's figure exists, that figure includes
+ * the quote's taxes and fees, which are taken out.
+ */
 function comCommissionable(sub) {
   const dp = sub.discretionaryPricing, q = sub.importedRatingData && sub.importedRatingData.quote;
-  const final = (dp && dp.finalPremium) || (q && q.finalPremium) || 0;
+  if (dp && dp.finalPremium) return { final: dp.finalPremium, commissionable: dp.finalPremium, deducted: 0 };
+  const final = (q && q.finalPremium) || 0;
   if (!q) return { final, commissionable: final, deducted: 0 };
   const fees = (q.fees || []).reduce((s, f) => s + (Number(f.amt) || 0), 0);
   const tax = (Number(q.tax) || 0) + (Number(q.countyTax) || 0);

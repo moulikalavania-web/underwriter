@@ -1,0 +1,204 @@
+<!-- Suite G05: adverse-notices. Run with: python tests/run.py --suite g05 -->
+<script>
+(function(){
+  var out = [], errs = []; window.slGuardQuote=function(){return true;}; window.slGuardBind=function(){return true;}; window.authGuardQuote=function(){return true;}; window.authGuardBind=function(){return true;}; /* G06 is covered by its own suite */
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function seed(broker, lob){ return clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.broker === broker && (!lob || s.lobKey === lob); })[0]); }
+  function el(id){ return document.getElementById(id); }
+  function setv(id, v){ var e = el(id); if (e) e.value = v; else out.push('WARN missing ' + id); }
+  function setc(id, v){ var e = el(id); if (e) e.checked = !!v; else out.push('WARN missing ' + id); }
+  function baseForm(over){
+    var f = { type:'declination', reasons:['APPETITE'], reasonDetail:'', adverseTermsText:'', consumerUsed:false, reports:[],
+      recipients:{insured:true, producer:true}, deliveryMethod:'Email to producer and insured', deliveryRef:'MSG-1001', stateAck:true };
+    for (var k in (over||{})) f[k] = over[k]; return f; }
+  var report = { kind:'Credit-based insurance score', craName:'Example Reporting Agency', craAddress:'1 Data Way, Springfield, XX 00000', craPhone:'(800) 555-0100',
+    scoreUsed:true, scoreValue:'612', scoreLow:'300', scoreHigh:'850', scoreDate:'2026-09-30', scoreCreator:'Example Scoring Model', factors:'Number of recent inquiries\nHigh balances on revolving accounts' };
+  try {
+    // ---------- catalog and permissions
+    t('no sanctions reason offered', !NOTICE_REASON_CODES.some(function(r){return /sanction|ofac|watchlist/i.test(r.code + r.label);}));
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='notices';}));
+    t('matrix: junior edits, cannot issue', PERMISSIONS_MATRIX.junior.notices.edit && !PERMISSIONS_MATRIX.junior.notices.approve);
+    t('matrix: senior UW and CUO can issue', PERMISSIONS_MATRIX.senior_uw.notices.approve && PERMISSIONS_MATRIX.senior.notices.approve);
+    t('matrix: admin read only', PERMISSIONS_MATRIX.admin.notices.view && !PERMISSIONS_MATRIX.admin.notices.edit && !PERMISSIONS_MATRIX.admin.notices.approve);
+    t('audit meta added', !!AUDIT_ACTION_META.notice_issued && !!AUDIT_ACTION_META.notice_bind_blocked);
+
+    // ---------- validation (pure)
+    var sub0 = seed('Marsh & McLennan Commercial Brokerage','trucking');
+    function has(arr, re){ return arr.some(function(x){return re.test(x);}); }
+    t('valid declination passes', noticeValidate(sub0, baseForm(), true).length === 0, noticeValidate(sub0, baseForm(), true).join('|'));
+    t('needs a reason', has(noticeValidate(sub0, baseForm({reasons:[]}), false), /at least one reason/));
+    t('OTHER needs detail', has(noticeValidate(sub0, baseForm({reasons:['OTHER'], reasonDetail:'x'}), false), /other reason/));
+    t('adverse terms need a description', has(noticeValidate(sub0, baseForm({type:'adverse_terms'}), false), /adverse terms/));
+    t('needs a recipient', has(noticeValidate(sub0, baseForm({recipients:{insured:false,producer:false}}), false), /recipient/));
+    t('issue needs delivery method and reference', has(noticeValidate(sub0, baseForm({deliveryMethod:'', deliveryRef:''}), true), /delivered/) && has(noticeValidate(sub0, baseForm({deliveryMethod:'', deliveryRef:''}), true), /delivery reference/));
+    t('issue needs state acknowledgement when no state wording', has(noticeValidate(sub0, baseForm({stateAck:false}), true), /Compliance has reviewed/));
+    t('credit reason forces consumer section', has(noticeValidate(sub0, baseForm({reasons:['CREDIT_INFO'], consumerUsed:false}), false), /consumer-report section/));
+    t('consumer section needs a report', has(noticeValidate(sub0, baseForm({consumerUsed:true, reports:[]}), false), /add the consumer report/));
+    var thin = clone(report); thin.craName=''; thin.craAddress=''; thin.craPhone='12';
+    var pv = noticeValidate(sub0, baseForm({consumerUsed:true, reports:[thin]}), false);
+    t('agency name, address and phone required', has(pv,/agency name/) && has(pv,/agency address/) && has(pv,/telephone/));
+    var bad = clone(report); bad.scoreValue='900';
+    t('score outside range rejected', has(noticeValidate(sub0, baseForm({consumerUsed:true, reports:[bad]}), false), /outside the stated range/));
+    bad = clone(report); bad.scoreLow='700'; bad.scoreHigh='600';
+    t('range low must be below high', has(noticeValidate(sub0, baseForm({consumerUsed:true, reports:[bad]}), false), /score range/));
+    bad = clone(report); bad.factors='a\nb\nc\nd\ne';
+    t('more than four factors rejected', has(noticeValidate(sub0, baseForm({consumerUsed:true, reports:[bad]}), false), /no more than four/));
+    bad = clone(report); bad.factors='';
+    t('score needs at least one factor', has(noticeValidate(sub0, baseForm({consumerUsed:true, reports:[bad]}), false), /at least one key factor/));
+    bad = clone(report); bad.scoreDate='30/09/2026'; bad.scoreCreator='';
+    var pb = noticeValidate(sub0, baseForm({consumerUsed:true, reports:[bad]}), false);
+    t('score date and creator required', has(pb,/date the score/) && has(pb,/who created/));
+    t('complete FCRA form passes', noticeValidate(sub0, baseForm({reasons:['CREDIT_INFO'], consumerUsed:true, reports:[clone(report)]}), true).length === 0);
+
+    // ---------- generated text
+    var d1 = noticeBlocksToText(noticeBuildBlocks(sub0, baseForm({reasons:['APPETITE','LOSS_HISTORY']}), {issuedAt:'2026-10-08 10:00'}));
+    t('declination text', /NOTICE OF DECLINATION/.test(d1) && /unable to offer coverage/.test(d1) && /outside our current underwriting guidelines/.test(d1) && /loss history/i.test(d1) && /Dear Apex Freight LLC/.test(d1));
+    t('declination without consumer report has no FCRA text', !/consumer report/i.test(d1));
+    t('names the producer copy', /Copy to: Marsh/.test(d1));
+    var d2 = noticeBlocksToText(noticeBuildBlocks(sub0, baseForm({reasons:['CREDIT_INFO'], consumerUsed:true, reports:[clone(report)]}), {}));
+    t('FCRA: names agency, address and phone', /Example Reporting Agency/.test(d2) && /1 Data Way/.test(d2) && /\(800\) 555-0100/.test(d2));
+    t('FCRA: agency did not make the decision', /did not make this decision and cannot explain/.test(d2));
+    t('FCRA: free copy within 60 days and right to dispute', /free copy/.test(d2) && /60 days/.test(d2) && /dispute/.test(d2));
+    t('FCRA: score, range, date, source and factors', /612/.test(d2) && /300 to 850/.test(d2) && /2026-09-30/.test(d2) && /Example Scoring Model/.test(d2) && /Number of recent inquiries/.test(d2) && /High balances/.test(d2));
+    var d3 = noticeBlocksToText(noticeBuildBlocks(sub0, baseForm({type:'adverse_terms', adverseTermsText:'Premium increased 12% over standard; driver J. Smith excluded.'}), {}));
+    t('adverse-terms text', /NOTICE OF ADVERSE UNDERWRITING ACTION/.test(d3) && /less favorable/.test(d3) && /driver J. Smith excluded/.test(d3));
+    t('unapproved template warned in the notice', /not yet approved by Compliance/.test(d3));
+    NOTICE_STATE_RULES.TX = { text: 'State-required wording for Texas.' };
+    t('state wording added when configured', /State-required wording for Texas/.test(noticeBlocksToText(noticeBuildBlocks(sub0, baseForm(), {}))));
+    t('no state acknowledgement needed once configured', !has(noticeValidate(sub0, baseForm({stateAck:false}), true), /Compliance has reviewed/));
+    delete NOTICE_STATE_RULES.TX;
+    var evil = clone(sub0); evil.insured = '<scr' + 'ipt>alert(1)</scr' + 'ipt>';
+    t('HTML output is escaped', noticeBlocksToHtml(noticeBuildBlocks(evil, baseForm(), {})).indexOf('<scr' + 'ipt>') === -1);
+
+    // ---------- studio flow on a declined submission
+    SUBMISSIONS_DATASET.length = 0;
+    var sub = clone(sub0); sub.lifecycleStatus = 'declined'; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    DECLINE_LOG.length = 0; DECLINE_LOG.push({subId: sub.id, insured: sub.insured, lob: sub.lobName, triggerPoint:'Appetite Knockout', reason:'Outside guidelines', at:'2026-10-08 09:00'});
+    window.prompt = function(){ return 'Sent to the wrong address'; };
+
+    currentUserRole = 'junior';
+    renderDeclineCenter();
+    t('decline row shows Notice due', /Notice due/.test(el('exitAuditTable').innerHTML));
+    noticeOpenStudio(sub.id);
+    t('studio opens as a declination for a declined submission', !!el('noticeStudioModal') && el('noticeStudioModal').style.display === 'flex' && el('ns_type').value === 'declination');
+    t('unapproved-template banner shown', /has not been approved by Compliance/.test(el('noticeStudioModal').innerHTML));
+
+    currentUserRole = 'assistant';
+    noticeRenderStudio();
+    setc('ns_r_APPETITE', true);
+    noticeSaveDraft();
+    t('assistant cannot save a draft', noticeList(sub).length === 0);
+
+    currentUserRole = 'junior';
+    noticeRenderStudio();
+    noticeSaveDraft();
+    t('draft refused with no reason', noticeList(sub).length === 0);
+    setc('ns_r_APPETITE', true); setc('ns_r_LOSS_HISTORY', true);
+    noticeSaveDraft();
+    t('junior saves a draft', noticeList(sub).length === 1 && noticeList(sub)[0].status === 'draft' && noticeList(sub)[0].id === 'NTC-' + sub.id + '-1');
+    t('draft audit entry', sub.decisionLog.some(function(d){return d.decision==='notice_drafted';}));
+    noticeOpenStudio(sub.id);
+    noticeEditDraft(noticeList(sub)[0].id);
+    t('draft reloads for editing', el('ns_r_LOSS_HISTORY').checked === true);
+
+    // junior cannot issue
+    setv('ns_delivery', NOTICE_DELIVERY[0]); setv('ns_deliveryRef', 'MSG-2002'); setc('ns_stateAck', true);
+    noticeIssue();
+    t('junior cannot issue', noticeList(sub)[0].status === 'draft');
+
+    // senior UW issues; validation first
+    currentUserRole = 'senior_uw';
+    noticeRenderStudio();
+    setv('ns_deliveryRef', ''); setv('ns_delivery', NOTICE_DELIVERY[0]);
+    noticeIssue();
+    t('issue refused without delivery reference', noticeList(sub)[0].status === 'draft');
+    setv('ns_deliveryRef', 'MSG-2002'); setc('ns_stateAck', true);
+    noticeIssue();
+    var n1 = noticeList(sub)[0];
+    t('senior UW issues', n1.status === 'issued' && !!n1.text && !!n1.html && n1.issuedBy.indexOf('David Chen') > -1);
+    t('issued notice records template version and approval flag', n1.templateVersion === 'DRAFT-0.1' && n1.templateApproved === false);
+    t('issued audit entry with delivery reference', sub.decisionLog.some(function(d){return d.decision==='notice_issued' && /MSG-2002/.test(d.notes);}));
+    noticeEditDraft(n1.id);
+    t('issued notice cannot be edited', noticeStudio.editingId !== n1.id);
+    renderDeclineCenter();
+    t('decline row shows Notice issued', /Notice issued/.test(el('exitAuditTable').innerHTML));
+
+    // void
+    currentUserRole = 'junior';
+    noticeVoid(n1.id);
+    t('junior cannot void', n1.status === 'issued');
+    currentUserRole = 'senior';
+    noticeVoid(n1.id);
+    t('CUO voids with a reason, record kept', n1.status === 'void' && n1.voidReason === 'Sent to the wrong address' && noticeList(sub).length === 1);
+    t('void audit entry', sub.decisionLog.some(function(d){return d.decision==='notice_voided';}));
+
+    // FCRA flow through the form
+    noticeOpenStudio(sub.id, 'declination');
+    setc('ns_r_CREDIT_INFO', true);
+    noticeRefresh();
+    t('credit reason opens the consumer-report section', !!el('ns_rn_0') && el('ns_consumerUsed').checked === true);
+    noticeIssue();
+    t('FCRA fields required before issue', noticeList(sub).length === 1);
+    setv('ns_rn_0','Example Reporting Agency'); setv('ns_ra_0','1 Data Way, Springfield, XX 00000'); setv('ns_rp_0','(800) 555-0100');
+    setc('ns_su_0', true); noticeRefresh();
+    setv('ns_sv_0','612'); setv('ns_sl_0','300'); setv('ns_sh_0','850'); setv('ns_sd_0','2026-09-30'); setv('ns_sc_0','Example Scoring Model'); setv('ns_sf_0','Number of recent inquiries\nHigh balances');
+    setv('ns_delivery', NOTICE_DELIVERY[1]); setv('ns_deliveryRef','MSG-3003'); setc('ns_stateAck', true);
+    noticeIssue();
+    var n2 = noticeList(sub)[1];
+    t('FCRA notice issued with the disclosure', !!n2 && n2.status === 'issued' && /612/.test(n2.text) && /free copy/.test(n2.text) && /FCRA|consumer report/.test(sub.decisionLog.filter(function(d){return d.decision==='notice_issued';}).pop().notes));
+
+    // sanctions hold
+    noticeOpenStudio(sub.id, 'declination');
+    sub.sanctions = {screens:[],reviews:[],extraParties:[{name:'Test Blocked Person', role:'Principal / Owner'}]};
+    runSanctionsScreening(sub, 'manual');
+    noticeRenderStudio();
+    t('studio shows sanctions hold', /Notices are on hold/.test(el('noticeStudioModal').innerHTML));
+    setc('ns_r_APPETITE', true); setv('ns_delivery', NOTICE_DELIVERY[0]); setv('ns_deliveryRef','MSG-4004'); setc('ns_stateAck', true);
+    var before = noticeList(sub).length;
+    noticeIssue();
+    t('no notice issued while a sanctions match is on file', noticeList(sub).length === before);
+    sub.sanctions = {screens:[],reviews:[],extraParties:[]};
+
+    // admin read-only
+    currentUserRole = 'admin';
+    noticeOpenStudio(sub.id);
+    t('admin sees the studio read-only', /disabled/.test(el('noticeStudioModal').innerHTML) && !/Save draft/.test(el('noticeStudioModal').innerHTML));
+    noticeCloseStudio();
+    t('studio closes', el('noticeStudioModal').style.display === 'none');
+
+    // ---------- adverse-terms gate on Quote & Bind (Gallagher GL CPC: producer verified, sanctions clear)
+    SUBMISSIONS_DATASET.length = 0;
+    var gal = seed('Gallagher Commercial Brokers','gl_cpc'); gal.subjectivities = []; SUBMISSIONS_DATASET.push(gal); activeSubmissionId = gal.id;
+    gal.importedRatingData = { quote: { fees: [{code:'FEE_TRIA', amt: 400}] } };
+    gal.tria = { history:[], offer:{premium:400}, election:{decision:'accepted'} };
+    var modal = el('eSignatureModal'); modal.style.display = 'none';
+    currentUserRole = 'junior';
+    renderNoticesCard(gal);
+    t('card renders, not flagged', /Not flagged/.test(el('noticesContainer').innerHTML));
+    window.openESignatureModal();
+    t('unflagged submission is not blocked by the notice gate', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    setc('noticeAdverseFlag', true); noticeToggleAdverseFlag();
+    t('flag set and logged', gal.adverseTermsRequiresNotice === true && gal.decisionLog.some(function(d){return d.decision==='notice_flag_changed';}));
+    t('banner says quote cannot be issued', /Quote cannot be issued/.test(renderNoticesBindBanner(gal)));
+    window.openESignatureModal();
+    t('e-signature blocked until the notice is issued', modal.style.display !== 'flex');
+    t('blocked attempt logged', gal.decisionLog.some(function(d){return d.decision==='notice_bind_blocked';}));
+    currentUserRole = 'senior_uw';
+    noticeOpenStudio(gal.id, 'adverse_terms');
+    t('studio opens as adverse-terms notice', el('ns_type').value === 'adverse_terms');
+    setc('ns_r_DRIVER_ELIG', true); setv('ns_terms', 'Driver J. Smith excluded; premium increased 8%.');
+    setv('ns_delivery', NOTICE_DELIVERY[0]); setv('ns_deliveryRef','MSG-5005'); setc('ns_stateAck', true);
+    noticeIssue();
+    t('adverse-terms notice issued', noticeIssuedOfType(gal, 'adverse_terms').length === 1);
+    window.openESignatureModal();
+    t('e-signature opens once the notice is issued', modal.style.display === 'flex');
+    modal.style.display = 'none';
+    t('entry points are functions', typeof window.openESignatureModal === 'function' && typeof window.issueQuoteAction === 'function');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

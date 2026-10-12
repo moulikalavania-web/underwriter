@@ -20,71 +20,31 @@
  * source and reference; that record is audited and is the only override.
  * Direct (no-intermediary) submissions are marked not applicable.
  *
- * IMPORTANT — DEMO DATA: PRODUCER_REGISTRY_DEMO is a FICTIONAL registry with
- * invented NPNs and licence numbers so the workflow can be demonstrated. It is
- * not NIPR or any state database. Production must replace
- * lookupProducerRecord() with a licensing-data provider (for example NIPR's
- * PDB / carrier appointment feeds) and treat that as the system of record.
+ * IMPORTANT — NO REGISTRY IS SHIPPED: PRODUCER_REGISTRY is empty. Production must
+ * fill it from, or replace lookupProducerRecord() with, a licensing-data provider
+ * (for example NIPR's PDB / carrier appointment feeds) and treat that as the system
+ * of record. Until then every producer reads "Record Not Found" and an approver
+ * records a verified lookup (NPN, licence, appointment, source and reference).
  * ============================================================================
  */
 
 var PRODUCER_DEFAULT_CARRIER = "Vikram & Sons";   // used when a submission names no carrier
 var PRODUCER_REQUIRED_AUTHORITY = "Property & Casualty";
 
-var PRODUCER_REGISTRY_DEMO = [
-  {
-    names: ["Marsh & McLennan Commercial Brokerage", "Marsh & McLennan"],
-    npn: "90000001",
-    licenses: [
-      { state: "TX", number: "TX-DEMO-100001", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2027-03-31" },
-      { state: "CA", number: "CA-DEMO-100001", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2027-01-31" }
-    ],
-    appointments: [
-      { carrier: "Vikram & Sons", state: "TX", lobs: ["trucking", "property", "mpl", "gl_cpc", "gl_cas"], status: "Active", effective: "2026-01-01" },
-      { carrier: "Vikram & Sons", state: "CA", lobs: ["gl_cas"], status: "Active", effective: "2026-01-01" }
-    ]
-  },
-  {
-    names: ["Arora & Sons"],
-    npn: "90000002",
-    licenses: [{ state: "TX", number: "TX-DEMO-200002", lines: ["Property & Casualty"], status: "Active", expires: "2027-06-30" }],
-    appointments: [{ carrier: "Vikram & Sons", state: "TX", lobs: ["trucking"], status: "Active", effective: "2026-01-01" }]
-  },
-  {
-    // Licensed, but appointed only for GL CPC — a property submission fails on appointment.
-    names: ["Aon Commercial Risk Solutions"],
-    npn: "90000003",
-    licenses: [{ state: "TX", number: "TX-DEMO-300003", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2027-02-28" }],
-    appointments: [{ carrier: "Vikram & Sons", state: "TX", lobs: ["gl_cpc"], status: "Active", effective: "2026-03-01" }]
-  },
-  {
-    // Licence lapsed — fails on licence even though the appointment is active.
-    names: ["Willis Towers Watson Commercial"],
-    npn: "90000004",
-    licenses: [{ state: "MA", number: "MA-DEMO-400004", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2026-06-30" }],
-    appointments: [{ carrier: "Vikram & Sons", state: "MA", lobs: ["mpl"], status: "Active", effective: "2026-01-01" }]
-  },
-  {
-    names: ["Gallagher Commercial Brokers"],
-    npn: "90000005",
-    licenses: [{ state: "OH", number: "OH-DEMO-500005", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2027-04-30" }],
-    appointments: [{ carrier: "Vikram & Sons", state: "OH", lobs: ["gl_cpc"], status: "Active", effective: "2026-02-01" }]
-  },
-  {
-    // Licensed in Texas, no appointment on file with the carrier.
-    names: ["Amwins Specialty Wholesale Brokerage"],
-    npn: "90000006",
-    licenses: [{ state: "TX", number: "TX-DEMO-600006", lines: ["Property & Casualty", "Surplus Lines"], status: "Active", expires: "2027-05-31" }],
-    appointments: []
-  }
-];
+/**
+ * The licensing registry. The application ships none (a real deployment connects NIPR or a state licensing feed).
+ * Each record: { names: [], npn, licenses: [{ state, number, lines: [], status, expires }],
+ *                appointments: [{ carrier, state, lobs: [], status, effective }] }.
+ * With no record, the producer check reports "Record Not Found" and an approver records a verified lookup.
+ */
+var PRODUCER_REGISTRY = [];
 
 var PRODUCER_VERIFICATION_SOURCES = ["NIPR / state DOI licence lookup", "Carrier appointment confirmation", "Signed producer agreement and licence copy", "Other (explain in notes)"];
 
 var US_STATE_CODES_FOR_PRODUCER = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
 
 // ----------------------------------------------------------------------------
-// 1. PURE LOGIC (no DOM, no globals besides the demo registry)
+// 1. PURE LOGIC (no DOM, no globals besides the registry)
 // ----------------------------------------------------------------------------
 var PRODUCER_NOISE = ["llc", "inc", "ltd", "corp", "co", "company", "the", "and"];
 
@@ -96,8 +56,8 @@ function producerNameKey(name) {
 function lookupProducerRecord(brokerName) {
   const key = producerNameKey(brokerName);
   if (!key) return null;
-  for (let i = 0; i < PRODUCER_REGISTRY_DEMO.length; i++) {
-    const rec = PRODUCER_REGISTRY_DEMO[i];
+  for (let i = 0; i < PRODUCER_REGISTRY.length; i++) {
+    const rec = PRODUCER_REGISTRY[i];
     for (let j = 0; j < rec.names.length; j++) {
       const k = producerNameKey(rec.names[j]);
       if (k === key || (k.length >= 5 && key.length >= 5 && (k.indexOf(key) === 0 || key.indexOf(k) === 0))) return rec;
@@ -148,7 +108,7 @@ function evaluateProducerCompliance(sub, asOf, manual) {
     result.source = "manual";
     rec = {
       npn: manual.npn,
-      licenses: [{ state: state || manual.state, number: manual.licenseNumber, lines: [PRODUCER_REQUIRED_AUTHORITY], status: "Active", expires: manual.licenseExpires }],
+      licenses: [{ state: state || manual.state, number: manual.licenseNumber, lines: [PRODUCER_REQUIRED_AUTHORITY].concat(manual.surplusLines ? ["Surplus Lines"] : []), status: "Active", expires: manual.licenseExpires }],
       appointments: [{ carrier, state: state || manual.state, lobs: [sub.lobKey], status: "Active", effective: manual.appointmentEffective }]
     };
   }
@@ -273,7 +233,7 @@ function producerRecordManualVerification() {
   const val = id => { const el = document.getElementById(id); return el ? el.value.trim() : ""; };
   const rec = {
     npn: val("plNpn"), licenseNumber: val("plLicNo"), licenseExpires: val("plLicExp"),
-    appointmentEffective: val("plApptEff"), source: val("plSource"), reference: val("plRef"), notes: val("plNotes"),
+    appointmentEffective: val("plApptEff"), surplusLines: !!(document.getElementById("plSurplus") && document.getElementById("plSurplus").checked), source: val("plSource"), reference: val("plRef"), notes: val("plNotes"),
     by: producerActor(), at: producerNow()
   };
   const today = isoDate(new Date());
@@ -352,6 +312,7 @@ function renderProducerCard(sub) {
           <input id="plLicNo" class="form-control" style="width:170px;" placeholder="Licence number">
           <label class="text-xs text-muted" style="font-size:12px;">Licence expires <input id="plLicExp" type="date" class="form-control" style="width:150px;"></label>
           <label class="text-xs text-muted" style="font-size:12px;">Appointment effective <input id="plApptEff" type="date" class="form-control" style="width:150px;"></label>
+          <label style="font-size:12.5px;"><input type="checkbox" id="plSurplus"> Holds a surplus lines licence in this state</label>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
           <select id="plSource" class="form-control" style="width:260px;">${PRODUCER_VERIFICATION_SOURCES.map(s => `<option>${producerEsc(s)}</option>`).join("")}</select>
@@ -382,7 +343,7 @@ function renderProducerCard(sub) {
         ${recheck ? `<div style="margin-top:12px;">${recheck}</div>` : ""}
         ${manualForm}
         <p class="text-xs text-muted" style="margin-top:10px;">
-          <i class="ph ph-info"></i> Source: demonstration registry (fictional producers, NPNs and licence numbers). A production deployment must read licensing and appointment data from NIPR or a licensed provider.
+          <i class="ph ph-info"></i> Source: ${PRODUCER_REGISTRY.length ? "the loaded licensing registry" : "no licensing registry is connected; each producer is verified by recording a lookup above"}. A production deployment must read licensing and appointment data from NIPR or a licensed provider.
         </p>
       </div>
     </div>`;

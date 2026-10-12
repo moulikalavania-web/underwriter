@@ -30,8 +30,6 @@
 var CFG_STORAGE_KEY = "veridex_rate_config_v1";
 
 var CFG_ITEMS = [
-  { key: "discretionary_tax_pct", group: "quote", label: "Taxes & fees load (flat default)", unit: "%", global: "DISCRETIONARY_TAX_RATE_PCT", def: 3.2, min: 0, max: 15, step: 0.01,
-    note: "Flat load added last in discretionary pricing. Surplus lines placements use the confirmed state basis instead." },
   { key: "discretionary_max_credit", group: "quote", label: "Maximum underwriter credit", unit: "%", global: "DISCRETIONARY_MAX_CREDIT_PCT", def: 15, min: 0, max: 50, step: 0.5,
     note: "Largest discount an underwriter may apply to the base premium." },
   { key: "discretionary_max_debit", group: "quote", label: "Maximum underwriter debit", unit: "%", global: "DISCRETIONARY_MAX_DEBIT_PCT", def: 25, min: 0, max: 100, step: 0.5,
@@ -266,18 +264,6 @@ function renderRateConfig() {
       var r = origIssue.apply(this, arguments);
       try { var s = SUBMISSIONS_DATASET.filter(function (x) { return x.id === activeSubmissionId; })[0]; if (s && s.quoteIssued) { cfgPin(s); if (typeof persistAppState === "function") persistAppState(); } } catch (e) { /* ignore */ }
       return r;
-    };
-  }
-
-  // An issued quote prices with its pinned terms, not whatever the configuration says today.
-  var origCompute = window.computeFinalQuotedPremium;
-  if (typeof origCompute === "function") {
-    window.computeFinalQuotedPremium = function () {
-      var sub = (typeof SUBMISSIONS_DATASET !== "undefined") ? SUBMISSIONS_DATASET.filter(function (x) { return x.id === activeSubmissionId; })[0] : null;
-      if (!sub || !sub.configSnapshot || typeof DISCRETIONARY_TAX_RATE_PCT !== "number") return origCompute.apply(this, arguments);
-      var keep = DISCRETIONARY_TAX_RATE_PCT;
-      DISCRETIONARY_TAX_RATE_PCT = cfgValueFor(sub, "discretionary_tax_pct");
-      try { return origCompute.apply(this, arguments); } finally { DISCRETIONARY_TAX_RATE_PCT = keep; }
     };
   }
 })();

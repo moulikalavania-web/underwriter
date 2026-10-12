@@ -1,0 +1,188 @@
+<!-- Suite C04: a tester's path on a fresh app, from nothing to a bound policy, with no demonstration data in the application.
+     Fresh start; Integrating API opens; Create New Submission makes a blank record; with no sanctions list, registry or producer
+     record the gates say so rather than pass; fixture cases (tests/fixtures) walk Steps 1-7; import a rating file, issue, accept, bind;
+     the bottom bar never claims completion before bind. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function lastToast(){ return toasts.length ? toasts[toasts.length - 1] : ''; }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.confirm = function(){ return true; };
+  var realRandom = Math.random;
+  var WATCH = SANCTIONS_WATCHLIST.slice(), REG = PRODUCER_REGISTRY.slice();
+  (async function(){
+  try {
+    // ---------- fresh app: nothing is built in
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    t('the app starts empty', SUBMISSIONS_DATASET.length === 0);
+    t('there is no sample-case or sample-quote feature in the application', typeof loadSeedDemoData === 'undefined' && typeof useSampleQuote === 'undefined' && typeof completeSampleCase === 'undefined' && typeof DEFAULT_IMPORTED_RATING_JSON === 'undefined' && !el('btnLoadSampleCases'));
+    var e0 = errs.length; showIntegratingApiPage();
+    t('Integrating API is closed to a senior underwriter (guideline ownership)', !el('psEmptyStateBox') || el('psEmptyStateBox').style.display !== 'block');
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    e0 = errs.length; showIntegratingApiPage();
+    t('Integrating API opens on a fresh app without an error', errs.length === e0 && !!el('psEmptyStateBox') && el('psEmptyStateBox').style.display === 'block', errs.slice(e0).join(' | '));
+    showIntakePage();
+    t('Get Started offers create and import only', /Create New Submission/.test(el('roleDashboardContainer').innerHTML) && /Import from Email/.test(el('roleDashboardContainer').innerHTML) && !/sample/i.test(el('roleDashboardContainer').innerHTML));
+    var others = ['assistant','junior','senior_uw','senior','compliance'];
+    t('only the Head of Underwriting sees Create / Import: the buttons are hidden from everyone else', others.every(function(r){ currentUserRole = r; renderRoleDashboard(); return !/Create New Submission|Import from Email/.test(el('roleDashboardContainer').innerHTML); }));
+    t('and the actions themselves refuse anyone else', others.every(function(r){ currentUserRole = r; var n = SUBMISSIONS_DATASET.length; openNewIntakeModal(); handleCreateNewIntake({ preventDefault: function(){} }); return SUBMISSIONS_DATASET.length === n && el('newIntakeModal').style.display !== 'flex'; }));
+    currentUserRole = 'admin'; renderRoleDashboard();
+
+    // ---------- Create New Submission: blank, validated
+    openNewIntakeModal();
+    el('newIntakeInsured').value = ''; el('newIntakeFEIN').value = '74-9842109'; el('newIntakeBroker').value = 'Arora & Sons';
+    handleCreateNewIntake({ preventDefault: function(){} });
+    t('a form with no insured is refused', SUBMISSIONS_DATASET.length === 0 && /named insured/.test(lastToast()));
+    el('newIntakeInsured').value = 'Tester Freight LLC'; el('newIntakeFEIN').value = '12-34';
+    handleCreateNewIntake({ preventDefault: function(){} });
+    t('a bad FEIN is refused', SUBMISSIONS_DATASET.length === 0 && /FEIN/.test(lastToast()));
+    el('newIntakeFEIN').value = '749842109'; el('newIntakeBroker').value = '';
+    handleCreateNewIntake({ preventDefault: function(){} });
+    t('a broker submission with no broker is refused', SUBMISSIONS_DATASET.length === 0 && /broker/i.test(lastToast()));
+    el('newIntakeBroker').value = 'Arora & Sons';
+    handleCreateNewIntake({ preventDefault: function(){} });
+    var N = SUBMISSIONS_DATASET[0];
+    t('it works on a fresh app', !!N && N.insured === 'Tester Freight LLC' && N.fein === '74-9842109' && N.broker === 'Arora & Sons' && N.apiSourced === true);
+    t('the new case is blank apart from the form', N.address === '' && N.vehicles.length === 0 && N.drivers.length === 0 && N.docs.length === 0 && N.exposureVal === 0 && N.losses.length === 0 && N.coverageRows.length === 0);
+    t('and it carries no invented priority', N.priority === 'P3' && N.priorityScore === null && !/Fast-Track/.test(N.slaText));
+    showIntakePage();
+    currentUserRole = 'admin'; renderSubmissionsTable();
+    t('it appears in the queue (the Head of Underwriting sees the whole book)', /Tester Freight LLC/.test(el('submissionsTableBody').textContent));
+    var cr = evaluateCompleteness(N);
+    t('the completeness check lists what is missing on the blank case', cr.missingRequired.length >= 6 && cr.missingRequired.some(function(i){ return i.id === 'address'; }));
+
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    // ---------- no registry: nothing is invented
+    var C = clone(SEED_SUBMISSIONS_DATASET.filter(function(s){ return s.id === 'SUB-48450-IL'; })[0]); C.apiSourced = true; C.vehicles = [{ year: 2022, make: 'Volvo', model: 'VNL' }]; C.drivers = [{ given_name: 'Pat', last_name: 'Lee' }];
+    SUBMISSIONS_DATASET.push(C); activeSubmissionId = C.id; showWorkflowPage(3);
+    t('opening Data Enrichment does not fetch or fabricate anything', !C.registryEnrichment && !C.vehicles[0].vin && !C.vehicles[0].enrichment && !C.drivers[0].licenseNumber);
+    renderRegistryVerificationCard(C);
+    t('the registry card says no source is connected', /No registry source is connected/.test(el('screen4RegistryVerificationContainer').innerHTML) && !/Fetched/.test(el('screen4RegistryVerificationContainer').innerHTML));
+    renderDriverLicenseVerification(C);
+    t('driver licence verification does not claim a check happened', !/Verified/.test(el('screen4DriverLicenseContainer').innerHTML) || !/Pat/.test(el('screen4DriverLicenseContainer').innerHTML) || /No DL Number/.test(el('screen4DriverLicenseContainer').innerHTML));
+    SUBMISSIONS_DATASET.length = 0;
+
+    // ---------- fixture cases (tests bring their own data)
+    loadFixtureCases();
+    var bad = SUBMISSIONS_DATASET.filter(function(s){ return evaluateCompleteness(s).missingRequired.length > 0; });
+    t('every fixture case passes the completeness check', bad.length === 0, bad.map(function(s){ return s.id + ':' + evaluateCompleteness(s).missingRequired.map(function(i){return i.id;}).join('/'); }).join(' ; '));
+    var s0 = SUBMISSIONS_DATASET[0], seed0 = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.id === s0.id; })[0];
+    t('they are copies: the originals are untouched', s0 !== seed0 && !seed0.effectiveDate && JSON.stringify(seed0).indexOf('(sample)') === -1);
+
+    // ---------- sanctions: no list loaded is not "clear"
+    var A = SUBMISSIONS_DATASET.filter(function(s){ return s.id === 'SUB-48213-TX'; })[0];
+    A.assignedTo = 'senior_uw'; A.currentStep = 1; A.completedSteps = []; delete A.pasSync; delete A.quoteIssued;
+    activeSubmissionId = A.id; currentUserRole = 'senior_uw';
+    SANCTIONS_WATCHLIST.length = 0; SANCTIONS_LIST_NAME = 'No watchlist loaded';
+    runSanctionsScreening(A, 'manual');
+    var st = getSanctionsStatus(A);
+    t('with no watchlist the parties are NOT screened, and it says so', st.state === 'no_list' && st.latest.parties.every(function(p){ return p.result === 'not_screened'; }) && (A.decisionLog || []).some(function(d){ return d.decision === 'sanctions_no_list'; }));
+    t('that blocks bind', sanctionsGuardBind('test', A.id) === false && /no sanctions watchlist/i.test(lastToast()), lastToast());
+    currentUserRole = 'senior'; showWorkflowPage(2); renderSanctionsCard(A);
+    t('the card shows the warning and the external-screening form', /have NOT been screened/.test(el('sanctionsScreeningContainer').innerHTML) && !!el('sanctionsExtRef'));
+    currentUserRole = 'junior';
+    t('a junior cannot record an external screening', (sanctionsAttestExternal(), getSanctionsStatus(A).state === 'no_list'));
+    currentUserRole = 'senior'; renderSanctionsCard(A);
+    el('sanctionsExtConfirm').checked = false; el('sanctionsExtRef').value = 'OFAC SLS search 2026-10-09'; sanctionsAttestExternal();
+    t('the confirmation box is required', getSanctionsStatus(A).state === 'no_list');
+    el('sanctionsExtConfirm').checked = true; el('sanctionsExtRef').value = 'x'; sanctionsAttestExternal();
+    t('and so is a real reference', getSanctionsStatus(A).state === 'no_list');
+    el('sanctionsExtRef').value = 'OFAC SLS search 2026-10-09'; sanctionsAttestExternal();
+    t('an approver can record that the parties were screened elsewhere', getSanctionsStatus(A).state === 'externally_screened' && (A.decisionLog || []).some(function(d){ return d.decision === 'sanctions_external'; }));
+    t('that lets the case through', sanctionsGuardBind('test', A.id) === true);
+    sanctionsStore(A).extraParties.push({ name: 'New Party Inc', role: 'Other Named Party' }); runSanctionsScreening(A, 'party_added');
+    t('but not for a party added afterwards', getSanctionsStatus(A).state === 'no_list');
+    sanctionsStore(A).extraParties.length = 0; currentUserRole = 'senior_uw';
+    SANCTIONS_WATCHLIST.length = 0; WATCH.forEach(function(e){ SANCTIONS_WATCHLIST.push(e); }); SANCTIONS_LIST_NAME = 'TEST WATCHLIST';
+    delete A.sanctions;
+
+    // ---------- producer licensing: no registry, a recorded lookup is the way through
+    var savedReg = PRODUCER_REGISTRY.slice(); PRODUCER_REGISTRY.length = 0;
+    var pe = evaluateProducerCompliance(A);
+    t('with no licensing registry the producer is "not found", not verified', pe.status === 'not_found');
+    var sl0 = slPlacingBrokerStatus(A, 'TX');
+    t('and the surplus lines placing-broker check says to record a lookup', !sl0.ok && /Record a verified lookup/.test(sl0.reason), sl0.reason);
+    currentUserRole = 'senior'; runProducerCheck(A, 'test'); renderProducerCard(A);
+    t('the Producer card offers the recorded-lookup form, including surplus lines authority', !!el('plNpn') && !!el('plSurplus'));
+    var yr = new Date().getFullYear() + 1;
+    function fillLookup(surplus){ var m = { plNpn: '12345678', plLicNo: 'TX-5551212', plLicExp: yr + '-06-30', plApptEff: '2026-01-01', plRef: 'NIPR lookup 10/09', plSource: 'NIPR / state DOI licence lookup' };
+      Object.keys(m).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; document.body.appendChild(e); } e.value = m[id]; });
+      var c = el('plSurplus'); if (!c) { c = document.createElement('input'); c.type = 'checkbox'; c.id = 'plSurplus'; document.body.appendChild(c); } c.checked = surplus; }
+    fillLookup(false); producerRecordManualVerification();
+    t('a recorded lookup verifies the producer', evaluateProducerCompliance(A, null, A.producerCheck.manual).status === 'verified');
+    t('but without surplus lines authority the placing-broker check still fails', !slPlacingBrokerStatus(A, 'TX').ok && /surplus lines authority/.test(slPlacingBrokerStatus(A, 'TX').reason));
+    fillLookup(true); producerRecordManualVerification();
+    t('a recorded lookup that shows surplus lines authority passes the placing-broker check', slPlacingBrokerStatus(A, 'TX').ok && /recorded lookup/.test(slPlacingBrokerStatus(A, 'TX').reason), slPlacingBrokerStatus(A, 'TX').reason);
+    currentUserRole = 'senior_uw';
+    PRODUCER_REGISTRY.length = 0; savedReg.forEach(function(r){ PRODUCER_REGISTRY.push(r); }); delete A.producerCheck;
+
+    // ---------- walk a case through the seven steps
+    selectSubmission(A.id, false); showWorkflowPage(1); toasts.length = 0;
+    var path = [];
+    for (var n = 1; n <= 6; n++) {
+      var before = currentWorkflowStep; goToNextStep();
+      var modal = el('stageDecisionModal') && getComputedStyle(el('stageDecisionModal')).display !== 'none';
+      if (modal) { var notes = el('stageDecisionNotes'); if (notes) notes.value = 'Reviewed by the tester'; submitStageDecision(true); }
+      path.push(before + '>' + currentWorkflowStep);
+      if (currentWorkflowStep === before) break;
+    }
+    t('a fixture case walks from Step 1 to Step 7 with no waivers', currentWorkflowStep === 7 && A.currentStep === 7 && !((A.completeness && A.completeness.waivers) || []).length, path.join(' '));
+
+    // ---------- Step 7: the application has no sample quote; a rating file is imported
+    t('Step 7 asks for a rating file and offers no sample quote', !A.importedRatingData && /Browse Rating JSON/.test(el('step7MainContentContainer').innerHTML) && !/sample quote/i.test(el('step7MainContentContainer').innerHTML) && !el('useSampleQuoteBtn'));
+    t('and the bottom bar does not claim completion', !/Finish/.test(el('btnNextStep').innerHTML) && /not bound yet/.test(el('btnNextStep').textContent));
+    applyImportedRatingDataToSubmission(clone(SAMPLE_RATING_JSON), A); renderStep7View(A);
+    t('an imported rating file produces the quote', !!A.importedRatingData && A.isQuoteImported === true && !!A.discretionaryPricing);
+    t('the base premium is the premium before tax and fees', A.discretionaryPricing.basePremium === A.importedRatingData.quote.coveragePremium && A.discretionaryPricing.finalPremium === A.discretionaryPricing.basePremium);
+    t('the pricing card has just base, credit/debit and final', !/Broker Fee/.test(el('discretionaryPricingContainer').innerHTML) && !/Taxes &/.test(el('discretionaryPricingContainer').innerHTML));
+    t('"Issue Quote & Bind" is on the Step 7 page', !!el('pasSyncCard') && /Issue Quote &amp; Bind/.test(el('pasSyncCard').innerHTML) && !!el('issueQuoteBtn') && !el('pasSyncBindBtn'));
+    toasts.length = 0; el('issueQuoteBtn').click();
+    t('issuing is blocked until the surplus lines tax basis is confirmed', !A.quoteIssued && /tax|schedule/i.test(lastToast()), lastToast());
+
+    renderSurplusCard(A);
+    el('sl_confRef').value = 'TDI surplus lines bulletin 2026'; el('sl_confAsOf').value = '2026-01-02'; slConfirmTableBasis();
+    t('an approver confirms the tax basis', !!A.slTaxBasis);
+    t('the quote screen shows that tax', /TX surplus lines tax 4\.85%/.test(el('step7MainContentContainer').innerHTML));
+    renderSurplusCard(A);
+    el('sl_exKind').value = 'export_list'; el('sl_exRef').value = 'TX export list item 14'; el('sl_exWhy').value = 'Class is on the export list so no search is needed'; slSetExemption();
+    renderSurplusCard(A); el('sl_ackBox').checked = true; el('sl_ackRef').value = 'email 10/08'; slAckDisclosure();
+    t('the search exemption and disclosure can be recorded', !!(A.diligentSearch && A.diligentSearch.exemption) && !!A.slDisclosure);
+    toasts.length = 0; el('issueQuoteBtn').click();
+    t('Issue Quote opens the e-signature step', getComputedStyle(el('eSignatureModal')).display !== 'none', lastToast());
+    el('eSigNameInput').value = 'David Chen'; el('eSigAttestCheckbox').checked = true; confirmESignatureAndBind();
+    t('the quote is issued', A.quoteIssued === true && !!A.eSignature, lastToast());
+    t('the page moves to "customer accepts"', !!el('customerApproveBtn') && !el('issueQuoteBtn') && /Awaiting customer/.test(el('pasSyncCard').innerHTML));
+    t('and the bottom bar still does not claim completion', !/Finish/.test(el('btnNextStep').innerHTML) && /not bound yet/.test(el('btnNextStep').textContent));
+    el('customerApproveBtn').click();
+    t('customer acceptance unlocks binding', A.customerApproved === true && !!el('pasSyncBindBtn'));
+
+    toasts.length = 0; Math.random = function(){ return 0.5; }; el('pasSyncBindBtn').click();
+    t('binding is blocked while pre-bind subjectivities are open', !A.pasSync && /subjectiv/i.test(lastToast()), lastToast());
+    ensureSubjectivityItems(A).filter(function(i){ return i.timing === 'pre_bind' && i.status === 'open'; }).forEach(function(i){
+      renderSubjectivityViews(A); var inp = el('sj_note_qb_' + i.id); if (inp) inp.value = 'Reviewed and not required for this class.'; subjWaive(i.id, 'qb'); });
+    toasts.length = 0; (el('pasSyncBindBtn') || { click: function(){ simulatePASBindSync(A.id); } }).click();
+    await sleep(2600);
+    Math.random = realRandom;
+    t('the policy binds and gets a policy number', !!(A.pasSync && A.pasSync.status === 'success' && A.pasSync.policyNumber), JSON.stringify(A.pasSync) + ' ' + lastToast());
+    t('the Step 7 card shows the policy number', /Bound/.test(el('pasSyncCard').innerHTML) && A.pasSync && el('pasSyncCard').innerHTML.indexOf(A.pasSync.policyNumber) > -1);
+    t('only now does the bottom bar say the policy is bound', /Policy bound/.test(el('btnNextStep').textContent), el('btnNextStep').textContent);
+    toasts.length = 0; el('btnNextStep').click();
+    t('returning to the queue says it is bound, with the policy number', /bound/.test(lastToast()) && lastToast().indexOf(A.pasSync.policyNumber) > -1 && !/Policy Flow Complete/.test(lastToast()), lastToast());
+
+    // ---------- leaving early is honest
+    var B = SUBMISSIONS_DATASET.filter(function(s){ return s.id !== A.id && s.lobKey === 'trucking'; })[0];
+    B.assignedTo = 'senior_uw'; delete B.pasSync; delete B.quoteIssued; B.currentStep = 7; selectSubmission(B.id, false); showWorkflowPage(7);
+    toasts.length = 0; leaveStepSeven();
+    t('leaving Step 7 without binding does not say the flow is complete', /not bound yet/.test(lastToast()) && !/Complete/.test(lastToast()), lastToast());
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  Math.random = realRandom;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  })();
+})();
+</script>

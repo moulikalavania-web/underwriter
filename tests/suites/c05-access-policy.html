@@ -1,0 +1,104 @@
+<!-- Suite C05: written role definitions, the access-policy rules the permission table must obey (separation of duties, least
+     privilege, audit-log protection), the check on every permission change, and the periodic access review by the Compliance Officer. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function last(){ return toasts.length ? toasts[toasts.length-1] : ''; }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  var INTERNAL = ['assistant','junior','senior_uw','senior','admin','compliance'];
+  try {
+    el('loginUserSelect').value = 'admin'; el('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- definitions
+    t('every shipped role has a written definition: purpose, may, must not, separation of duties', INTERNAL.every(function(k){ var d = ROLE_DEFINITIONS[k]; return d && d.purpose.length > 30 && d.may.length >= 2 && d.mustNot.length >= 2 && d.separation.length > 20; }));
+    t('the basis names the federal and industry references and the NIST controls used', ['AC-2','AC-3','AC-5','AC-6','AU-9','NAIC'].every(function(x){ return ACCESS_POLICY_BASIS.some(function(b){ return (b.ref + ' ' + b.text).indexOf(x) > -1; }); }));
+    t('the policy has the six rules', ACCESS_RULES.length === 6 && ['SOD-1','SOD-2','SOD-3','LP-1','LP-2','AU-1'].every(function(id){ return ACCESS_RULES.some(function(r){ return r.id === id; }); }));
+
+    // ---------- the shipped permission table obeys the policy
+    var v = validatePermissionMatrix(PERMISSIONS_MATRIX, INTERNAL);
+    t('the default permission table breaks none of the rules', v.length === 0, v.map(function(x){ return x.rule + ' ' + x.role + '.' + x.resource; }).join(', '));
+    t('Priya Nair is the Head of Underwriting, not a system administrator, with no case authority', USER_ROLES_CONFIG.admin.name === 'Priya Nair' && USER_ROLES_CONFIG.admin.title === 'Head of Underwriting' && USER_ROLES_CONFIG.admin.limit === 0 && !/System Administrator/.test(JSON.stringify(USER_ROLES_CONFIG)) && !/System Administrator/.test(document.querySelector('.app-layout').innerHTML));
+    t('the Head of Underwriting runs workflow steps but makes no risk decision and edits no case data', PERMISSIONS_MATRIX.admin.workflow.approve && !PERMISSIONS_MATRIX.admin.premiumAdjustment.approve && !PERMISSIONS_MATRIX.admin.premiumAdjustment.edit && !PERMISSIONS_MATRIX.admin.documents.edit && !PERMISSIONS_MATRIX.admin.sanctions.edit);
+    t('the Head of Underwriting owns the guidelines: appetite rules, routing thresholds, rate and limit changes, retention, and underwriter-level performance', PERMISSIONS_MATRIX.admin.appetiteRules.edit && PERMISSIONS_MATRIX.admin.reviewRules.edit && PERMISSIONS_MATRIX.admin.rateConfig.edit && PERMISSIONS_MATRIX.admin.rateConfig.approve && PERMISSIONS_MATRIX.admin.performance.approve && PERMISSIONS_MATRIX.admin.archival.archive);
+    t('and still manages retention and routing thresholds', PERMISSIONS_MATRIX.admin.archival.edit && PERMISSIONS_MATRIX.admin.archival.archive && PERMISSIONS_MATRIX.admin.reviewRules.edit);
+    t('no one can change the audit log', INTERNAL.every(function(k){ var p = PERMISSIONS_MATRIX[k].auditLog; return !p.edit && !p.approve && !p.override && !p.archive; }));
+    t('only the Compliance Officer can record access reviews', INTERNAL.every(function(k){ return (k === 'compliance') === !!PERMISSIONS_MATRIX[k].accessReview.approve; }));
+    t('the Compliance Officer holds nothing else beyond view', Object.keys(PERMISSIONS_MATRIX.compliance).every(function(r){ var p = PERMISSIONS_MATRIX.compliance[r]; return r === 'accessReview' || (!p.edit && !p.approve && !p.override && !p.archive); }));
+    t('the assistant approves and overrides nothing', Object.keys(PERMISSIONS_MATRIX.assistant).every(function(r){ return !PERMISSIONS_MATRIX.assistant[r].approve && !PERMISSIONS_MATRIX.assistant[r].override; }));
+
+    // ---------- the check catches each breach
+    function breach(mut){ var m = clone(PERMISSIONS_MATRIX); mut(m); return validatePermissionMatrix(m, INTERNAL); }
+    t('SOD-1: administrator approving a price', breach(function(m){ m.admin.premiumAdjustment.approve = true; }).some(function(x){ return x.rule === 'SOD-1'; }));
+    t('SOD-1: administrator editing pricing', breach(function(m){ m.admin.premiumAdjustment.edit = true; }).some(function(x){ return x.rule === 'SOD-1'; }));
+    t('SOD-2: Compliance Officer editing documents', breach(function(m){ m.compliance.documents.edit = true; }).some(function(x){ return x.rule === 'SOD-2'; }));
+    t('SOD-3: administrator recording access reviews', breach(function(m){ m.admin.accessReview.approve = true; m.admin.accessReview.view = true; }).some(function(x){ return x.rule === 'SOD-3'; }));
+    t('LP-1: assistant overriding appetite rules', breach(function(m){ m.assistant.appetiteRules.override = true; }).some(function(x){ return x.rule === 'LP-1'; }));
+    t('LP-2: editing something you cannot view', breach(function(m){ m.junior.documents.view = false; }).some(function(x){ return x.rule === 'LP-2'; }));
+    t('AU-1: archiving the audit log', breach(function(m){ m.senior.auditLog.archive = true; }).some(function(x){ return x.rule === 'AU-1'; }));
+
+    // ---------- the Head of Underwriting can propose and approve configuration changes, never the same one
+    currentUserRole = 'admin'; var inp = function(id, v){ var e = el(id) || (function(){ var n = document.createElement('input'); n.id = id; document.body.appendChild(n); return n; })(); e.value = v; };
+    var d = new Date(); d.setUTCDate(d.getUTCDate() + 1); var tomorrow = d.toISOString().slice(0,10);
+    inp('cfg_val_market_lock_days', '45'); inp('cfg_eff_market_lock_days', tomorrow); inp('cfg_why_market_lock_days', 'Shorten the lock to match practice');
+    cfgPropose('market_lock_days');
+    t('the Head of Underwriting can propose a configuration change', !!cfgPending('market_lock_days'));
+    toasts.length = 0; cfgDecide('market_lock_days', true);
+    t('but cannot approve their own proposal', !!cfgPending('market_lock_days') && /different approver/.test(last()), last());
+    currentUserRole = 'senior'; cfgDecide('market_lock_days', true);
+    t('another approver can', !cfgPending('market_lock_days'));
+    try { localStorage.removeItem(CFG_STORAGE_KEY); } catch (e) {} cfgLoad(); cfgApply(); currentUserRole = 'admin';
+
+    // ---------- the permission table editor
+    populateResourceSelect(); el('userMasterResourceSelect').value = 'premiumAdjustment'; renderPermissionMatrixEditor();
+    t('the editor shows the role definitions and the policy status', !!el('roleDefinitionsContainer') && /Role definitions and access policy/.test(el('roleDefinitionsContainer').innerHTML) && /meets all 6 access-policy rules/.test(el('roleDefinitionsContainer').innerHTML) && /Underwriter I/.test(el('roleDefinitionsContainer').innerHTML) && /Separation of duties/.test(el('roleDefinitionsContainer').innerHTML));
+    t('each role has its May and Must-not lists on screen', /Must not/.test(el('roleDefinitionsContainer').innerHTML) && /Override, waive or decide on risk/.test(el('roleDefinitionsContainer').innerHTML));
+    var cb = document.querySelector('.rbac-editor-cb[data-role="admin"][data-action="approve"]'); cb.checked = true;
+    var before = JSON.stringify(PERMISSIONS_MATRIX); toasts.length = 0; savePermissionMatrixEditor();
+    t('saving a change that breaks the policy is refused, with the rule and reason', JSON.stringify(PERMISSIONS_MATRIX) === before && /SOD-1/.test(last()) && /Head of Underwriting may not approve/.test(last()), last());
+    renderPermissionMatrixEditor();
+    cb = document.querySelector('.rbac-editor-cb[data-role="junior"][data-action="override"]'); cb.checked = true; toasts.length = 0; savePermissionMatrixEditor();
+    t('an allowed change saves', PERMISSIONS_MATRIX.junior.premiumAdjustment.override === true && /saved/.test(last()), last());
+    t('and is logged (who, what, from and to)', ACCESS_STATE.changes.length === 1 && /junior override premiumAdjustment: off → on/.test(ACCESS_STATE.changes[0].summary) && /Priya Nair/.test(ACCESS_STATE.changes[0].by));
+    t('a role whose permissions changed after its review is flagged (never reviewed yet here)', accessReviewStatus('junior').status === 'never');
+    PERMISSIONS_MATRIX.junior.premiumAdjustment.override = false;
+
+    // ---------- periodic access review
+    currentUserRole = 'junior'; renderAccessReviews();
+    t('a junior sees no access reviews', el('accessReviewContainer') && el('accessReviewContainer').innerHTML === '');
+    currentUserRole = 'admin'; renderAccessReviews();
+    t('the administrator can see them but has no way to record one', /Access reviews/.test(el('accessReviewContainer').innerHTML) && !el('accessNote_junior'));
+    currentUserRole = 'compliance'; renderAccessReviews();
+    t('the Compliance Officer sees every role as never reviewed, with a form for each', INTERNAL.every(function(k){ return !!el('accessNote_' + k) && accessReviewStatus(k).status === 'never'; }) && /Never reviewed/.test(el('accessReviewContainer').innerHTML));
+    el('accessNote_junior').value = 'short'; el('accessRef_junior').value = 'REV-1'; toasts.length = 0;
+    t('a review needs a written outcome', accessRecordReview('junior') === false && /at least 10/.test(last()));
+    el('accessNote_junior').value = 'Checked against the role definition; no excess rights.'; el('accessRef_junior').value = '';
+    t('and a reference', accessRecordReview('junior') === false && /reference/.test(last()));
+    el('accessRef_junior').value = 'ACCESS-2026-Q4-01';
+    t('the Compliance Officer records a review', accessRecordReview('junior') === true && accessReviewStatus('junior').status === 'current');
+    t('the status shows who, when and the next due date', /ACCESS-2026-Q4-01/.test(el('accessReviewContainer').innerHTML) && /Robert Okafor/.test(el('accessReviewContainer').innerHTML) && /Next review by/.test(el('accessReviewContainer').innerHTML));
+    PERMISSIONS_MATRIX.junior.workflow.override = true;
+    t('a change to the role\'s permissions after the review voids it', accessReviewStatus('junior').status === 'changed');
+    PERMISSIONS_MATRIX.junior.workflow.override = false;
+    t('and putting it back restores it', accessReviewStatus('junior').status === 'current');
+    var rec = ACCESS_STATE.reviews[ACCESS_STATE.reviews.length - 1]; var old = rec.at; rec.at = '2026-01-01 09:00';
+    t('a review older than the interval is due again', accessReviewStatus('junior', null, '2026-12-01').status === 'due' && accessReviewStatus('junior', null, '2026-02-01').status === 'current');
+    rec.at = old;
+    PERMISSIONS_MATRIX.admin.premiumAdjustment.approve = true;
+    renderAccessReviews(); el('accessNote_admin').value = 'Confirmed admin access is appropriate.'; el('accessRef_admin').value = 'ACCESS-2026-Q4-02'; toasts.length = 0;
+    t('a role that breaks the policy cannot be confirmed by a review', accessRecordReview('admin') === false && /SOD-1/.test(last()), last());
+    PERMISSIONS_MATRIX.admin.premiumAdjustment.approve = false;
+    currentUserRole = 'senior_uw'; toasts.length = 0;
+    t('anyone else is refused', accessRecordReview('junior') === false);
+    var entries = collectAuditLogEntries();
+    t('reviews and permission changes appear in the Audit Log', entries.some(function(e){ return e.type === 'access_review_recorded' && /ACCESS-2026-Q4-01/.test(e.note); }) && entries.some(function(e){ return e.type === 'permission_changed'; }) && auditActionMeta('permission_changed').label === 'Role Permissions Changed');
+    t('XSS-safe', accessEsc('<b>') === '&lt;b&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  try { localStorage.removeItem(ACCESS_STORAGE_KEY); } catch(e) {}
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

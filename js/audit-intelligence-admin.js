@@ -1,7 +1,7 @@
 // FEATURE #2: AUDIT LOG (Compliance — Consolidated Underwriting Action Trail)
 // ============================================================================
 // Every gated underwriter action across the platform writes to one of a
-// handful of per-submission arrays (sub.decisionLog, sub.premiumAdjustments,
+// handful of per-submission arrays (sub.decisionLog,
 // sub.submissionVersions) plus the global DECLINE_LOG. Those were previously
 // captured but never surfaced anywhere — this page walks all of them, tags
 // each entry with a normalized action type, and renders one merged,
@@ -13,11 +13,11 @@ const AUDIT_ACTION_META = {
   declined:              { label: "Submission Declined",            icon: "ph-prohibit",                 badge: "badge-danger",  outcome: "outcome-decline" },
   discretionary_credit:  { label: "Discretionary Credit Applied",   icon: "ph-trend-down",                badge: "badge-primary", outcome: "outcome-pricing" },
   discretionary_debit:   { label: "Discretionary Debit Applied",    icon: "ph-trend-up",                  badge: "badge-primary", outcome: "outcome-pricing" },
-  premium_adjustment:    { label: "Premium Adjusted",               icon: "ph-currency-circle-dollar",    badge: "badge-primary", outcome: "outcome-pricing" },
-  premium_override:      { label: "Premium Override (Above Authority)", icon: "ph-warning-circle",        badge: "badge-primary", outcome: "outcome-pricing" },
   bound_and_synced:      { label: "Bound & Synced to PAS",          icon: "ph-link",                      badge: "badge-info",    outcome: "outcome-bind" },
   quote_issued:          { label: "Quote Issued",                   icon: "ph-paper-plane-tilt",          badge: "badge-info",    outcome: "outcome-bind" },
   fein_fixed:            { label: "Duplicate FEIN Resolved",        icon: "ph-wrench",                    badge: "badge-warning", outcome: "outcome-refer" },
+  permission_changed:    { label: "Role Permissions Changed",       icon: "ph-key",                       badge: "badge-warning", outcome: "outcome-refer" },
+  archival_policy_changed: { label: "Archival Policy Changed",     icon: "ph-sliders",                   badge: "badge-light",   outcome: "outcome-comm" },
   archived:              { label: "Submission Archived",            icon: "ph-archive",                   badge: "badge-light",   outcome: "outcome-comm" },
   rfi_sent:              { label: "RFI Sent to Submitter",          icon: "ph-envelope",                  badge: "badge-light",   outcome: "outcome-comm" },
   subjectivity_added:    { label: "Binding Condition Added",        icon: "ph-list-plus",                 badge: "badge-light",   outcome: "outcome-comm" },
@@ -49,17 +49,6 @@ function collectAuditLogEntries() {
         subId: sub.id,
         insured: insuredLabel,
         note: d.notes || null
-      });
-    });
-
-    (sub.premiumAdjustments || []).forEach(p => {
-      entries.push({
-        type: p.isOverride ? "premium_override" : "premium_adjustment",
-        at: p.at,
-        by: p.by,
-        subId: sub.id,
-        insured: insuredLabel,
-        note: `$${(p.oldPremium || 0).toLocaleString()} → $${(p.newPremium || 0).toLocaleString()} (Trust/Risk Score ${p.trustScoreAtAdjustment}/100). ${p.reason}`
       });
     });
 
@@ -100,6 +89,17 @@ function collectAuditLogEntries() {
       });
     }
   });
+
+  // Archival policy changes are not tied to one submission; the Archive page no longer keeps its own history of them.
+  (typeof ARCHIVAL_POLICY !== "undefined" ? ARCHIVAL_POLICY.changeLog : []).forEach(c => {
+    entries.push({ type: "archival_policy_changed", at: c.at, by: c.by, subId: "System", insured: "Archival policy", note: c.summary });
+  });
+
+  // Access reviews and permission changes are system-level: the Compliance Officer's review record and the administrator's changes.
+  if (typeof ACCESS_STATE !== "undefined") {
+    (ACCESS_STATE.reviews || []).forEach(r => entries.push({ type: "access_review_recorded", at: r.at, by: r.by, subId: "System", insured: "Access review", note: `${(USER_ROLES_CONFIG[r.role] || {}).title || r.role}: ${r.note} (${r.reference})` }));
+    (ACCESS_STATE.changes || []).forEach(c => entries.push({ type: "permission_changed", at: c.at, by: c.by, subId: "System", insured: "Role permissions", note: c.summary }));
+  }
 
   entries.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
   return entries;
@@ -146,7 +146,7 @@ function renderAuditLogFeed() {
 
   if (summaryEl) {
     const declineCount = entries.filter(e => e.type === "declined").length;
-    const pricingCount = entries.filter(e => ["discretionary_credit", "discretionary_debit", "premium_adjustment", "premium_override"].includes(e.type)).length;
+    const pricingCount = entries.filter(e => ["discretionary_credit", "discretionary_debit"].includes(e.type)).length;
     const bindCount = entries.filter(e => ["bound_and_synced", "quote_issued"].includes(e.type)).length;
     const activeUnderwriters = new Set(entries.map(e => e.by).filter(Boolean)).size;
     summaryEl.innerHTML = `
@@ -262,7 +262,7 @@ function showAuditLogPage() {
 // ============================================================================
 // FEATURE #3: QUOTE INTELLIGENCE (Renewal Comparison + Multiple Quote Comparison)
 // ============================================================================
-let quoteIntelActiveTab = "renewal";
+let quoteIntelActiveTab = "versions";
 let selectedCompareIds = [];
 
 function showQuoteIntelligencePage() {
@@ -357,7 +357,7 @@ function renderUnifiedAccountView() {
   const totalPremium = records.reduce((sum, s) => sum + getSubmissionPremium(s), 0);
   const totalExposure = records.reduce((sum, s) => sum + (s.exposureVal || 0), 0);
   const distinctLOBs = Array.from(new Set(records.map(s => s.lobName)));
-  const avgTrustScore = Math.round(records.reduce((sum, s) => sum + getSubmissionTrustScore(s), 0) / records.length);
+  const avgRiskScore = Math.round(records.reduce((sum, s) => sum + getEffectiveRiskScore(s), 0) / records.length);
   const accountLabel = records[0].accountName || records[0].insured;
 
   if (distinctLOBs.length <= 1) {
@@ -391,7 +391,7 @@ function renderUnifiedAccountView() {
           <div><span class="text-xs text-muted">Total Premium (All Lines)</span><br><strong class="font-mono" style="font-size:15px;">$${totalPremium.toLocaleString()}</strong></div>
           <div><span class="text-xs text-muted">Total Exposure</span><br><strong class="font-mono">$${totalExposure.toLocaleString()}</strong></div>
           <div><span class="text-xs text-muted">Lines of Business</span><br><strong>${distinctLOBs.join(", ")}</strong></div>
-          <div><span class="text-xs text-muted">Average Trust/Risk Score</span><br><strong>${avgTrustScore}/100</strong></div>
+          <div><span class="text-xs text-muted">Average Risk Score (higher = riskier)</span><br><strong>${avgRiskScore}/100</strong></div>
         </div>
       </div>
     </div>
@@ -411,17 +411,6 @@ function renderUnifiedAccountView() {
 // INTEGRATING API FROM PRODUCT — Standalone product REST API JSON payload viewer
 // Demonstrates live data ingestion from standalone product endpoints into FUT.
 // ============================================================================
-
-
-
-
-
-
-
-
-
-
-
 
 function showUserMasterPage() {
   currentPage = "user-master";
@@ -610,29 +599,9 @@ function openAssignRightsModal(userId) {
   if (typeof switchAssignHubTab === "function") switchAssignHubTab("rights");
 }
 
-function closeAssignRightsModal() {
-  if (typeof closeAssignHubModal === "function") closeAssignHubModal();
-  assignRightsHighlightRoleKey = null;
-}
-
-/**
- * Appends a new persona to the header role switcher dropdown so a newly
- * added user is genuinely selectable — not just visible in the roster.
- */
-function addRoleDropdownOption(roleKey, name, title, limit) {
-  const select = document.getElementById("userRoleSelect");
-  if (!select) return;
-  const role = USER_ROLES_CONFIG[roleKey];
-  const opt = document.createElement("option");
-  opt.value = roleKey;
-  const limitLabel = limit > 0 ? `$${(limit / 1000000).toFixed(1)}M Limit` : "No Authority Limit";
-  opt.textContent = `${role ? role.icon : "👤"} ${title} (${name} - ${limitLabel})`;
-  select.appendChild(opt);
-}
-
 function openAddUserModal() {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can add users.", "danger");
+    showToast("⛔ Only the Head of Underwriting can add users.", "danger");
     return;
   }
 
@@ -666,7 +635,7 @@ function openAddUserModal() {
  */
 function editTeamUser(userId) {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can edit users.", "danger");
+    showToast("⛔ Only the Head of Underwriting can edit users.", "danger");
     return;
   }
   const user = TEAM_USERS.find(u => u.id === userId);
@@ -772,7 +741,7 @@ function closeAddUserModal() {
 
 function saveNewUser() {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can add users.", "danger");
+    showToast("⛔ Only the Head of Underwriting can add users.", "danger");
     return;
   }
 
@@ -847,7 +816,6 @@ function saveNewUser() {
   };
 
   TEAM_USERS.push(newUser);
-  addRoleDropdownOption(newRoleKey, name, title, limit);
   renderTeamRoster();
   closeAddUserModal();
   showToast(`✅ ${name} added as a selectable persona (inherits ${baseRole ? baseRole.title : baseRoleKey} permissions). Select them from the role switcher in the header to log in as them.`, "success");
@@ -902,7 +870,7 @@ function renderPermissionMatrixEditor() {
 
 function savePermissionMatrixEditor() {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can edit permissions.", "danger");
+    showToast("⛔ Only the Head of Underwriting can edit permissions.", "danger");
     return;
   }
 
@@ -921,7 +889,7 @@ function savePermissionMatrixEditor() {
 
 function resetPermissionsMatrix() {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can reset permissions.", "danger");
+    showToast("⛔ Only the Head of Underwriting can reset permissions.", "danger");
     return;
   }
   PERMISSIONS_MATRIX = defaultPermissionsMatrix();
@@ -931,18 +899,23 @@ function resetPermissionsMatrix() {
 
 function switchQuoteIntelTab(tab) {
   quoteIntelActiveTab = tab;
+  const tabVersions = document.getElementById("qiTabVersions");
   const tabRenewal = document.getElementById("qiTabRenewal");
   const tabCmp = document.getElementById("qiTabCompare");
+  const panelVersions = document.getElementById("qiPanelVersions");
   const panelRenewal = document.getElementById("qiPanelRenewal");
   const panelCmp = document.getElementById("qiPanelCompare");
 
+  if (tabVersions) tabVersions.classList.toggle("active", tab === "versions");
   if (tabRenewal) tabRenewal.classList.toggle("active", tab === "renewal");
   if (tabCmp) tabCmp.classList.toggle("active", tab === "compare");
+  if (panelVersions) panelVersions.style.display = tab === "versions" ? "block" : "none";
   if (panelRenewal) panelRenewal.style.display = tab === "renewal" ? "block" : "none";
   if (panelCmp) panelCmp.style.display = tab === "compare" ? "block" : "none";
 
-  if (tab === "renewal") populateRenewalSelector();
-  else populateCompareLobFilter();
+  if (tab === "versions") renderQuoteVersionsLedger();
+  else if (tab === "renewal") populateRenewalSelector();
+  else if (tab === "compare") populateCompareLobFilter();
 }
 
 /**
@@ -1112,7 +1085,7 @@ function renderQuoteComparisonTable() {
     { label: "Quote Number", get: s => s.quoteNo || "—" },
     { label: "Quoted Premium", get: s => `$${getSubmissionPremium(s).toLocaleString()}` },
     { label: "Exposure Value", get: s => `$${(s.exposureVal || 0).toLocaleString()}` },
-    { label: "Trust/Risk Score", get: s => getSubmissionTrustScore(s) },
+    { label: "Risk Score (higher = riskier)", get: s => getEffectiveRiskScore(s) },
     { label: "Priority", get: s => s.priority },
     { label: "Status", get: s => s.statusText },
     { label: "Current Stage", get: s => { const st = WORKFLOW_STEPS.find(w => w.step === (s.currentStep || 1)); return st ? st.title : "—"; } },
@@ -1137,123 +1110,6 @@ function renderQuoteComparisonTable() {
         </table>
       </div>
     </div>`;
-}
-
-// ============================================================================
-// FEATURE #7: TRUST SCORE-BASED PREMIUM ADJUSTMENT
-// ============================================================================
-let premiumAdjustTargetId = null;
-
-function openPremiumAdjustModal(subId) {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === subId) || SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (!sub) return;
-  premiumAdjustTargetId = sub.id;
-
-  const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const trustScore = getSubmissionTrustScore(sub);
-  const currentPremium = getSubmissionPremium(sub);
-
-  const modal = document.getElementById("premiumAdjustModal");
-  const body = document.getElementById("premiumAdjustModalBody");
-  if (!modal || !body) return;
-
-  body.innerHTML = `
-    <div style="font-size:13px; margin-bottom:10px;">
-      <strong>Submission:</strong> <code>${sub.id}</code> — ${sub.insured || "N/A"}
-    </div>
-    <div class="alert alert-info" style="font-size:12.5px; margin-bottom:14px;">
-      <i class="ph ph-info"></i> Customer Trust/Risk Score: <strong>${trustScore} / 100</strong>. Your authority limit as ${roleConfig.title}: <strong>$${roleConfig.limit.toLocaleString()}</strong>.
-    </div>
-    <div class="form-group mb-3">
-      <label class="u-label-sm">Current Quoted Premium</label>
-      <input type="text" class="form-control" value="$${currentPremium.toLocaleString()}" disabled>
-    </div>
-    <div class="form-group mb-3">
-      <label class="u-label-sm">New Premium</label>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span>$</span>
-        <input type="number" id="premiumAdjustNewValue" class="form-control" value="${currentPremium}" min="0">
-      </div>
-      <p class="text-xs text-muted u-mt-4">Must remain within your authorized limit ($${roleConfig.limit.toLocaleString()}).</p>
-    </div>
-    <div class="form-group mb-3">
-      <label class="u-label-sm">Reason for Adjustment <span class="u-text-danger">*</span></label>
-      <textarea id="premiumAdjustReason" class="form-control" rows="3" placeholder="e.g. Trust score reflects 5-year clean loss history; adjusting premium down 8% per pricing guideline..."></textarea>
-    </div>
-    <div id="premiumAdjustHistory" class="text-xs text-muted"></div>
-  `;
-
-  const history = (sub.premiumAdjustments || []).slice().reverse();
-  const historyEl = document.getElementById("premiumAdjustHistory");
-  if (history.length && historyEl) {
-    historyEl.innerHTML = `<strong>Adjustment History:</strong>` + history.map(h =>
-      `<div>› ${h.at} — <strong>${h.by}</strong> changed $${h.oldPremium.toLocaleString()} → $${h.newPremium.toLocaleString()}: ${h.reason}</div>`
-    ).join("");
-  }
-
-  modal.style.display = "flex";
-}
-
-function closePremiumAdjustModal() {
-  const modal = document.getElementById("premiumAdjustModal");
-  if (modal) modal.style.display = "none";
-  premiumAdjustTargetId = null;
-}
-
-function submitPremiumAdjustment() {
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === premiumAdjustTargetId);
-  if (!sub) return;
-
-  if (!hasPermission("premiumAdjustment", "edit")) {
-    denyPermission("premiumAdjustment", "edit");
-    return;
-  }
-
-  const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const newValRaw = document.getElementById("premiumAdjustNewValue").value;
-  const reason = document.getElementById("premiumAdjustReason").value.trim();
-  const newPremium = parseInt(newValRaw, 10);
-
-  if (!reason) {
-    showToast("⛔ A reason is required to record a premium adjustment.", "danger");
-    return;
-  }
-  if (isNaN(newPremium) || newPremium < 0) {
-    showToast("⛔ Enter a valid premium amount.", "danger");
-    return;
-  }
-
-  let isOverride = false;
-  if (newPremium > roleConfig.limit) {
-    if (hasPermission("premiumAdjustment", "override")) {
-      isOverride = true;
-    } else {
-      showToast(`⛔ $${newPremium.toLocaleString()} exceeds your authorized limit of $${roleConfig.limit.toLocaleString()}. Escalate to a higher authority instead.`, "danger");
-      return;
-    }
-  }
-
-  const oldPremium = getSubmissionPremium(sub);
-  if (!sub.premiumAdjustments) sub.premiumAdjustments = [];
-  sub.premiumAdjustments.push({
-    oldPremium,
-    newPremium,
-    reason,
-    by: `${roleConfig.name} (${roleConfig.title})`,
-    trustScoreAtAdjustment: getSubmissionTrustScore(sub),
-    at: new Date().toISOString().slice(0, 16).replace("T", " "),
-    isOverride
-  });
-  sub.currentPremium = newPremium;
-
-  showToast(isOverride
-    ? `⚡ OVERRIDE: Premium adjusted beyond standard authority: $${oldPremium.toLocaleString()} → $${newPremium.toLocaleString()} by ${roleConfig.name}. Override logged.`
-    : `✅ Premium adjusted: $${oldPremium.toLocaleString()} → $${newPremium.toLocaleString()} by ${roleConfig.name}. Reason recorded.`, "success");
-  closePremiumAdjustModal();
-
-  // Refresh any visible views that display premium
-  if (currentPage === "quote-intel") { renderQuoteCompareSelector(); renderRenewalComparison(); }
-  refreshAuditLogIfVisible();
 }
 
 let ratingTransitionTimer = null;
@@ -1428,9 +1284,6 @@ function goToWorkflowStep(stepNum) {
 
   // Auto-fetch NHTSA / FMCSA / State DMV registry data the first time this
   // submission's Data Enrichment & Smart Routing step is opened.
-  if (sub && stepNum === 3 && typeof runSubmissionRegistryFetch === "function") {
-    runSubmissionRegistryFetch(sub);
-  }
 
   // 3. Update Workflow Horizontal Stepper Bar (Completed vs Active vs Upcoming)
   const hItems = document.querySelectorAll("#workflowStepperBar .h-stepper-item");
@@ -1604,11 +1457,12 @@ function updateBottomFooter(stepObj, sub) {
     btnNext.disabled = false;
     btnNext.classList.remove("disabled");
     if (stepObj.step === 7) {
-      btnNext.innerHTML = `<i class="ph ph-check-circle text-success"></i> Finish & Return to Intake Queue`;
-      btnNext.onclick = () => {
-        showIntakePage();
-        showToast("🎉 Policy Flow Complete! Returned to Submission Intake Queue.", "success");
-      };
+      // Leaving Step 7 must not claim the work is done: the policy is only finished once it is bound.
+      const isBound = !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+      btnNext.innerHTML = isBound
+        ? `<i class="ph ph-check-circle text-success"></i> Policy bound — Return to Intake Queue`
+        : `<i class="ph ph-arrow-u-up-left"></i> Save &amp; Return to Intake Queue (not bound yet)`;
+      btnNext.onclick = leaveStepSeven;
     } else {
       const nextStep = WORKFLOW_STEPS.find(s => s.step === stepObj.step + 1);
       btnNext.innerHTML = `Next: ${nextStep ? nextStep.shortTitle : 'Step ' + (stepObj.step + 1)} <i class="ph ph-arrow-right"></i>`;
@@ -1626,7 +1480,6 @@ function updateBottomFooter(stepObj, sub) {
 let REVIEW_ROUTING_RULES = {
   seniorPremiumThreshold: 2000000,
   managerPremiumThreshold: 10000000,
-  trustScoreThreshold: 65,
   riskLevelTrigger: "high",          // 'high' | 'medium_high' | 'any'
   productsRequiringSeniorReview: ["Hazmat Trucking", "Environmental Liability", "Excess Umbrella"],
   overAuthorityForcesReview: true
@@ -1647,7 +1500,6 @@ function openReviewRoutingModal() {
 
   document.getElementById("ruleSeniorPremiumThreshold").value = REVIEW_ROUTING_RULES.seniorPremiumThreshold;
   document.getElementById("ruleManagerPremiumThreshold").value = REVIEW_ROUTING_RULES.managerPremiumThreshold;
-  document.getElementById("ruleTrustScoreThreshold").value = REVIEW_ROUTING_RULES.trustScoreThreshold;
   document.getElementById("ruleRiskLevelTrigger").value = REVIEW_ROUTING_RULES.riskLevelTrigger;
   document.getElementById("ruleProductsList").value = REVIEW_ROUTING_RULES.productsRequiringSeniorReview.join(", ");
   document.getElementById("ruleOverAuthorityForcesReview").checked = REVIEW_ROUTING_RULES.overAuthorityForcesReview;
@@ -1662,12 +1514,11 @@ function closeReviewRoutingModal() {
 
 function saveReviewRoutingRules() {
   if (currentUserRole !== "admin") {
-    showToast("⛔ Only the System Administrator can edit Review Routing Rules.", "danger");
+    showToast("⛔ Only the Head of Underwriting can edit Review Routing Rules.", "danger");
     return;
   }
   REVIEW_ROUTING_RULES.seniorPremiumThreshold = parseInt(document.getElementById("ruleSeniorPremiumThreshold").value, 10) || 0;
   REVIEW_ROUTING_RULES.managerPremiumThreshold = parseInt(document.getElementById("ruleManagerPremiumThreshold").value, 10) || 0;
-  REVIEW_ROUTING_RULES.trustScoreThreshold = parseInt(document.getElementById("ruleTrustScoreThreshold").value, 10) || 0;
   REVIEW_ROUTING_RULES.riskLevelTrigger = document.getElementById("ruleRiskLevelTrigger").value;
   REVIEW_ROUTING_RULES.productsRequiringSeniorReview = document.getElementById("ruleProductsList").value
     .split(",").map(s => s.trim()).filter(Boolean);
@@ -1687,12 +1538,13 @@ function determineReviewRequirement(sub) {
   let level = "none";
 
   const premium = sub.exposureVal || 0;
-  const trustScore = (typeof sub.trustScore === "number") ? sub.trustScore : 75; // default when not modeled on this record
-  const riskLevel = sub.riskLevel || "medium";
+  // One risk measure: the Risk Score (risk-score.js), automatic or underwriter-overridden, banded low / medium / high.
+  const riskScore = getEffectiveRiskScore(sub);
+  const riskLevel = riskLevelFromScore(riskScore);
   const product = sub.lobName || "";
 
-  if (REVIEW_ROUTING_RULES.overAuthorityForcesReview && premium > sub.authorityLimit) {
-    reasons.push(`Exposure ($${premium.toLocaleString()}) exceeds underwriter's individual authority limit ($${sub.authorityLimit.toLocaleString()})`);
+  if (REVIEW_ROUTING_RULES.overAuthorityForcesReview && authNeedsReferral(sub)) {
+    reasons.push(`Outside the assigned underwriter's authority: ${authDeskCover(sub).reasons.join("; ")}`);
     level = "senior";
   }
   if (premium > REVIEW_ROUTING_RULES.managerPremiumThreshold) {
@@ -1702,15 +1554,11 @@ function determineReviewRequirement(sub) {
     reasons.push(`Premium exceeds Senior Underwriter review threshold ($${REVIEW_ROUTING_RULES.seniorPremiumThreshold.toLocaleString()})`);
     if (level !== "manager") level = "senior";
   }
-  if (trustScore < REVIEW_ROUTING_RULES.trustScoreThreshold) {
-    reasons.push(`Trust/risk score (${trustScore}) is below configured threshold (${REVIEW_ROUTING_RULES.trustScoreThreshold})`);
-    if (level !== "manager") level = "senior";
-  }
   const riskTriggers = REVIEW_ROUTING_RULES.riskLevelTrigger === "any"
     ? ["low", "medium", "high"]
     : (REVIEW_ROUTING_RULES.riskLevelTrigger === "medium_high" ? ["medium", "high"] : ["high"]);
   if (riskTriggers.includes(riskLevel)) {
-    reasons.push(`Risk level "${riskLevel}" is flagged for mandatory review`);
+    reasons.push(`Risk score ${riskScore}/100 is in the "${riskLevel}" band, which is flagged for mandatory review`);
     if (level !== "manager") level = "senior";
   }
   if (REVIEW_ROUTING_RULES.productsRequiringSeniorReview.some(p => product.toLowerCase().includes(p.toLowerCase()))) {
@@ -1905,7 +1753,7 @@ function advanceWorkflowStepAfterDecision(currentStep) {
     if (sub.currentStep === 2) sub.statusText = "Clearance Check";
     else if (sub.currentStep === 3) sub.statusText = "Data Enrichment";
     else if (sub.currentStep === 4) { sub.statusText = "UW Review"; sub.statusBadge = "badge-info"; }
-    else if (sub.currentStep === 5 && (sub.exposureVal > sub.authorityLimit)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
+    else if (sub.currentStep === 5 && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
     else if (sub.currentStep === 6) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
     else if (sub.currentStep === 7) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
   }
@@ -1954,7 +1802,7 @@ function goToNextStep() {
       if (sub.currentStep === 2) sub.statusText = "Clearance Check";
       else if (sub.currentStep === 3) sub.statusText = "Data Enrichment";
       else if (sub.currentStep === 4) { sub.statusText = "UW Review"; sub.statusBadge = "badge-info"; }
-      else if (sub.currentStep === 5 && (sub.exposureVal > sub.authorityLimit)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
+      else if (sub.currentStep === 5 && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
       else if (sub.currentStep === 6) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
       else if (sub.currentStep === 7) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
     }
@@ -1964,9 +1812,17 @@ function goToNextStep() {
     showToast(`Step ${currentStep} Completed! Proceeding to Step ${currentStep + 1}: ${nextStepObj ? nextStepObj.shortTitle : ''}`, "success");
     refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   } else {
-    showIntakePage();
-    showToast("🎉 Policy Flow Complete! Returned to Submission Intake Queue.", "success");
+    leaveStepSeven();
   }
+}
+
+/** Return to the queue from Step 7, saying truthfully whether the policy was bound. */
+function leaveStepSeven() {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+  const bound = !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+  showIntakePage();
+  if (bound) showToast(`✅ Policy ${sub.pasSync.policyNumber} is bound. Returned to the Submission Intake Queue.`, "success");
+  else showToast("ℹ️ Returned to the queue. The policy is not bound yet; the case stays open at Step 7" + (sub && !sub.quoteIssued ? " (quote not issued)." : (sub && !sub.customerApproved ? " (awaiting customer acceptance)." : " (bind pending).")), "info");
 }
 
 /**
@@ -1977,22 +1833,6 @@ function goToPrevStep() {
     goToWorkflowStep(currentWorkflowStep - 1);
   } else {
     showIntakePage();
-  }
-}
-
-function navigateStep(direction) {
-  if (direction > 0) {
-    goToNextStep();
-  } else {
-    goToPrevStep();
-  }
-}
-
-function navigateStep(direction) {
-  if (direction > 0) {
-    goToNextStep();
-  } else {
-    goToPrevStep();
   }
 }
 

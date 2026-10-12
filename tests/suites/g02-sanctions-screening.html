@@ -1,0 +1,98 @@
+<!-- Suite G02: sanctions-screening. Run with: python tests/run.py --suite g02 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  try {
+    // --- matching unit tests
+    t('exact name matches', screenForSanctions('Zarvan Trading Demo').length === 1);
+    t('word order / suffix ignored', screenForSanctions('Demo Trading Zarvan LLC').length === 1);
+    t('alias matches', screenForSanctions('Ivan Demov').length === 1);
+    t('unrelated name is clear', screenForSanctions('Apex Freight LLC').length === 0);
+    t('single shared word is not a match', screenForSanctions('Demo Logistics').length === 0);
+
+    // --- state & hooks installed
+    t('RBAC resource added', RBAC_RESOURCES.some(function(r){return r.key==='sanctions';}));
+    t('audit meta added', !!AUDIT_ACTION_META.sanctions_bind_blocked);
+    t('matrix has sanctions for all roles', ['assistant','junior','senior_uw','senior','admin'].every(function(r){return PERMISSIONS_MATRIX[r].sanctions;}));
+
+    if (!SUBMISSIONS_DATASET.length) SUBMISSIONS_DATASET.push(JSON.parse(JSON.stringify(SEED_SUBMISSIONS_DATASET[0])));
+    var sub = SUBMISSIONS_DATASET[0];
+    activeSubmissionId = sub.id;
+    t('first submission found', !!sub, sub.id + ' / ' + sub.insured);
+
+    // --- clearance screening (as junior, who may run screening)
+    currentUserRole = 'junior';
+    runSanctionsScreening(sub, 'clearance');
+    var st = getSanctionsStatus(sub);
+    t('demo insured screens clear', st.state === 'clear', st.state);
+    t('guard allows bind when clear', sanctionsGuardBind('test') === true);
+
+    // --- assistant cannot add parties
+    currentUserRole = 'assistant';
+    document.body.insertAdjacentHTML('beforeend','<div id="sanctionsScreeningContainer"></div><input id="sanctionsNewPartyName" value="Northwind Demo Sanctioned Holdings"><select id="sanctionsNewPartyRole"><option>Principal / Owner</option></select>');
+    var before = sub.sanctions.extraParties.length;
+    sanctionsAddParty();
+    t('assistant blocked from adding party', sub.sanctions.extraParties.length === before);
+
+    // --- junior adds a matching party -> review required, bind blocked
+    currentUserRole = 'junior';
+    sanctionsAddParty();
+    st = getSanctionsStatus(sub);
+    t('added match -> review_required', st.state === 'review_required', st.state + ' items=' + st.items.length);
+    t('bind blocked while unresolved', sanctionsGuardBind('e-signature') === false);
+    t('bind-blocked audit entry written', sub.decisionLog.some(function(d){return d.decision==='sanctions_bind_blocked';}));
+
+    // --- junior cannot clear (no approve)
+    document.body.insertAdjacentHTML('beforeend','<textarea id="sanctionsReason_0">Different company, different FEIN and address confirmed.</textarea>');
+    sanctionsReviewMatch(0, 'false_positive');
+    t('junior cannot clear match', getSanctionsStatus(sub).state === 'review_required');
+
+    // --- reason required
+    currentUserRole = 'senior';
+    document.getElementById('sanctionsReason_0').value = 'short';
+    sanctionsReviewMatch(0, 'false_positive');
+    t('short reason rejected', getSanctionsStatus(sub).state === 'review_required');
+
+    // --- CUO clears with reason -> bind allowed
+    document.getElementById('sanctionsReason_0').value = 'Different legal entity: FEIN, address and ownership checked against registry.';
+    sanctionsReviewMatch(0, 'false_positive');
+    st = getSanctionsStatus(sub);
+    t('CUO clears -> cleared_reviewed', st.state === 'cleared_reviewed', st.state);
+    t('guard allows bind after clearing', sanctionsGuardBind('issue quote') === true);
+    t('cleared audit entry', sub.decisionLog.some(function(d){return d.decision==='sanctions_cleared';}));
+
+    // --- decision persists on re-screen (same pair)
+    runSanctionsScreening(sub, 'manual');
+    t('earlier clearance carries to re-screen', getSanctionsStatus(sub).state === 'cleared_reviewed', getSanctionsStatus(sub).state);
+
+    // --- new match, confirmed -> permanent block
+    document.getElementById('sanctionsNewPartyName').value = 'Test Blocked Person';
+    currentUserRole = 'junior';
+    sanctionsAddParty();
+    st = getSanctionsStatus(sub);
+    t('second match -> review_required', st.state === 'review_required', st.state);
+    var idx = st.items.findIndex(function(i){return !i.review;});
+    document.body.insertAdjacentHTML('beforeend','<textarea id="sanctionsReason_'+idx+'">Name, date of birth and address match the listed individual.</textarea>');
+    currentUserRole = 'senior';
+    sanctionsReviewMatch(idx, 'confirmed');
+    t('confirmed -> blocked', getSanctionsStatus(sub).state === 'blocked');
+    t('guard blocks on confirmed match', sanctionsGuardBind('issue quote') === false);
+
+    // --- admin has no approve on sanctions
+    t('admin cannot approve', PERMISSIONS_MATRIX.admin.sanctions.approve === false);
+
+    // --- rendering
+    renderSanctionsCard(sub);
+    var cardHtml = document.getElementById('sanctionsScreeningContainer').innerHTML;
+    t('card renders', cardHtml.indexOf('Sanctions') > -1 && cardHtml.indexOf('Confirmed Match') > -1);
+    t('bind banner renders blocked', renderSanctionsBindBanner(sub).indexOf('Bind blocked') > -1);
+    t('XSS-safe names', sanctionsEsc('<img onerror=1>') === '&lt;img onerror=1&gt;');
+    t('issue quote entry point is a function', typeof window.issueQuoteAction === 'function');
+    t('e-signature entry point is a function', typeof window.openESignatureModal === 'function');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

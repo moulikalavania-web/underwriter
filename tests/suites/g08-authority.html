@@ -1,0 +1,141 @@
+<!-- Suite G08: authority. Run with: python tests/run.py --suite g08 -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function logs(sub, d){ return (sub.decisionLog||[]).filter(function(x){return x.decision===d;}); }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; document.body.appendChild(e); } e.value = map[id]; }); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){return x.lobKey==='gl_cpc' && x.broker==='Gallagher Commercial Brokers';})[0];
+  function mk(id, over){
+    var s = clone(seedG); s.id = id; s.lobKey = 'gl_cpc'; s.channelType = 'broker'; s.address = '9 Elm Road, Dallas, TX 75201';
+    delete s.pasSync; delete s.authorityRef; delete s.carrierApproval; delete s.authPreparedBy; delete s.carrier; delete s.insuredInfo; s.decisionLog = [];
+    s.exposureVal = 1000000; s.discretionaryPricing = { finalPremium: 100000 }; s.importedRatingData = { quote: { finalPremium: 100000, tax: 0, countyTax: 0, fees: [] } };
+    for (var k in (over||{})) s[k] = over[k]; return s; }
+  function M(prem, lim, lob, st){ return { premium: prem, limit: lim, lob: lob || 'gl_cpc', state: st === undefined ? 'TX' : st }; }
+  var origToast = window.showToast; var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    t('RBAC resource', RBAC_RESOURCES.some(function(r){return r.key==='authority';}));
+    t('permissions', PERMISSIONS_MATRIX.junior.authority.edit && !PERMISSIONS_MATRIX.junior.authority.approve && PERMISSIONS_MATRIX.senior_uw.authority.approve && !PERMISSIONS_MATRIX.senior_uw.authority.override && PERMISSIONS_MATRIX.senior.authority.override && !PERMISSIONS_MATRIX.admin.authority.edit);
+    t('audit meta', !!AUDIT_ACTION_META.auth_referral_approved && !!AUDIT_ACTION_META.auth_bind_blocked);
+
+    // ---------- individual authority (pure)
+    t('assistant holds no authority', !authRoleCovers('assistant', M(1,1)).ok);
+    t('junior covers a small TX GL risk', authRoleCovers('junior', M(100000, 1000000)).ok);
+    t('junior premium ceiling', !authRoleCovers('junior', M(300000, 1000000)).ok && /premium/.test(authRoleCovers('junior', M(300000, 1000000)).reasons[0]));
+    t('junior limit ceiling (the former $2M role limit)', !authRoleCovers('junior', M(100000, 2500000)).ok && authRoleCovers('junior', M(100000, 2000000)).ok);
+    t('junior has no authority for high-hazard casualty', !authRoleCovers('junior', M(1000, 1000, 'gl_cas')).ok);
+    t('junior has no authority for FL property but has for TX property', !authRoleCovers('junior', M(1000, 1000, 'property', 'FL')).ok && authRoleCovers('junior', M(1000, 1000, 'property', 'TX')).ok);
+    t('most specific rule wins: senior UW casualty ceiling is lower', !authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cas')).ok && authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cpc')).ok);
+    t('CUO covers more', authRoleCovers('senior', M(4000000, 20000000)).ok && !authRoleCovers('senior', M(6000000, 20000000)).ok);
+    t('unknown state: authority cannot be confirmed', !authRoleCovers('senior', M(1, 1, 'gl_cpc', null)).ok);
+    t('required role is the lowest sufficient', authRequiredRole(M(100000,1000000))==='junior' && authRequiredRole(M(500000,1000000))==='senior_uw' && authRequiredRole(M(2000000,1000000))==='senior' && authRequiredRole(M(9000000,1000000))===null && authRequiredRole(M(1000,1000,'gl_cas'))==='senior_uw');
+
+    // ---------- carrier layer (pure)
+    var S0 = mk('C0');
+    t('carrier: inside delegated authority', authCarrierCheck(S0, M(100000,1000000), [], '2026-10-09').ok);
+    t('carrier: per-risk limit', !authCarrierCheck(S0, M(100000,11000000), [], '2026-10-09').ok);
+    t('carrier: premium ceiling', !authCarrierCheck(S0, M(2500000,1000000), [], '2026-10-09').ok);
+    var cas = authCarrierCheck(S0, M(100000,1000000,'gl_cas','CA'), [], '2026-10-09');
+    t('carrier: state not permitted for the line', !cas.ok && /outside the carrier's permitted states/.test(cas.reasons[0]));
+    t('carrier: expired agreement', !authCarrierCheck(S0, M(100000,1000000), [], '2028-01-01').ok);
+    var bound = [mk('B1',{exposureVal:59500000}), mk('B2')]; bound[0].pasSync = {status:'success', policyNumber:'P1'};
+    t('carrier: aggregate capacity counts bound policies', !authCarrierCheck(S0, M(100000,1000000), bound, '2026-10-09').ok && /aggregate/.test(authCarrierCheck(S0, M(100000,1000000), bound, '2026-10-09').reasons[0]));
+    t('carrier: unbound policies do not count', authCarrierCheck(S0, M(100000,1000000), [mk('B3',{exposureVal:59500000})], '2026-10-09').ok);
+    var unk = clone(S0); unk.carrier = 'Nobody Mutual';
+    t('carrier: unknown carrier has no delegated authority', !authCarrierCheck(unk, M(1,1), [], '2026-10-09').ok);
+
+    // ---------- four eyes (pure)
+    var P = mk('P1'); P.authorityRef = {raisedBy:'X (Junior)'}; P.discretionaryPricing = {finalPremium:1, appliedBy:'Y (Senior)'}; P.authPreparedBy = {'Z (Other)':true};
+    t('preparers are everyone who referred or repriced', authPreparers(P).sort().join('|') === 'X (Junior)|Y (Senior)|Z (Other)');
+    t('approval covers only up to the approved figures', authApprovalCurrent({premium:300000,limit:1000000}, M(300000,1000000)) && !authApprovalCurrent({premium:300000,limit:1000000}, M(300001,1000000)) && !authApprovalCurrent(null, M(1,1)));
+
+    // ---------- flow: junior above own authority
+    SUBMISSIONS_DATASET.length = 0;
+    var Q = mk('SUB-Q', { discretionaryPricing:{finalPremium:300000}, importedRatingData:{quote:{finalPremium:300000,tax:0,countyTax:0,fees:[]}} }); SUBMISSIONS_DATASET.push(Q); activeSubmissionId = Q.id;
+    currentUserRole = 'junior'; renderAuthorityCard(Q);
+    t('card renders and says authority is needed', /Authority needed/.test(el('authorityContainer').innerHTML));
+    t('quote blocked for the junior above their ceiling', authGuardQuote('test') === false && logs(Q,'auth_quote_blocked').length===1);
+    t('wrapped issueQuoteAction is blocked too', (function(){ var n = logs(Q,'auth_quote_blocked').length; window.issueQuoteAction(); return logs(Q,'auth_quote_blocked').length===n+1; })());
+    t('bind blocked', authGuardBind('test', Q.id) === false && logs(Q,'auth_bind_blocked').length===1);
+    setf({auth_note:'short'}); authRaise();
+    t('referral needs an explanation', !Q.authorityRef);
+    setf({auth_note:'Strong account, requesting senior line approval'}); authRaise();
+    t('junior raises a referral to the senior underwriter', Q.authorityRef && Q.authorityRef.status==='pending' && Q.authorityRef.requiredRole==='senior_uw' && logs(Q,'auth_referral_raised').length===1);
+    t('a second referral is refused while one is pending', (function(){ authRaise(); return logs(Q,'auth_referral_raised').length===1; })());
+    var r1 = authDecideCore(Q, 'approve', '', true);
+    t('junior cannot decide a referral (no approve permission)', !r1.ok && Q.authorityRef.status==='pending');
+    currentUserRole = 'senior_uw';
+    var r2 = authDecideCore(Q, 'decline', 'no', true);
+    t('declining needs a reason', !r2.ok && Q.authorityRef.status==='pending');
+    var r3 = authDecideCore(Q, 'approve', '', true);
+    t('senior UW (different person, covers the risk) approves', r3.ok && Q.authorityRef.status==='approved' && Q.authorityRef.approvedMeasures.premium===300000 && logs(Q,'auth_referral_approved').length===1);
+    currentUserRole = 'junior';
+    t('junior may now quote within the approved figures (carrier also in range)', authGuardQuote('test') === true && authGuardBind('test', Q.id) === true);
+    Q.discretionaryPricing.finalPremium = 350000; Q.importedRatingData.quote.finalPremium = 350000;
+    t('raising the premium voids the approval', authGuardQuote('test') === false && authAssess(Q,'junior').refStale);
+    Q.discretionaryPricing.finalPremium = 300000; Q.importedRatingData.quote.finalPremium = 300000;
+    t('...and returning to the approved figure restores it', authGuardQuote('test') === true);
+
+    // ---------- self-approval
+    var R = mk('SUB-R', { discretionaryPricing:{finalPremium:2000000}, importedRatingData:{quote:{finalPremium:2000000,tax:0,countyTax:0,fees:[]}} }); SUBMISSIONS_DATASET.push(R); activeSubmissionId = R.id;
+    currentUserRole = 'senior_uw'; setf({auth_note:'Needs CUO approval on a large account'}); authRaise();
+    t('senior UW refers a large risk to the CUO', R.authorityRef && R.authorityRef.requiredRole==='senior');
+    var r4 = authDecideCore(R, 'approve', '', true);
+    t('the person who referred cannot approve (also not within their authority)', !r4.ok && R.authorityRef.status==='pending');
+    currentUserRole = 'senior';
+    R.discretionaryPricing.appliedBy = authRoleIdent('senior');
+    var r5 = authDecideCore(R, 'approve', '', true);
+    t('the CUO who repriced the risk cannot approve it', !r5.ok && /prepared, repriced or referred/.test(r5.why) && R.authorityRef.status==='pending');
+    delete R.discretionaryPricing.appliedBy;
+    var r6 = authDecideCore(R, 'approve', '', true);
+    t('a different CUO-level approver (who did not prepare it) approves', r6.ok && R.authorityRef.status==='approved');
+
+    // ---------- beyond all internal authority
+    var T = mk('SUB-T', { discretionaryPricing:{finalPremium:6000000}, importedRatingData:{quote:{finalPremium:6000000,tax:0,countyTax:0,fees:[]}} }); SUBMISSIONS_DATASET.push(T); activeSubmissionId = T.id;
+    currentUserRole = 'senior'; var aT = authAssess(T, 'senior');
+    t('beyond every internal level: no internal approval can help', aT.requiredRole===null && !aT.ok && /exceeds every internal authority/.test(aT.blockers[0]));
+    currentUserRole = 'senior_uw'; setf({auth_note:'Exceeds all levels, flagging'}); authRaise();
+    currentUserRole = 'senior'; var r7 = authDecideCore(T, 'approve', '', true);
+    t('...and the CUO cannot approve it either', !r7.ok);
+
+    // ---------- carrier layer through the guard
+    var C = mk('SUB-C', { lobKey:'gl_cas', address:'5 Mission St, San Francisco, CA 94105', discretionaryPricing:{finalPremium:100000}, importedRatingData:{quote:{finalPremium:100000,tax:0,countyTax:0,fees:[]}} });
+    SUBMISSIONS_DATASET.push(C); activeSubmissionId = C.id; currentUserRole = 'senior_uw';
+    var aC = authAssess(C, 'senior_uw');
+    t('own authority fine but the carrier does not permit the state', aC.own.ok && !aC.carrier.ok && !aC.ok);
+    t('guard blocks on the carrier layer', authGuardBind('test', C.id) === false && /delegated authority/.test(logs(C,'auth_bind_blocked')[0].notes));
+    currentUserRole = 'senior_uw'; setf({auth_cRef:'CR-1', auth_cUw:'Pat Carrier', auth_cOn:'2026-10-01', auth_cTerms:'Approved at submitted terms for CA'}); authRecordCarrier();
+    t('senior UW cannot record a carrier approval', !C.carrierApproval);
+    currentUserRole = 'senior'; setf({auth_cRef:'', auth_cUw:'Pat Carrier', auth_cOn:'2026-10-01', auth_cTerms:'Approved at submitted terms for CA'}); authRecordCarrier();
+    t('carrier approval needs its reference', !C.carrierApproval);
+    setf({auth_cRef:'CR-1'}); authRecordCarrier();
+    t('CUO records the carrier approval', !!C.carrierApproval && logs(C,'auth_carrier_approval').length===1);
+    currentUserRole = 'senior_uw';
+    t('carrier approval lifts the block', authGuardBind('test', C.id) === true);
+    C.discretionaryPricing.finalPremium = 120000; C.importedRatingData.quote.finalPremium = 120000;
+    t('carrier approval is tied to the approved figures', authGuardBind('test', C.id) === false);
+    C.discretionaryPricing.finalPremium = 100000; C.importedRatingData.quote.finalPremium = 100000;
+
+    // ---------- existing Step-5 buttons
+    var E = mk('SUB-E', { exposureVal:3000000 }); SUBMISSIONS_DATASET.push(E); activeSubmissionId = E.id; currentUserRole = 'junior';
+    setf({juniorEscalationText:'Please review the loss warranty'}); submitJuniorEscalation();
+    t('the existing "Refer to Senior" button creates a tracked referral', E.authorityRef && E.authorityRef.status==='pending' && /loss warranty/.test(E.authorityRef.note));
+    currentUserRole = 'senior_uw'; E.discretionaryPricing.appliedBy = authRoleIdent('senior_uw');
+    seniorUWAction('approve');
+    t('existing sign-off button refuses the person who repriced the risk', E.authorityRef.status==='pending');
+    delete E.discretionaryPricing.appliedBy; currentUserRole = 'senior'; seniorUWAction('approve');
+    t('existing sign-off button records the approval for an eligible approver', E.authorityRef.status==='approved' && E.authorityRef.decidedBy === authRoleIdent('senior'));
+    var E2 = mk('SUB-E2', { exposureVal:3000000 }); SUBMISSIONS_DATASET.push(E2); activeSubmissionId = E2.id; currentUserRole = 'junior';
+    var st0 = E2.statusText; seniorUWAction('approve');
+    t('a junior pressing sign-off on a risk beyond authority is refused', E2.statusText === st0 || E2.statusText !== 'Ready for Rating');
+
+    t('XSS-safe', authEsc('<i>') === '&lt;i&gt;');
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
+  window.showToast = origToast;
+  out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

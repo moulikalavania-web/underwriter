@@ -72,7 +72,6 @@ function bdxNow() { return new Date().toISOString().slice(0, 16).replace("T", " 
 function bdxMoney(n) { return (Number(n) < 0 ? "-$" : "$") + Math.abs(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function bdxEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
 function bdxPeriodEnd(period) { var p = period.split("-"); return new Date(Date.UTC(+p[0], +p[1], 0)).toISOString().slice(0, 10); }
-function bdxPeriodStart(period) { return period + "-01"; }
 function bdxPeriodOf(date) { return String(date || "").slice(0, 7); }
 function bdxAddDays(iso, n) { var d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function bdxDue(period) { return bdxAddDays(bdxPeriodEnd(period), BDX_DUE_DAYS); }

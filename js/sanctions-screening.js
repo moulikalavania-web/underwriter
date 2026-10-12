@@ -15,11 +15,11 @@
  * confirming it leaves a permanent hold. Bind is blocked until every
  * potential match is resolved, and blocked for good on a confirmed match.
  *
- * IMPORTANT — DEMO LIST: SANCTIONS_DEMO_WATCHLIST below contains FICTIONAL
- * names so the workflow can be demonstrated. It is NOT the OFAC SDN list or
- * any government list. Production must replace screenForSanctions()'s data
- * source with a licensed screening provider or the official lists, and a
- * compliance owner must set the match threshold.
+ * IMPORTANT — NO LIST IS SHIPPED: SANCTIONS_WATCHLIST is empty. Production must load
+ * the official lists or a licensed screening provider, and a compliance owner must
+ * set the match threshold. With no list loaded the screening result is "No watchlist
+ * loaded" (not "Clear"), which blocks quote and bind until an approver records an
+ * external screening.
  *
  * Everything is stored on sub.sanctions and written to sub.decisionLog, so it
  * shows in the Audit Log and survives the existing localStorage persistence.
@@ -27,17 +27,17 @@
  */
 
 var SANCTIONS_MATCH_THRESHOLD = 0.8;                 // 0–1; compliance to set
-var SANCTIONS_LIST_NAME = "DEMO WATCHLIST (fictional — not the OFAC SDN list)";
-var SANCTIONS_LIST_VERSION = "demo-2026-10";
+var SANCTIONS_LIST_NAME = "No watchlist loaded";
+var SANCTIONS_LIST_VERSION = "none";
 
-var SANCTIONS_DEMO_WATCHLIST = [
-  { name: "Northwind Demo Sanctioned Holdings", aliases: ["Northwind DSH"], type: "entity", program: "DEMO-A" },
-  { name: "Zarvan Trading Demo", aliases: ["Zarvan Demo Trading Co"], type: "entity", program: "DEMO-A" },
-  { name: "Crimson Harbor Shipping Demo", aliases: [], type: "entity", program: "DEMO-B" },
-  { name: "Ivan Demoff", aliases: ["Ivan Demov"], type: "individual", program: "DEMO-B" },
-  { name: "Test Blocked Person", aliases: [], type: "individual", program: "DEMO-C" },
-  { name: "Obsidian Freight Demo Group", aliases: ["Obsidian Freight Demo"], type: "entity", program: "DEMO-C" }
-];
+/**
+ * The watchlist to screen against. The application ships none: it is loaded from a licensed provider or the official
+ * lists (set SANCTIONS_WATCHLIST, SANCTIONS_LIST_NAME and SANCTIONS_LIST_VERSION). Until one is loaded, parties are
+ * NOT screened and the case cannot be quoted or bound on the strength of a "clear" result that never happened;
+ * an approver may instead record that the parties were screened elsewhere (a reference is required).
+ * Each entry: { name, aliases: [], type: "entity" | "individual", program }.
+ */
+var SANCTIONS_WATCHLIST = [];
 
 var SANCTIONS_PARTY_ROLES = ["Principal / Owner", "Additional Insured", "Subsidiary / Affiliate", "Other Named Party"];
 
@@ -82,7 +82,7 @@ function sanctionsNameScore(a, b) {
 
 function screenForSanctions(name) {
   const matches = [];
-  SANCTIONS_DEMO_WATCHLIST.forEach(entry => {
+  SANCTIONS_WATCHLIST.forEach(entry => {
     let best = sanctionsNameScore(name, entry.name);
     (entry.aliases || []).forEach(al => { best = Math.max(best, sanctionsNameScore(name, al)); });
     if (best >= SANCTIONS_MATCH_THRESHOLD) {
@@ -154,8 +154,19 @@ function sanctionsLog(sub, decision, notes, byOverride) {
 }
 
 /** Runs a screening over the current party list and records it. */
+function sanctionsListLoaded() { return SANCTIONS_WATCHLIST.length > 0; }
+function sanctionsPartyKey(sub) { return sanctionsGatherParties(sub).map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";"); }
+
 function runSanctionsScreening(sub, trigger) {
   const store = sanctionsStore(sub);
+  if (!sanctionsListLoaded()) {
+    const parties = sanctionsGatherParties(sub).map(p => ({ name: p.name, role: p.role, result: "not_screened", matches: [] }));
+    const screen = { id: "SCR-" + (store.screens.length + 1), at: sanctionsNow(), trigger, by: sanctionsActor(), listName: SANCTIONS_LIST_NAME, listVersion: SANCTIONS_LIST_VERSION, threshold: SANCTIONS_MATCH_THRESHOLD, parties, noList: true };
+    store.screens.push(screen);
+    sanctionsLog(sub, "sanctions_no_list", `Sanctions screening ${trigger}: NOT PERFORMED. No watchlist is loaded, so ${parties.length} part${parties.length === 1 ? "y was" : "ies were"} not screened. Load a list or record an external screening.`);
+    persistSanctions();
+    return screen;
+  }
   const parties = sanctionsGatherParties(sub).map(p => {
     const matches = screenForSanctions(p.name);
     return { name: p.name, role: p.role, result: matches.length ? "potential_match" : "clear", matches };
@@ -192,6 +203,11 @@ function getSanctionsStatus(sub) {
   const store = sanctionsStore(sub);
   const latest = store.screens[store.screens.length - 1];
   if (!latest) return { state: "not_screened", latest: null, items: [] };
+  if (latest.noList) {
+    const ext = (store.external || []).slice(-1)[0];
+    if (ext && ext.partyKey === sanctionsPartyKey(sub)) return { state: "externally_screened", latest, items: [], external: ext };
+    return { state: "no_list", latest, items: [] };
+  }
 
   const items = [];
   latest.parties.forEach(p => {
@@ -212,7 +228,7 @@ function getSanctionsStatus(sub) {
 }
 
 function sanctionsAllowsBind(status) {
-  return status.state === "clear" || status.state === "cleared_reviewed";
+  return status.state === "clear" || status.state === "cleared_reviewed" || status.state === "externally_screened";
 }
 
 function persistSanctions() {
@@ -244,6 +260,25 @@ function sanctionsAddParty() {
   runSanctionsScreening(sub, "party_added");
   renderSanctionsCard(sub);
   showToast(`Added "${name}" and re-ran screening.`, "info");
+}
+
+/** An approver records that every current party was screened against the official lists outside this system. */
+function sanctionsAttestExternal() {
+  const sub = sanctionsActiveSub();
+  if (!sub) return;
+  if (!hasPermission("sanctions", "approve")) { denyPermission("sanctions", "approve"); return; }
+  const refEl = document.getElementById("sanctionsExtRef"), boxEl = document.getElementById("sanctionsExtConfirm");
+  const reference = refEl ? refEl.value.trim() : "";
+  if (!boxEl || !boxEl.checked) { showToast("Tick the box to confirm every listed party was screened.", "danger"); return; }
+  if (reference.length < 5) { showToast("Enter the screening reference (tool, search id or report) of at least 5 characters.", "danger"); return; }
+  const store = sanctionsStore(sub);
+  if (!store.external) store.external = [];
+  const parties = sanctionsGatherParties(sub);
+  store.external.push({ by: sanctionsActor(), at: sanctionsNow(), reference, partyKey: sanctionsPartyKey(sub), parties: parties.map(p => p.name) });
+  sanctionsLog(sub, "sanctions_external", `External sanctions screening recorded for ${parties.length} part${parties.length === 1 ? "y" : "ies"} (${parties.map(p => p.name).join(", ")}). Reference: ${reference}. No watchlist is loaded in this system.`);
+  persistSanctions();
+  renderSanctionsCard(sub);
+  showToast("External screening recorded.", "success");
 }
 
 /** decision: "false_positive" | "confirmed" */
@@ -287,7 +322,9 @@ var SANCTIONS_STATE_UI = {
   clear:            { badge: "badge-success", icon: "ph-check-circle",     label: "Clear" },
   cleared_reviewed: { badge: "badge-success", icon: "ph-check-circle",     label: "Cleared After Review" },
   review_required:  { badge: "badge-warning", icon: "ph-warning",          label: "Review Required" },
-  blocked:          { badge: "badge-danger",  icon: "ph-prohibit",         label: "Confirmed Match — Blocked" }
+  blocked:          { badge: "badge-danger",  icon: "ph-prohibit",         label: "Confirmed Match — Blocked" },
+  no_list:          { badge: "badge-danger",  icon: "ph-warning-octagon",  label: "No Watchlist Loaded" },
+  externally_screened: { badge: "badge-info", icon: "ph-clipboard-text",   label: "Screened Externally (recorded)" }
 };
 
 function renderSanctionsCard(sub) {
@@ -302,6 +339,10 @@ function renderSanctionsCard(sub) {
   let banner = "";
   if (status.state === "not_screened") {
     banner = `<div class="alert alert-warning text-xs"><i class="ph ph-hourglass"></i> This submission has not been screened yet. Screening also runs automatically again at bind.</div>`;
+  } else if (status.state === "no_list") {
+    banner = `<div class="alert alert-danger text-xs"><i class="ph ph-warning-octagon"></i> <strong>These parties have NOT been screened.</strong> No sanctions watchlist is loaded in this system, so a "clear" result cannot be given. The quote cannot be issued or bound until a list is loaded and the case re-screened, or an approver records that the parties were screened elsewhere.</div>`;
+  } else if (status.state === "externally_screened") {
+    banner = `<div class="alert alert-info text-xs"><i class="ph ph-clipboard-text"></i> Screened outside this system: ${sanctionsEsc(status.external.by)} on ${sanctionsEsc(status.external.at)}, reference ${sanctionsEsc(status.external.reference)}. If a party is added or changed, the record no longer covers it.</div>`;
   } else if (status.state === "review_required") {
     banner = `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> <strong>${status.unresolved.length} potential match(es) need review.</strong> Quote cannot be signed or bound until each is resolved by a user with sanctions approval authority.</div>`;
   } else if (status.state === "blocked") {
@@ -314,7 +355,7 @@ function renderSanctionsCard(sub) {
   const partyRows = status.latest ? status.latest.parties.map(p => {
     const resultBadge = p.result === "clear"
       ? `<span class="badge badge-success text-xs">Clear</span>`
-      : `<span class="badge badge-warning text-xs">Potential Match</span>`;
+      : (p.result === "not_screened" ? `<span class="badge badge-danger text-xs">Not screened</span>` : `<span class="badge badge-warning text-xs">Potential Match</span>`);
     return `<tr><td>${sanctionsEsc(p.name)}</td><td>${sanctionsEsc(p.role)}</td><td>${resultBadge}</td></tr>`;
   }).join("") : `<tr><td colspan="3" class="text-muted" style="text-align:center;">No screening has been run.</td></tr>`;
 
@@ -345,6 +386,16 @@ function renderSanctionsCard(sub) {
     const hits = s.parties.filter(p => p.result === "potential_match").length;
     return `<tr><td>${sanctionsEsc(s.id)}</td><td>${sanctionsEsc(s.at)}</td><td>${sanctionsEsc(s.trigger)}</td><td>${s.parties.length}</td><td>${hits}</td><td>${sanctionsEsc(s.by)}</td></tr>`;
   }).join("");
+
+  const attestForm = (status.state === "no_list" && canApprove) ? `
+    <div class="simulation-tool-box" style="display:block; margin-top:14px;">
+      <span class="tool-label" style="display:block; margin-bottom:8px;"><i class="ph ph-clipboard-text"></i> Record that these parties were screened outside this system</span>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+        <label style="font-size:12.5px;"><input type="checkbox" id="sanctionsExtConfirm"> Every party listed above was screened against the official lists</label>
+        <input id="sanctionsExtRef" class="form-control" style="width:280px;" placeholder="Screening tool / search id / report reference">
+        <button class="btn btn-sm btn-primary" style="width:auto;" onclick="sanctionsAttestExternal()"><i class="ph ph-check"></i> Record screening</button>
+      </div>
+    </div>` : (status.state === "no_list" ? `<p class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-lock"></i> Recording an external screening needs a user with sanctions approval authority.</p>` : "");
 
   const addForm = canEdit ? `
     <div class="simulation-tool-box" style="display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; gap:8px; margin-top:14px;">
@@ -379,6 +430,7 @@ function renderSanctionsCard(sub) {
             <tbody>${matchRows}</tbody>
           </table>
         </div>` : ""}
+        ${attestForm}
         ${addForm}
         ${history ? `
         <h4 style="margin:14px 0 6px;">Screening history</h4>
@@ -390,7 +442,6 @@ function renderSanctionsCard(sub) {
         </div>` : ""}
         <p class="text-xs text-muted" style="margin-top:10px;">
           <i class="ph ph-info"></i> List used: ${sanctionsEsc(SANCTIONS_LIST_NAME)}, version ${sanctionsEsc(SANCTIONS_LIST_VERSION)}, match threshold ${Math.round(SANCTIONS_MATCH_THRESHOLD * 100)}%.
-          This is a demonstration list. A production deployment must screen against the official lists or a licensed provider.
         </p>
       </div>
     </div>`;
@@ -408,7 +459,9 @@ function renderSanctionsBindBanner(sub) {
   }
   const msg = status.state === "blocked"
     ? "Confirmed sanctions match — bind is blocked. Escalate to Compliance."
-    : `${status.unresolved.length} sanctions potential match(es) must be resolved before this quote can be signed and bound. Open Step 2 — Clearance.`;
+    : (status.state === "no_list"
+      ? "No sanctions watchlist is loaded, so the parties have not been screened. An approver must record an external screening in Step 2 — Clearance."
+      : `${status.unresolved.length} sanctions potential match(es) must be resolved before this quote can be signed and bound. Open Step 2 — Clearance.`);
   return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${msg}</div>`;
 }
 
@@ -435,11 +488,13 @@ function sanctionsGuardBind(source, subId) {
 
   sanctionsLog(sub, "sanctions_bind_blocked",
     `Bind attempt blocked (${source}): sanctions status "${SANCTIONS_STATE_UI[status.state].label}". ` +
-    (status.state === "blocked" ? "Confirmed match on file." : `${status.unresolved.length} unresolved potential match(es).`));
+    (status.state === "blocked" ? "Confirmed match on file." : (status.state === "no_list" ? "No watchlist loaded; parties not screened." : `${status.unresolved.length} unresolved potential match(es).`)));
   persistSanctions();
   showToast(status.state === "blocked"
     ? "⛔ Bind blocked: confirmed sanctions match. Escalate to Compliance."
-    : `⛔ Bind blocked: ${status.unresolved.length} sanctions potential match(es) need review in Step 2 — Clearance.`, "danger");
+    : (status.state === "no_list"
+      ? "⛔ Bind blocked: no sanctions watchlist is loaded, so the parties have not been screened. Record an external screening in Step 2 — Clearance."
+      : `⛔ Bind blocked: ${status.unresolved.length} sanctions potential match(es) need review in Step 2 — Clearance.`), "danger");
   if (typeof renderSanctionsCard === "function") renderSanctionsCard(sub);
   return false;
 }
@@ -451,6 +506,8 @@ function sanctionsGuardBind(source, subId) {
     AUDIT_ACTION_META.sanctions_potential_match = { label: "Sanctions — Potential Match", icon: "ph-shield-warning", badge: "badge-warning", outcome: "outcome-refer" };
     AUDIT_ACTION_META.sanctions_cleared = { label: "Sanctions Match Cleared (False Positive)", icon: "ph-shield-check", badge: "badge-info", outcome: "outcome-approve" };
     AUDIT_ACTION_META.sanctions_confirmed_match = { label: "Sanctions Match Confirmed", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
+    AUDIT_ACTION_META.sanctions_no_list = { label: "Sanctions Screening Not Performed (No List)", icon: "ph-warning-octagon", badge: "badge-danger", outcome: "outcome-refer" };
+    AUDIT_ACTION_META.sanctions_external = { label: "External Sanctions Screening Recorded", icon: "ph-clipboard-text", badge: "badge-info", outcome: "outcome-approve" };
     AUDIT_ACTION_META.sanctions_bind_blocked = { label: "Bind Blocked — Sanctions", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
   }
 
@@ -505,7 +562,7 @@ function sanctionsGuardBind(source, subId) {
   }
 })();
 
-window.sanctionsRunClicked = sanctionsRunClicked;
+window.sanctionsAttestExternal = sanctionsAttestExternal; window.sanctionsRunClicked = sanctionsRunClicked;
 window.sanctionsAddParty = sanctionsAddParty;
 window.sanctionsReviewMatch = sanctionsReviewMatch;
 window.renderSanctionsCard = renderSanctionsCard;

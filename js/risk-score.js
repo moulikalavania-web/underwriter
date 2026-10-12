@@ -65,6 +65,17 @@ function calculateRiskScore(sub) {
   return { score, factors };
 }
 
+/** The one risk figure used everywhere: the underwriter's override if there is one, otherwise the calculated score. */
+function getEffectiveRiskScore(sub) {
+  if (typeof sub.riskScore === "number") return sub.riskScore;
+  return calculateRiskScore(sub).score;
+}
+/** low / medium / high, from the same bands as the Risk Score card. */
+function riskLevelFromScore(score) {
+  const label = riskBand(score).label;
+  return label.indexOf("Low") === 0 ? "low" : (label.indexOf("Medium") === 0 ? "medium" : "high");
+}
+
 function riskBand(score) {
   if (score <= 35) return { label: "Low Risk", cls: "badge-success", color: "#16a34a" };
   if (score <= 65) return { label: "Medium Risk", cls: "badge-warning", color: "#d97706" };
@@ -165,6 +176,8 @@ function resetRiskScoreToAuto(subId) {
 }
 
 window.calculateRiskScore = calculateRiskScore;
+window.getEffectiveRiskScore = getEffectiveRiskScore;
+window.riskLevelFromScore = riskLevelFromScore;
 window.renderRiskScoreCard = renderRiskScoreCard;
 window.saveRiskScoreOverride = saveRiskScoreOverride;
 window.resetRiskScoreToAuto = resetRiskScoreToAuto;
