@@ -473,61 +473,91 @@ function qcConditionHtml(sub, c, canEdit, canApprove) {
   const versions = c.versions.slice().reverse().map(v => `<tr><td>v${v.version}${v.version === cur.version ? " (current)" : ""}</td><td>${qcEsc(v.at)}<br><span class="text-xs text-muted">${qcEsc(v.by)}</span></td><td>${qcEsc(v.deadline)}</td>
       <td class="text-xs">${v.changes.length ? v.changes.map(x => `${qcEsc(x.field)}: ${qcEsc(x.from)} &rarr; ${qcEsc(x.to)}`).join("<br>") : "First version"}${v.reason ? `<br><em>${qcEsc(v.reason)}</em>` : ""}</td>
       <td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="qcOpenDocument('${c.id}', ${v.version})">View</button></td></tr>`).join("");
-  const outcome = c.outcome ? `<div class="alert ${c.status === "met" ? "alert-success" : "alert-warning"} text-xs" style="margin-top:8px;"><strong>${c.status === "met" ? "Coverage added" : c.status === "lapsed" ? "Lapsed: coverage not added" : "Withdrawn: coverage not added"}</strong> &middot; ${qcEsc(c.outcome.at)} &middot; ${qcEsc(c.outcome.by)}.
+  const outcome = c.outcome ? `<div class="alert ${c.status === "met" ? "alert-success" : "alert-warning"} text-xs" style="margin:0;"><strong>${c.status === "met" ? "Coverage added" : c.status === "lapsed" ? "Lapsed: coverage not added" : "Withdrawn: coverage not added"}</strong> &middot; ${qcEsc(c.outcome.at)} &middot; ${qcEsc(c.outcome.by)}.
       ${c.outcome.premiumBefore !== null && c.outcome.premiumBefore !== undefined ? (c.status === "met" ? `Premium ${qcMoney(c.outcome.premiumBefore)} &rarr; ${qcMoney(c.outcome.premiumAfter)}.` : `Premium unchanged at ${qcMoney(c.outcome.premiumAfter)}.`) : (c.status === "met" ? `${qcMoney(c.premium)} will be included when the rating is set.` : "Premium unchanged.")}
       ${c.outcome.note ? " " + qcEsc(c.outcome.note) : ""}${c.outcome.evidence ? " Evidence: " + qcEsc(c.outcome.evidence) + "." : ""}</div>` : "";
 
-  return `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-top:12px;">
-    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center;">
-      <div><strong>${qcEsc(c.id)} &middot; ${qcEsc(c.coverage.line)}</strong> <span class="text-xs text-muted">limit ${qcEsc(c.coverage.limit)}, deductible ${qcEsc(c.coverage.ded)}</span></div>
+  // Life-cycle strip: Drafted > Issued > Signed > Met, or Lapsed / Withdrawn at the end.
+  const closed = c.status === "lapsed" || c.status === "withdrawn";
+  const idx = { draft: 0, issued: 1, signed: 2, met: 3 }[c.status];
+  const reached = closed ? (c.signature ? 2 : (c.issuedAt ? 1 : 0)) : idx;
+  const labels = ["Drafted", "Issued", "Signed", c.status === "lapsed" ? "Lapsed" : c.status === "withdrawn" ? "Withdrawn" : "Met"];
+  const steps = labels.map((l, i) => {
+    const bad = closed && i === 3 && c.status === "lapsed";
+    const done = c.status === "met" ? true : closed ? i <= reached : i < idx;
+    const now = !closed && c.status !== "met" && i === idx;
+    const cls = bad ? "bad" : done ? "done" : now ? "now" : "";
+    const icon = bad ? "ph-x" : done ? "ph-check" : "";
+    return `${i ? `<span class="qc-bar ${done || bad ? "done" : ""}"></span>` : ""}<span class="qc-step ${cls}"><span class="qc-dot">${icon ? `<i class="ph ${icon}"></i>` : ""}</span>${l}</span>`;
+  }).join("");
+
+  return `<div class="qc-item qc-st-${c.status}">
+    <div class="qc-head">
+      <div><div class="qc-title"><span class="qc-id">${qcEsc(c.id)}</span> ${qcEsc(c.coverage.line)}</div>
+        <div class="qc-sub">Limit ${qcEsc(c.coverage.limit)} &middot; deductible ${qcEsc(c.coverage.ded)}</div></div>
       <span class="badge ${stCls}">${stText}</span></div>
-    <table class="data-table" style="margin-top:8px;"><tbody>
-      <tr><td style="width:28%;"><strong>Condition</strong></td><td style="white-space:pre-wrap;">${qcEsc(c.condition)}</td></tr>
-      <tr><td><strong>Deadline</strong></td><td>${qcDeadlineText(c)}</td></tr>
-      <tr><td><strong>If met on time</strong></td><td>${qcEsc(c.coverage.line)} is added and ${qcMoney(c.premium)} is added to the premium (before taxes and fees).</td></tr>
-      <tr><td><strong>If not met on time</strong></td><td>The coverage is not added and the premium stays unchanged.</td></tr>
-      ${c.signature ? `<tr><td><strong>Signed</strong></td><td>Version ${c.signature.version} by ${qcEsc(c.signature.signedBy)} on ${qcEsc(c.signature.signedOn)} <span class="text-xs text-muted">(${qcEsc(c.signature.reference)})</span></td></tr>` : ""}
-    </tbody></table>
-    ${outcome}
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center;">
+    <div class="qc-steps">${steps}</div>
+    <div class="qc-facts">
+      <div class="qc-fact"><div class="k">Added premium</div><div class="v">${qcMoney(c.premium)}</div></div>
+      <div class="qc-fact"><div class="k">Deadline</div><div class="v" style="font-weight:500;">${qcDeadlineText(c)}</div></div>
+      ${c.signature ? `<div class="qc-fact"><div class="k">Signed</div><div class="v" style="font-weight:500;">Version ${c.signature.version} by ${qcEsc(c.signature.signedBy)} on ${qcEsc(c.signature.signedOn)} <span class="text-xs text-muted">(${qcEsc(c.signature.reference)})</span></div></div>` : ""}
+    </div>
+    <div class="qc-cond"><div class="qc-lbl">Condition</div>${qcEsc(c.condition)}</div>
+    <div class="qc-outcomes">
+      <div class="qc-oc yes"><b><i class="ph ph-check-circle"></i> If met on time</b>${qcEsc(c.coverage.line)} is added and ${qcMoney(c.premium)} is added to the premium (before taxes and fees).</div>
+      <div class="qc-oc no"><b><i class="ph ph-calendar-x"></i> If not met on time</b>The coverage is not added and the premium stays unchanged.</div>
+    </div>
+    ${outcome ? `<div style="padding:0 14px 12px;">${outcome}</div>` : ""}
+    <div class="qc-actions">
       <button class="btn btn-sm btn-outline" style="width:auto;" onclick="qcOpenDocument('${c.id}')"><i class="ph ph-file-text"></i> View the document to sign</button>${actions}</div>
+    <div class="qc-more">
     ${extend}
     ${det("ver", "Versions (" + c.versions.length + ")", `<table class="data-table"><thead><tr><th>Version</th><th>Issued</th><th>Deadline</th><th>Changes</th><th></th></tr></thead><tbody>${versions}</tbody></table>`)}
     ${det("chat", "Chat with " + qcEsc(broker) + " (" + c.messages.filter(m => m.kind === "chat").length + ")", qcChatHtml(c, canEdit, sub.channelType === "direct" ? "Customer" : (sub.broker || "Broker")))}
     ${withdraw}
+    </div>
   </div>`;
 }
 
 function qcSuggestionHtml(sub, canEdit) {
   const list = qcSuggestions(sub);
   if (!list.length) return "";
-  return list.map(g => `<div class="alert alert-warning text-xs" style="margin-top:10px;"><i class="ph ph-warning"></i>
-      <strong>Appetite rule not met: ${qcEsc(g.ruleName)}.</strong> ${qcEsc(g.cover)} is not provided for ${g.rules.map(r => qcEsc(String(r.name).split(" — ")[1] || r.name) + " (" + qcEsc(r.val) + ")").join("; ")}.
-      The product allows a Quote Condition: the insured promises to meet it by a date and the coverage is added if they do.
-      ${canEdit ? `<div style="margin-top:6px;"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="qcPrefill('${qcEsc(g.family)}')"><i class="ph ph-file-plus"></i> Create a Quote Condition for ${qcEsc(g.cover)}</button></div>` : ""}</div>`).join("");
+  return list.map(g => `<div class="qc-suggest">
+      <div class="qc-suggest-icon"><i class="ph ph-warning"></i></div>
+      <div class="qc-suggest-body">
+        <div class="qc-suggest-title">Appetite rule not met: ${qcEsc(g.ruleName)}.</div>
+        <div>${qcEsc(g.cover)} is not provided for ${g.rules.map(r => qcEsc(String(r.name).split(" \u2014 ")[1] || r.name) + " (" + qcEsc(r.val) + ")").join("; ")}.
+          The product allows a Quote Condition: the insured promises to meet it by a date and the coverage is added if they do.</div>
+        ${canEdit ? `<div style="margin-top:10px;"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="qcPrefill('${qcEsc(g.family)}')"><i class="ph ph-file-plus"></i> Create a Quote Condition for ${qcEsc(g.cover)}</button></div>` : ""}
+      </div></div>`).join("");
 }
 
 function qcWithheldHtml(sub) {
   const held = qcStore(sub).filter(c => c.withheldRow && c.status !== "met");
   if (!held.length) return "";
-  return `<div class="alert alert-info text-xs" style="margin-top:10px;"><i class="ph ph-lock-key"></i> <strong>Withheld from the quote:</strong> ${held.map(c => `${qcEsc(c.coverage.line)} (${qcEsc(c.id)}, ${qcEsc(QC_STATUS[c.status][0].toLowerCase())})`).join("; ")}. It is added only if the condition is met in time.</div>`;
+  return `<div class="qc-note"><i class="ph ph-lock-key"></i><div><strong>Withheld from the quote:</strong> ${held.map(c => `${qcEsc(c.coverage.line)} (${qcEsc(c.id)}, ${qcEsc(QC_STATUS[c.status][0].toLowerCase())})`).join("; ")}. It is added only if the condition is met in time.</div></div>`;
 }
 
 function qcFormHtml(sub) {
   const pf = QC_PREFILL || {};
   const sugg = (QC_COVERAGE_SUGGESTIONS[sub.lobKey] || ["Additional coverage"]).map(s => `<option value="${qcEsc(s)}"></option>`).join("");
-  return `<div style="border:1px dashed #94a3b8;border-radius:10px;padding:12px;margin-top:12px;display:grid;gap:8px;">
-    <div class="text-xs text-muted">Use this when the insured has not yet met something needed for a coverage but promises to meet it by a date.</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">
-      <label class="text-xs">Coverage to add if met<input id="qc_cov_line" class="form-control" list="qc_cov_list" placeholder="e.g. Physical Damage" value="${qcEsc(pf.line || "")}"><datalist id="qc_cov_list">${sugg}</datalist></label>
-      <label class="text-xs">Limit<input id="qc_cov_limit" class="form-control" placeholder="e.g. $250,000" value="${qcEsc(pf.limit || "")}"></label>
-      <label class="text-xs">Deductible<input id="qc_cov_ded" class="form-control" placeholder="e.g. $2,500" value="${qcEsc(pf.ded || "")}"></label>
-      <label class="text-xs">Additional annual premium ($)<input id="qc_premium" class="form-control" placeholder="e.g. 4,800" value="${qcEsc(pf.premium || "")}"></label>
-      <label class="text-xs">Deadline<input id="qc_deadline" type="date" class="form-control" min="${qcToday()}" max="${qcAddDays(qcToday(), QC_MAX_DEADLINE_DAYS)}" value="${qcEsc(pf.deadline || "")}"></label>
+  return `<div class="qc-form">
+    <div class="qc-form-head"><div class="qc-form-title"><i class="ph ph-file-plus"></i> New Quote Condition</div>
+      <div class="qc-form-hint">Use this when the insured has not yet met something needed for a coverage but promises to meet it by a date.</div></div>
+    ${pf.ruleName ? `<div class="qc-note"><i class="ph ph-link"></i><div>Raised from the appetite rule "${qcEsc(pf.ruleName)}". Creating it withholds ${qcEsc(pf.line)} from the quote until the condition is met.</div></div>` : ""}
+    <div class="qc-form-section">Coverage</div>
+    <div class="qc-grid">
+      <label class="qc-field qc-wide">Coverage to add if met<input id="qc_cov_line" class="form-control" list="qc_cov_list" placeholder="e.g. Physical Damage" value="${qcEsc(pf.line || "")}"><datalist id="qc_cov_list">${sugg}</datalist></label>
+      <label class="qc-field">Limit<input id="qc_cov_limit" class="form-control" placeholder="e.g. $250,000" value="${qcEsc(pf.limit || "")}"></label>
+      <label class="qc-field">Deductible<input id="qc_cov_ded" class="form-control" placeholder="e.g. $2,500" value="${qcEsc(pf.ded || "")}"></label>
     </div>
-    <label class="text-xs">Condition the insured promises to meet<textarea id="qc_condition" class="form-control" rows="3" placeholder="e.g. Install forward-facing cameras on all 12 power units and send the installer's certificate.">${qcEsc(pf.condition || "")}</textarea></label>
-    ${pf.ruleName ? `<div class="text-xs text-muted"><i class="ph ph-link"></i> Raised from the appetite rule "${qcEsc(pf.ruleName)}". Creating it withholds ${qcEsc(pf.line)} from the quote until the condition is met.</div>` : ""}
-    <div><button class="btn btn-sm btn-primary" style="width:auto;" onclick="qcCreate()"><i class="ph ph-file-plus"></i> Create the Quote Condition</button>
+    <div class="qc-form-section">Terms</div>
+    <div class="qc-grid">
+      <label class="qc-field">Additional annual premium ($)<input id="qc_premium" class="form-control" placeholder="e.g. 4,800" value="${qcEsc(pf.premium || "")}"></label>
+      <label class="qc-field">Deadline<input id="qc_deadline" type="date" class="form-control" min="${qcToday()}" max="${qcAddDays(qcToday(), QC_MAX_DEADLINE_DAYS)}" value="${qcEsc(pf.deadline || "")}"></label>
+    </div>
+    <label class="qc-field">Condition the insured promises to meet<textarea id="qc_condition" class="form-control" rows="3" placeholder="e.g. Install forward-facing cameras on all 12 power units and send the installer's certificate.">${qcEsc(pf.condition || "")}</textarea></label>
+    <div class="qc-form-actions"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="qcCreate()"><i class="ph ph-file-plus"></i> Create the Quote Condition</button>
     <button class="btn btn-sm btn-outline" style="width:auto;" onclick="QC_PREFILL = null; qcToggleForm()">Cancel</button></div></div>`;
 }
 
@@ -544,7 +574,7 @@ function qcRender(sub) {
     <div class="card-header"><h3><i class="ph ph-file-text"></i> Quote Condition</h3>
       <span class="badge ${open ? "badge-warning" : "badge-light"}">${list.length ? open + " open of " + list.length : "None"}</span></div>
     <div class="card-body">
-      <p class="text-xs text-muted" style="margin:0 0 6px;">A coverage the insured cannot qualify for yet can be added later if they meet a stated condition by an agreed date. The insured signs a Quote Condition showing the condition and the deadline. Met on time: the coverage is added and the premium updated. Not met on time: nothing is added and the premium is unchanged.</p>
+      <div class="qc-intro"><i class="ph ph-info"></i><div>A coverage the insured cannot qualify for yet can be added later if they meet a stated condition by an agreed date. The insured signs a Quote Condition showing the condition and the deadline. Met on time: the coverage is added and the premium updated. Not met on time: nothing is added and the premium is unchanged.</div></div>
       ${qcSuggestionHtml(sub, canEdit)}
       ${qcWithheldHtml(sub)}
       ${canEdit && !QC_FORM_OPEN ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="qcToggleForm()"><i class="ph ph-plus"></i> New Quote Condition</button>` : ""}
