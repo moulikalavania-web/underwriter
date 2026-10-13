@@ -23,6 +23,8 @@ function intakeToolbarHtml() {
 function referredToRole(sub, role) {
   return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending" && sub.authorityRef.requiredRole === role);
 }
+/** One definition of "referral" for the tab, its count and the row badge: an authority referral is needed or the status says Referral. Priority P1 is urgency, not a referral. */
+function isReferralCase(sub) { return !!sub && (authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral")); }
 function isMyCase(sub) { return sub.assignedTo === currentUserRole || referredToRole(sub, currentUserRole); }
 
 function renderRoleDashboard() {
@@ -227,7 +229,7 @@ function renderSubmissionsTable() {
     let matchChannel = true;
     if (currentTableFilter === "broker") matchChannel = sub.channelType === "broker";
     else if (currentTableFilter === "direct") matchChannel = sub.channelType === "direct";
-    else if (currentTableFilter === "referral") matchChannel = authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral") || sub.priority === "P1";
+    else if (currentTableFilter === "referral") matchChannel = isReferralCase(sub);
 
     const term = currentSearchTerm.toLowerCase();
     const matchSearch = term === "" ||
@@ -255,7 +257,7 @@ function renderSubmissionsTable() {
   const total = filteredByLOB.length;
   const brokerCount = filteredByLOB.filter(s => s.channelType === "broker").length;
   const directCount = filteredByLOB.filter(s => s.channelType === "direct").length;
-  const referralCount = filteredByLOB.filter(s => authNeedsReferral(s) || String(s.statusText || "").includes("Referral") || s.priority === "P1").length;
+  const referralCount = filteredByLOB.filter(isReferralCase).length;
   
   const elTotal = document.getElementById("countTotalSubs");
   const elBroker = document.getElementById("countBrokerSubs");
@@ -319,16 +321,16 @@ function renderSubmissionsTable() {
     if (sub.priority === "P1") { pClass = "badge-priority-p1"; pIcon = "ph-fire"; }
     else if (sub.priority === "P2") { pClass = "badge-priority-p2"; pIcon = "ph-lightning"; }
 
-    const isReferralCase = authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral");
+    const isReferral = isReferralCase(sub);
     const stepNum = sub.currentStep || 1;
     const stepObj = SCREEN_ORDER.find(s => s.num === stepNum) || SCREEN_ORDER[0];
 
-    const actionBtn = (currentUserRole === "senior" && isReferralCase)
+    const actionBtn = (currentUserRole === "senior" && isReferral)
       ? `<button class="btn-action-view btn-action-referral" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-scales"></i> Review</button>`
       : `<button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button>`;
 
     return `
-      <tr class="${isSelected ? 'active-row' : ''} ${isReferralCase ? 'referral-row' : ''}" onclick="openCaseAtCurrentStep('${sub.id}')">
+      <tr class="${isSelected ? 'active-row' : ''} ${isReferral ? 'referral-row' : ''}" onclick="openCaseAtCurrentStep('${sub.id}')">
         <td>
           <span class="badge-priority ${pClass}">
             <i class="ph ${pIcon}"></i> ${sub.priority} • ${String(sub.slaText || '—').split(' ')[0]}
@@ -338,7 +340,7 @@ function renderSubmissionsTable() {
         <td>${channelBadge}</td>
         <td>
           <strong>${sub.insured}</strong>
-          ${isReferralCase ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
+          ${isReferral ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
           <div class="text-secondary text-sm">FEIN: ${sub.fein || "—"} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
           ${sub.underwriter ? `<div class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</div>` : ''}
         </td>
