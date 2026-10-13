@@ -30,7 +30,7 @@ persistence, rendering), not source text:
 | c05 | Written role definitions; the six access-policy rules (separation of duties, least privilege, audit-log protection); every permission change checked; periodic access review by the Compliance Officer |
 | c06 | Only the Head of Underwriting creates, imports and assigns; a pending referral puts the case on the deciding role's desk |
 | c07 | Document ingestion: detection by file content, refusal of renamed files and programs, extraction by type (PDF, Word, Excel, PowerPoint, CSV, JSON, EML), OCR hook, consolidation with sources and conflicts, validation, canonical record |
-| c08 | Quote Conditions in Clearance Check: drafting rules, the document to sign, met on time (coverage added, premium updated), not met (nothing added, premium unchanged), extensions kept as versions, chat with the broker, permissions |
+| c08 | Quote Conditions in the Notice Studio popup: drafting rules, the document to sign, met on time (coverage added, premium updated), not met (nothing added, premium unchanged), extensions kept as versions, chat with the broker, permissions |
 | c09 | Sample product PRD-021 "Dashcam Required" rule: judged unit by unit, suggests a Quote Condition, coverage withheld; met in time = Own Damage added and premium updated; not met = coverage stays out, premium unchanged |
 | c10 | Rating Snapshot in Quote & Bind: risk details, risk score and premium saved as versions when rating details are generated; unchanged = nothing saved; old versions kept; changes and comparison |
 | c11 | Saved state restored on load: version key, storage-size guard (attachments first, then derived text), failed writes never break the app |

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * QUOTE CONDITIONS (Add-On): Submission Intake > Clearance Check > Quote Condition
+ * QUOTE CONDITIONS (Add-On): Notice Studio popup > Quote Condition
  * ----------------------------------------------------------------------------
  * A quote condition is used when the insured has not yet met something needed for
  * a coverage but promises to meet it by a date. The underwriter writes the
@@ -62,7 +62,11 @@ function qcNow() { return new Date().toISOString().slice(0, 16).replace("T", " "
 function qcActor() { const r = USER_ROLES_CONFIG[currentUserRole]; return r ? `${r.name} (${r.title})` : "Unknown user"; }
 
 function qcSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
-function qcActiveSub() { return qcSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
+/** The Quote Condition card lives in the Notice Studio popup, which can be open on a submission other than the active one (Decline Center); the popup's submission wins. */
+function qcActiveSub() {
+  if (typeof noticeStudio !== "undefined" && noticeStudio && noticeStudio.subId && document.getElementById("quoteConditionContainer")) return qcSub(noticeStudio.subId);
+  return qcSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null);
+}
 function qcStore(sub) { if (!Array.isArray(sub.quoteConditions)) sub.quoteConditions = []; return sub.quoteConditions; }
 function qcFind(sub, id) { return qcStore(sub).find(c => c.id === id) || null; }
 function qcIsFinal(c) { return c.status === "met" || c.status === "lapsed" || c.status === "withdrawn"; }

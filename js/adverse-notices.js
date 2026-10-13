@@ -253,7 +253,7 @@ function noticeOpenStudio(subId, type) {
 
 function noticeCloseStudio() {
   const m = document.getElementById("noticeStudioModal");
-  if (m) m.style.display = "none";
+  if (m) { m.style.display = "none"; m.innerHTML = ""; }
   noticeStudio = { subId: null, editingId: null, form: null, previewHtml: "" };
 }
 
@@ -354,6 +354,9 @@ function noticeRenderStudio() {
       <textarea id="ns_sf_${i}" class="form-control" rows="3" style="margin-top:6px; width:100%;" placeholder="Key factors that adversely affected the score — one per line, up to four" ${dis}>${noticeEsc(r.factors)}</textarea>` : ""}
     </div>`).join("");
 
+  // The Quote Condition card (js/quote-conditions.js) lives inside this popup. Keep its DOM across redraws so a half-filled condition form survives a notice toggle.
+  const keptQc = document.getElementById("quoteConditionContainer");
+  if (keptQc && keptQc.parentNode) keptQc.parentNode.removeChild(keptQc);
   modal.innerHTML = `
     <div class="modal-content modal-xl" style="max-height:92vh; display:flex; flex-direction:column;">
       <div class="modal-header">
@@ -397,8 +400,16 @@ function noticeRenderStudio() {
           ${canIssue ? `<button class="btn btn-sm btn-success" style="width:auto;" onclick="noticeIssue()" ${hold ? "disabled" : ""}><i class="ph ph-paper-plane-tilt"></i> Issue notice</button>` : `<span class="text-xs text-muted"><i class="ph ph-lock"></i> Issuing needs a user with notice approval authority.</span>`}
         </div>
         <div id="ns_preview" style="margin-top:14px;">${noticeStudio.previewHtml ? `<div style="border:1px solid #cbd5e1; border-radius:8px; padding:16px 20px; background:#fff; font-size:13px;">${noticeStudio.previewHtml}</div>` : ""}</div>
+        <div id="ns_qc_slot" style="margin-top:18px; border-top:1px solid #e2e8f0; padding-top:14px;"></div>
       </div>
     </div>`;
+  const qcSlot = document.getElementById("ns_qc_slot");
+  if (qcSlot) {
+    const box = keptQc || document.createElement("div");
+    box.id = "quoteConditionContainer";
+    qcSlot.appendChild(box);
+    if (typeof qcRender === "function") qcRender(sub);
+  }
   modal.style.display = "flex";
 }
 

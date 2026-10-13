@@ -1,4 +1,4 @@
-<!-- Suite C08: Quote Conditions (Clearance Check). A coverage the insured cannot qualify for yet is added later if a signed condition is
+<!-- Suite C08: Quote Conditions (Notice Studio popup). A coverage the insured cannot qualify for yet is added later if a signed condition is
      met by its deadline. Met on time: coverage added, premium updated. Not met on time: nothing added, premium unchanged. Extensions are
      new versions that keep the old deadline. A chat with the broker sits inside each condition. -->
 <script>
@@ -29,9 +29,9 @@
     document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
     var sub = mk('SUB-QC-1');
     SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentUserRole = 'senior_uw';
-    qcRender(sub);
+    noticeOpenStudio(sub.id);
 
-    t('the Quote Condition card sits in the Clearance Check screen', !!el('quoteConditionContainer') && !!el('quoteConditionContainer').closest('#screen-3') && /Quote Condition/.test(el('quoteConditionContainer').innerHTML));
+    t('the Quote Condition card sits in the Notice Studio popup, not the Clearance Check screen', !!el('quoteConditionContainer') && !!el('quoteConditionContainer').closest('#noticeStudioModal') && !document.querySelector('#screen-3 #quoteConditionContainer') && /Quote Condition/.test(el('quoteConditionContainer').innerHTML));
     t('a resource for it exists with rights for every internal role', RBAC_RESOURCES.some(function(r){ return r.key === 'quoteConditions'; }) && ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].every(function(r){ return !!PERMISSIONS_MATRIX[r].quoteConditions; }));
 
     // ---------- drafting is validated
@@ -146,7 +146,7 @@
 
     // ---------- a direct submission talks to the customer
     var dsub = mk('SUB-QC-2'); dsub.channelType = 'direct'; dsub.broker = 'Direct / Unassigned Producer';
-    SUBMISSIONS_DATASET.push(dsub); activeSubmissionId = dsub.id; qcRender(dsub); openForm(); fill(); qcCreate(); qcIssue('QC-1'); qcRender(dsub);
+    SUBMISSIONS_DATASET.push(dsub); activeSubmissionId = dsub.id; noticeOpenStudio(dsub.id); openForm(); fill(); qcCreate(); qcIssue('QC-1'); qcRender(dsub);
     t('on a direct submission the chat is with the customer', /Chat with the customer/.test(el('quoteConditionContainer').innerHTML));
 
     t('no page errors', errs.length === 0, errs.join(' | '));

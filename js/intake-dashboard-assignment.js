@@ -227,15 +227,11 @@ function renderSubmissionsTable() {
     let matchChannel = true;
     if (currentTableFilter === "broker") matchChannel = sub.channelType === "broker";
     else if (currentTableFilter === "direct") matchChannel = sub.channelType === "direct";
-    else if (currentTableFilter === "referral") matchChannel = authNeedsReferral(sub) || sub.statusText.includes("Referral") || sub.priority === "P1";
+    else if (currentTableFilter === "referral") matchChannel = authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral") || sub.priority === "P1";
 
     const term = currentSearchTerm.toLowerCase();
     const matchSearch = term === "" ||
-      sub.insured.toLowerCase().includes(term) ||
-      sub.id.toLowerCase().includes(term) ||
-      sub.fein.toLowerCase().includes(term) ||
-      sub.broker.toLowerCase().includes(term) ||
-      sub.lobName.toLowerCase().includes(term);
+      [sub.insured, sub.id, sub.fein, sub.broker, sub.lobName].some(v => String(v || "").toLowerCase().includes(term));
 
     return matchChannel && matchSearch;
   });
@@ -259,7 +255,7 @@ function renderSubmissionsTable() {
   const total = filteredByLOB.length;
   const brokerCount = filteredByLOB.filter(s => s.channelType === "broker").length;
   const directCount = filteredByLOB.filter(s => s.channelType === "direct").length;
-  const referralCount = filteredByLOB.filter(s => authNeedsReferral(s) || s.statusText.includes("Referral") || s.priority === "P1").length;
+  const referralCount = filteredByLOB.filter(s => authNeedsReferral(s) || String(s.statusText || "").includes("Referral") || s.priority === "P1").length;
   
   const elTotal = document.getElementById("countTotalSubs");
   const elBroker = document.getElementById("countBrokerSubs");
@@ -314,7 +310,7 @@ function renderSubmissionsTable() {
   tbody.innerHTML = filtered.map(sub => {
     const isSelected = sub.id === activeSubmissionId;
     const channelBadge = sub.channelType === "broker" 
-      ? `<span class="channel-tag channel-broker"><i class="ph ph-briefcase"></i> ${sub.broker.split(' ')[0]} (Broker)</span>`
+      ? `<span class="channel-tag channel-broker"><i class="ph ph-briefcase"></i> ${String(sub.broker || 'Unknown').split(' ')[0]} (Broker)</span>`
       : `<span class="channel-tag channel-direct"><i class="ph ph-user"></i> Direct Portal</span>`;
 
     // Priority badge class
@@ -323,7 +319,7 @@ function renderSubmissionsTable() {
     if (sub.priority === "P1") { pClass = "badge-priority-p1"; pIcon = "ph-fire"; }
     else if (sub.priority === "P2") { pClass = "badge-priority-p2"; pIcon = "ph-lightning"; }
 
-    const isReferralCase = authNeedsReferral(sub) || sub.statusText.includes("Referral");
+    const isReferralCase = authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral");
     const stepNum = sub.currentStep || 1;
     const stepObj = SCREEN_ORDER.find(s => s.num === stepNum) || SCREEN_ORDER[0];
 
@@ -335,7 +331,7 @@ function renderSubmissionsTable() {
       <tr class="${isSelected ? 'active-row' : ''} ${isReferralCase ? 'referral-row' : ''}" onclick="openCaseAtCurrentStep('${sub.id}')">
         <td>
           <span class="badge-priority ${pClass}">
-            <i class="ph ${pIcon}"></i> ${sub.priority} • ${sub.slaText.split(' ')[0]}
+            <i class="ph ${pIcon}"></i> ${sub.priority} • ${String(sub.slaText || '—').split(' ')[0]}
           </span>
         </td>
         <td><strong class="font-mono text-primary">${sub.id}</strong></td>
@@ -343,7 +339,7 @@ function renderSubmissionsTable() {
         <td>
           <strong>${sub.insured}</strong>
           ${isReferralCase ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
-          <div class="text-secondary text-sm">FEIN: ${sub.fein} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
+          <div class="text-secondary text-sm">FEIN: ${sub.fein || "—"} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
           ${sub.underwriter ? `<div class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</div>` : ''}
         </td>
         <td><span class="badge badge-light">${sub.lobName}</span></td>
@@ -376,7 +372,7 @@ function renderSubmissionsTable() {
           })()}
         </td>
         <td onclick="event.stopPropagation();">
-          <span class="badge ${sub.statusBadge}">${sub.statusText}</span>
+          <span class="badge ${sub.statusBadge || 'badge-light'}">${sub.statusText || '—'}</span>
           <button class="btn btn-xs ${sub.quoteIssued ? 'btn-outline' : 'btn-outline disabled'}" style="margin-top:4px;"
             ${sub.quoteIssued ? `onclick="viewIssuedQuote('${sub.id}')"` : "disabled"}
             title="${sub.quoteIssued ? 'View the issued quote' : 'Quote has not been issued to the broker/customer yet'}">

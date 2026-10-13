@@ -67,11 +67,11 @@
     var none = mkSub('SUB-DC-0', []); none.appetiteRules = buildProductAppetiteRules(null, none);
     t('with no vehicles yet the rule waits for fleet data instead of failing', none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); }).length === 1 && none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); })[0].pass === true && /Pending/.test(none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); })[0].val));
     var allOk = mkSub('SUB-DC-9', [true, true]); allOk.appetiteRules = buildProductAppetiteRules(null, allOk);
-    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(allOk); activeSubmissionId = allOk.id; qcRender(allOk);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(allOk); activeSubmissionId = allOk.id; noticeOpenStudio(allOk.id);
     t('when every unit has a dashcam no Quote Condition is suggested', !/Appetite rule not met/.test(el('quoteConditionContainer').innerHTML));
 
     // ---------- a unit without a dashcam: the Quote Condition is suggested and created
-    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; renderAppetiteRules(sub.appetiteRules); qcRender(sub);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; renderAppetiteRules(sub.appetiteRules); noticeOpenStudio(sub.id);
     var html = el('quoteConditionContainer').innerHTML;
     t('the Quote Condition card suggests a condition and names the units without a dashcam', /Appetite rule not met: Dashcam Required/.test(html) && /Unit 2/.test(html) && /Unit 3/.test(html) && /No dashcam/.test(html) && /Not stated/.test(html) && !/Unit 1 \(2022 Volvo VNL 760\) \(Dashcam installed\)/.test(html));
     t('the appetite table shows the failing rows', /Dashcam Required — Unit 2/.test(el('appetiteRulesTable').innerHTML) && /FAIL/.test(el('appetiteRulesTable').innerHTML));
@@ -99,7 +99,7 @@
 
     // ---------- not installed by the deadline: coverage stays out, premium unchanged
     var sub2 = mkSub('SUB-DC-2', [true, false, undefined]); sub2.appetiteRules = buildProductAppetiteRules(null, sub2);
-    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub2); activeSubmissionId = sub2.id; renderAppetiteRules(sub2.appetiteRules); qcRender(sub2);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub2); activeSubmissionId = sub2.id; renderAppetiteRules(sub2.appetiteRules); noticeOpenStudio(sub2.id);
     qcPrefill('ELG-mtgsfrji7d1'); setv('qc_deadline', in10); qcCreate();
     var d1 = sub2.quoteConditions[0]; qcIssue('QC-1'); qcRender(sub2);
     setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email'); qcRecordSignature('QC-1');

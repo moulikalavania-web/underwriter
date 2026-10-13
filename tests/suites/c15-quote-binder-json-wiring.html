@@ -54,7 +54,7 @@
     t('and everything it already carried is unchanged', Object.keys(fj).sort().join() === 'quote,quoteConditions,ratingInputs,ratingSnapshot' && !!fj.ratingInputs.vehicles && !!fj.ratingInputs.drivers && !!fj.ratingInputs.coveragesInfo);
 
     // ---------- when the condition is met: the coverage is included
-    qcRender(sub); el('qc_met_ref_QC-1').value = 'Installer certificate DC-5521'; qcConfirmMet('QC-1');
+    noticeOpenStudio(sub.id); el('qc_met_ref_QC-1').value = 'Installer certificate DC-5521'; qcConfirmMet('QC-1');
     var lines2 = buildQuoteProposalLines(sub).join('\n');
     t('a met condition moves the coverage into the quote and the premium', /Own Damage/.test(lines2.split('COVERAGE ADDED')[0]) && /COVERAGE ADDED UNDER A QUOTE CONDITION/.test(lines2) && /\(QC-1\): condition met /.test(lines2) && !/COVERAGE NOT INCLUDED/.test(lines2) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$14,800\.00/.test(lines2), lines2.split('\n').filter(function(l){ return /TOTAL ESTIMATED/.test(l); }).join());
     t('the rating basis moves to the new snapshot, because the premium changed', /Rating basis: snapshot v2 \(/.test(lines2));

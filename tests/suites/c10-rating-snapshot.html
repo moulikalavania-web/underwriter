@@ -81,7 +81,7 @@
     // ---------- a quote condition that adds a coverage changes the premium and is captured
     var before = sub.ratingSnapshots.length;
     sub.quoteConditions = [{ id: 'QC-1', status: 'signed', coverage: { line: 'Own Damage', limit: '$1,000,000', ded: '$300' }, condition: 'Install a dashcam on each unit listed.', premium: 4800, deadline: qcAddDays(qcToday(), 5), versions: [{ version: 1, kind: 'created', condition: 'x', coverage: {}, premium: 4800, deadline: qcAddDays(qcToday(), 5), changes: [], reason: '', by: 'x', at: 'x' }], messages: [], signature: { version: 1, signedBy: 'D', signedOn: qcToday(), reference: 'r' }, outcome: null }];
-    qcRender(sub); el('qc_met_ref_QC-1').value = 'Certificate'; qcConfirmMet('QC-1');
+    noticeOpenStudio(sub.id); el('qc_met_ref_QC-1').value = 'Certificate'; qcConfirmMet('QC-1');
     var v5 = sub.ratingSnapshots[sub.ratingSnapshots.length - 1];
     t('a Quote Condition met adds a version that shows the new coverage and premium', sub.ratingSnapshots.length === before + 1 && /Quote Condition QC-1 met/.test(v5.trigger) && v5.changes.some(function(x){ return /^coverages\[/.test(x.path) && /Own Damage/.test(String(x.to)); }) && v5.content.premium.addedByQuoteConditions === 4800);
 
