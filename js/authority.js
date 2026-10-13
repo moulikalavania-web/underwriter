@@ -93,7 +93,11 @@ function authRuleFor(role, m) {
 
 /** Does a role hold authority over this risk? */
 function authRoleCovers(role, m) {
-  if (m.state === null) return { ok: false, rule: null, reasons: ["The risk's state could not be determined, so state-specific authority cannot be confirmed."] };
+  // An unknown state only matters to a role that has a state-specific rule for this class (a rule that could be tighter once the state is known).
+  // A role whose rules apply in every state does not need it.
+  if (m.state === null && AUTH_RULES.some(function (r) { return r.role === role && (r.lob === "*" || r.lob === m.lob) && r.states !== "*"; })) {
+    return { ok: false, rule: null, stateUnknown: true, reasons: ["The risk's state could not be determined, so state-specific authority cannot be confirmed."] };
+  }
   var rule = authRuleFor(role, m);
   if (!rule) return { ok: false, rule: null, reasons: [authRoleLabel(role) + " holds no authority for this class or state."] };
   var why = [];
@@ -187,6 +191,7 @@ function authAssess(sub, actorRole, dataset) {
   var blockers = [];
   if (!internalOk) {
     if (refStale) blockers.push("The earlier referral approval covered " + authMoney(ref.approvedMeasures.premium) + " premium and " + authMoney(ref.approvedMeasures.limit) + " limit; the risk now stands at " + authMoney(m.premium) + " and " + authMoney(m.limit) + ", so it must be referred again.");
+    else if (req === null && m.state === null) blockers.push("The risk's state could not be determined, so no internal authority level can be confirmed for it (premium " + authMoney(m.premium) + ", limit " + authMoney(m.limit) + "). Enter the garaging state; if the risk then exceeds every level it can only go ahead with a written exception from the carrier.");
     else if (req === null) blockers.push("The risk exceeds every internal authority level" + (own.reasons.length ? " (" + own.reasons[0] + ")" : "") + "; it can only go ahead with a written exception from the carrier.");
     else blockers.push(authRoleLabel(actorRole) + " lacks authority (" + own.reasons.join("; ") + "). It needs " + authRoleLabel(req) + " or above" + (ref && ref.status === "pending" ? "; a referral is awaiting decision." : "."));
   }

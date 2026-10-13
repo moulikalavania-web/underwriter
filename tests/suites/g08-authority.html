@@ -30,7 +30,9 @@
     t('junior has no authority for FL property but has for TX property', !authRoleCovers('junior', M(1000, 1000, 'property', 'FL')).ok && authRoleCovers('junior', M(1000, 1000, 'property', 'TX')).ok);
     t('most specific rule wins: senior UW casualty ceiling is lower', !authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cas')).ok && authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cpc')).ok);
     t('CUO covers more', authRoleCovers('senior', M(4000000, 20000000)).ok && !authRoleCovers('senior', M(6000000, 20000000)).ok);
-    t('unknown state: authority cannot be confirmed', !authRoleCovers('senior', M(1, 1, 'gl_cpc', null)).ok);
+    t('unknown state: a role with a state-specific rule for the class cannot be confirmed (junior, property)', !authRoleCovers('junior', M(1, 1, 'property', null)).ok && authRoleCovers('junior', M(1, 1, 'property', null)).stateUnknown === true);
+    t('unknown state: a role whose rules apply in every state is still judged on premium and limit (CUO covers $1,028,715 / $8,000,000; senior UW does not)', authRoleCovers('senior', M(1028715, 8000000, 'trucking', null)).ok && !authRoleCovers('senior_uw', M(1028715, 8000000, 'trucking', null)).ok && authRequiredRole(M(1028715, 8000000, 'trucking', null)) === 'senior');
+    t('unknown state and beyond every level: the message names the state, not only the size', (function(){ var s = { id: 'X', lobKey: 'trucking', exposureVal: 90000000, discretionaryPricing: { finalPremium: 9000000 } }; var a = authAssess(s, 'senior', []); return a.blockers.some(function(b){ return /state could not be determined/.test(b); }); })());
     t('required role is the lowest sufficient', authRequiredRole(M(100000,1000000))==='junior' && authRequiredRole(M(500000,1000000))==='senior_uw' && authRequiredRole(M(2000000,1000000))==='senior' && authRequiredRole(M(9000000,1000000))===null && authRequiredRole(M(1000,1000,'gl_cas'))==='senior_uw');
 
     // ---------- carrier layer (pure)
