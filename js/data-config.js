@@ -136,6 +136,7 @@ const RBAC_RESOURCES = [
   { key: "authority", label: "Underwriting Authority (Raise Referral = Edit, Decide Referral = Approve, Record Carrier Approval = Override; nobody approves a risk they prepared or referred)" },
   { key: "bordereaux", label: "Carrier Bordereaux (Draft / Export = Edit, Submit to Carrier = Approve)" },
   { key: "performance", label: "Performance Reporting (View = Book-level Measures, Approve = Underwriter-level Measures)" },
+  { key: "quoteConditions", label: "Quote Conditions (Draft / Issue / Record Signature / Chat / Extend = Edit, Confirm Condition Met and Add Coverage = Approve)" },
   { key: "accessReview", label: "Access Reviews (View = see the review record, Approve = record a periodic review of a role's access; the administrator cannot)" }
 ];
 const RBAC_ACTIONS = ["view", "edit", "approve", "override", "archive"];
@@ -171,6 +172,7 @@ function defaultPermissionsMatrix() {
       authority: all(true, false, false, false, false),
       bordereaux: all(true, false, false, false, false),
       performance: all(false, false, false, false, false),
+      quoteConditions: all(true, false, false, false, false),
       accessReview: all(false, false, false, false, false)
     },
     junior: {
@@ -200,6 +202,7 @@ function defaultPermissionsMatrix() {
       authority: all(true, true, false, false, false),
       bordereaux: all(true, false, false, false, false),
       performance: all(false, false, false, false, false),
+      quoteConditions: all(true, true, true, false, false),
       accessReview: all(false, false, false, false, false)
     },
     senior_uw: {
@@ -228,6 +231,7 @@ function defaultPermissionsMatrix() {
       authority: all(true, true, true, false, false),
       bordereaux: all(true, true, false, false, false),
       performance: all(true, false, false, false, false),
+      quoteConditions: all(true, true, true, false, false),
       accessReview: all(false, false, false, false, false)
     },
     senior: {
@@ -256,6 +260,7 @@ function defaultPermissionsMatrix() {
       authority: all(true, true, true, true, false),
       bordereaux: all(true, true, true, false, false),
       performance: all(true, false, true, false, false),
+      quoteConditions: all(true, true, true, false, false),
       accessReview: all(true, false, false, false, false)
     },
     admin: {
@@ -288,6 +293,7 @@ function defaultPermissionsMatrix() {
       authority: all(true, false, false, false, false),
       bordereaux: all(true, false, false, false, false),
       performance: all(true, false, true, false, false),
+      quoteConditions: all(true, false, false, false, false),
       accessReview: all(true, false, false, false, false)
     }
   };
@@ -407,10 +413,33 @@ function getCoveragesForLOBs(lobKeys) {
 // exposure, and no trust/risk score. Both are derived deterministically per
 // submission (stable across renders) unless the user has since adjusted the
 // premium, in which case the adjusted value is authoritative.
+// ----------------------------------------------------------------------------
+// SLA: the target hours are the performance module's table (PERF_SLA_HOURS); the wording and the countdown are worked out from
+// the case's own receipt time, never typed in. A case with no priority score shows none.
+// ----------------------------------------------------------------------------
+function slaHoursFor(priority) { return (typeof PERF_SLA_HOURS !== "undefined" && PERF_SLA_HOURS[priority]) || null; }
+function slaTextFor(priority) {
+  const h = slaHoursFor(priority);
+  return h ? `${h}h ${priority === "P1" ? "Fast-Track" : (priority === "P2" ? "Standard" : "FIFO")} SLA` : "Standard FIFO";
+}
+/** Time left to the SLA target, from the receipt time; falls back to the stored wording when the case has no target. */
+function slaCountdownFor(sub) {
+  if (typeof sub.slaHours !== "number" || typeof sub.receivedTimestamp !== "number") return sub.slaCountdown;
+  const left = sub.receivedTimestamp + sub.slaHours * 3600000 - Date.now();
+  const mins = left >= 0 ? Math.ceil(left / 60000) : Math.floor(-left / 60000), h = Math.floor(mins / 60), m = mins % 60;
+  return left >= 0 ? `${h}h ${String(m).padStart(2, "0")}m remaining` : `Overdue by ${h}h ${String(m).padStart(2, "0")}m`;
+}
+function priorityScoreText(sub) { return typeof sub.priorityScore === "number" ? `(Score: ${sub.priorityScore}/100)` : "(no score set)"; }
+
+/** The case's premium, or 0 while nothing has been rated. It is never estimated from the exposure. */
 function getSubmissionPremium(sub) {
-  if (typeof sub.currentPremium === "number") return sub.currentPremium;
-  const base = Math.round((sub.exposureVal || 0) * 0.045 / 100) * 100;
-  return Math.max(base, 500);
+  return typeof sub.currentPremium === "number" ? sub.currentPremium : 0;
+}
+
+/** For display: the premium, or "Not rated" while there is none. */
+function getSubmissionPremiumLabel(sub) {
+  const rated = typeof sub.currentPremium === "number" || (sub.discretionaryPricing && typeof sub.discretionaryPricing.finalPremium === "number");
+  return rated ? "$" + getSubmissionPremium(sub).toLocaleString("en-US") : "Not rated";
 }
 
 // ============================================================================
@@ -451,6 +480,7 @@ function getBasePremiumFromRatingPayload(sub) {
   // then fall back further to the generic derived premium as a last resort.
   if (!found && sub.coverageRows && sub.coverageRows.length) {
     sub.coverageRows.forEach(row => {
+      if (row.viaQuoteCondition) return;   // added by a met quote condition: counted once, through qcMetPremium below
       const num = parseFloat(String(row.prem || "").replace(/[^0-9.]/g, ""));
       if (!isNaN(num)) { total += num; found = true; }
     });
@@ -461,7 +491,7 @@ function getBasePremiumFromRatingPayload(sub) {
 
 function ensureDiscretionaryPricingSeed(sub) {
   if (!sub.discretionaryPricing) {
-    const baseFromPayload = getBasePremiumFromRatingPayload(sub);
+    const baseFromPayload = getBasePremiumFromRatingPayload(sub) + (typeof qcMetPremium === "function" ? qcMetPremium(sub) : 0);
     sub.discretionaryPricing = {
       basePremium: baseFromPayload,
       adjustmentType: null,   // 'credit' | 'debit' | null

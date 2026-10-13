@@ -806,7 +806,7 @@ function previewDocModal(docIdx = 0, subId = null) {
   const modalFooterNote = document.getElementById("docModalFooterNote");
 
   if (modalTitle) modalTitle.textContent = doc.name;
-  if (modalMeta) modalMeta.textContent = `Case: ${sub.insured} (${sub.id}) • ${doc.desc} • Normalized & OCR-Ready`;
+  if (modalMeta) modalMeta.textContent = `Case: ${sub.insured} (${sub.id}) • ${doc.desc} • ${dvStatusText(sub, doc)}`;
 
   if (modalIcon) {
     modalIcon.className = `doc-icon ${doc.type}`;
@@ -836,194 +836,8 @@ function previewDocModal(docIdx = 0, subId = null) {
 
   if (!modalBody) return;
 
-  // Render authentic document preview based on doc name / type
-  if (doc.name.toLowerCase().includes("handwritten")) {
-    modalBody.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-pdf text-danger"></i> HANDWRITTEN BROKER COVER NOTE (SCANNED)</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Attached by ${sub.broker || 'Submitting Party'}</span>
-          </div>
-          <span class="badge badge-warning">Requires Manual OCR Review</span>
-        </div>
-
-        <div class="handwritten-note-paper">
-          <div class="handwritten-note-text">
-            <p>To Underwriting Desk,</p>
-            <p>Please find attached the submission for <strong>${sub.insured}</strong>
-            (${sub.id}) — ${sub.lobName}. Insured is a solid, long-standing account of ours,
-            good payment history, no major concerns from our side.</p>
-            <p>Effective date requested 09/01. Kindly fast-track if possible, client is
-            eager to bind before renewal lapses. Loss runs &amp; SOV attached separately.</p>
-            <p>Call me if anything's missing.</p>
-            <p class="handwritten-note-signoff">— ${(sub.broker || 'Broker').split(' ')[0]} Desk</p>
-          </div>
-        </div>
-
-        <div style="margin-top: 16px; padding: 12px; background: #fffbeb; border-radius: 6px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
-          <div class="text-sm">
-            <i class="ph ph-warning text-warning"></i> Handwritten source document — not machine-OCR'd. Route to Clearance for manual data verification.
-          </div>
-          <div class="text-sm font-mono text-muted">Scanned ${sub.receivedAt}</div>
-        </div>
-      </div>
-    `;
-  } else if (doc.name.toLowerCase().includes("acord") || doc.name.toLowerCase().includes("app")) {
-    modalBody.innerHTML = `
-      <div class="doc-preview-sheet acord-pdf-sheet">
-        <div class="acord-top-header">
-          <div class="acord-logo-badge">
-            <i class="ph ph-shield-check"></i> ACORD <strong>FORM</strong>
-          </div>
-          <div class="acord-form-title">
-            <h4>Commercial Insurance Application</h4>
-            <span>Standard ISO Certified Format • ${sub.lobName}</span>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 1: Producer & Agency Information</span><span>Submission ID: ${sub.id}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Broker / Agency:</span><span class="val">${sub.broker}</span></div>
-            <div class="acord-field"><span class="lbl">Producer Email:</span><span class="val font-mono">${sub.email}</span></div>
-            <div class="acord-field"><span class="lbl">Channel Origin:</span><span class="val">${sub.channelName}</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 2: Named Insured & Risk Profile</span><span>LOB: ${sub.lobName}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Legal Named Insured:</span><strong class="val">${sub.insured}</strong></div>
-            <div class="acord-field"><span class="lbl">FEIN / Tax ID:</span><span class="val font-mono">${sub.fein}</span></div>
-            <div class="acord-field"><span class="lbl">USDOT / Registration:</span><span class="val font-mono">${sub.dot || 'N/A'}</span></div>
-            <div class="acord-field" style="grid-column: span 2;"><span class="lbl">Mailing Address:</span><span class="val">${sub.address}</span></div>
-            <div class="acord-field"><span class="lbl">Target Effective Date:</span><span class="val">2026-09-01 (12 Months)</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 3: Scheduled Coverages & Limits Requested</span><span>Binding Authority Limit: $${(sub.authorityLimit/1000000).toFixed(1)}M</span></div>
-          ${renderCoverageRowsHtml(sub.coverageRows)}
-        </div>
-
-        <div class="acord-section-box" style="margin-bottom: 0;">
-          <div class="acord-sec-title"><span>Section 4: Electronic Signatures & Compliance Verification</span><span>ISO Verified</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Applicant Signature:</span><span class="val">/s/ Authorized Officer (${sub.insured})</span></div>
-            <div class="acord-field"><span class="lbl">Broker Stamp:</span><span class="val font-mono">BROKER-VERIFIED-CERT</span></div>
-            <div class="acord-field"><span class="lbl">Timestamp:</span><span class="val">${sub.receivedAt}</span></div>
-          </div>
-        </div>
-      </div>
-    `;
-  } else if (doc.type === "xls" || doc.name.toLowerCase().includes("sov") || doc.name.toLowerCase().includes("schedule")) {
-    modalBody.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-xls text-success"></i> STATEMENT OF VALUES (SOV) & ASSET SCHEDULE</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Line of Business: ${sub.lobName}</span>
-          </div>
-          <span class="badge badge-success">Schedule Normalized</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Item #</th>
-              <th>Asset / Vehicle / Location Description</th>
-              <th>Identifier / VIN / Class</th>
-              <th>Territory / Location</th>
-              <th>Stated Value / Exposure</th>
-              <th>Safety Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>001</strong></td>
-              <td>Primary Scheduled Unit / Facility A</td>
-              <td class="font-mono">1FTNE31L8HDA89210</td>
-              <td>Texas Core Operations Hub</td>
-              <td class="font-mono font-bold">${sub.exposure}</td>
-              <td><span class="badge badge-success">Verified Clear</span></td>
-            </tr>
-            <tr>
-              <td><strong>002</strong></td>
-              <td>Secondary Operational Support Asset</td>
-              <td class="font-mono">1FTNE31L9HDA89211</td>
-              <td>Regional Service Facility</td>
-              <td class="font-mono font-bold">Included in Fleet Pool</td>
-              <td><span class="badge badge-success">Verified Clear</span></td>
-            </tr>
-            <tr>
-              <td><strong>003</strong></td>
-              <td>Auxiliary Equipment & Contents</td>
-              <td class="font-mono">EQUIP-SCHED-044</td>
-              <td>Scheduled Terminals</td>
-              <td class="font-mono font-bold">Full Replacement Cost</td>
-              <td><span class="badge badge-info">Inspected</span></td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4"><strong>TOTAL SCHEDULED EXPOSURE VALUATION:</strong></td>
-              <td class="font-mono" style="color: var(--primary); font-size: 14px;"><strong>${sub.exposure}</strong></td>
-              <td><span class="badge badge-primary">Within Appetite</span></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
-  } else {
-    // Loss Run Preview
-    modalBody.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-pdf text-danger"></i> OFFICIAL CARRIER SIGNED LOSS RUN REPORT</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Prior 3-Year Valuation as of 2026-08-01</span>
-          </div>
-          <span class="badge badge-primary">Carrier Signed Official</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Policy Year</th>
-              <th>Claim Number</th>
-              <th>Loss Description</th>
-              <th>Status</th>
-              <th>Paid Losses</th>
-              <th>Total Incurred</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${sub.losses.map((l, i) => `
-              <tr>
-                <td><strong>${l.year}</strong></td>
-                <td class="font-mono">CLM-2026-${1000 + i * 42}</td>
-                <td>${l.desc}</td>
-                <td><span class="badge ${l.status === 'Clean' ? 'badge-success' : 'badge-info'}">${l.status}</span></td>
-                <td class="font-mono">${l.incurred}</td>
-                <td class="font-mono font-bold">${l.incurred}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-
-        <div style="margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span class="lbl" style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">3-Year Cumulative Loss Ratio:</span>
-            <strong style="color: #15803d; font-size: 15px; margin-left: 8px;">18.4% (Highly Favorable)</strong>
-          </div>
-          <div class="text-sm font-mono text-muted">
-            <i class="ph ph-stamp text-primary"></i> Certified Carrier Loss Audit
-          </div>
-        </div>
-      </div>
-    `;
-  }
+  // The file that was attached, not a stand-in drawn from the case's fields (js/document-viewer.js).
+  dvRenderInto(modalBody, sub, doc);
 
   const modal = document.getElementById("docPreviewModal");
   if (modal) modal.classList.add("active");
@@ -1034,8 +848,8 @@ function downloadCurrentPreviewDoc() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === targetId);
   const docIdx = (currentHubDocIdx !== undefined && currentHubDocIdx !== null) ? currentHubDocIdx : (currentPreviewDocIdx || 0);
   const doc = sub && sub.docs ? sub.docs[docIdx] : null;
-  const docName = doc ? doc.name : "document.pdf";
-  showToast(`📥 Downloading "${docName}" for ${sub ? sub.insured : 'Case'}...`, "info");
+  if (!sub || !doc) return;
+  if (dvDownload(sub, doc)) showToast(`📥 Downloaded "${doc.name}".`, "success");
 }
 
 function closeDocPreviewModal() {

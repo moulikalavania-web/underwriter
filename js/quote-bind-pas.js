@@ -84,13 +84,13 @@ function recordQuoteVersion(sub, isBound = false) {
     type: isBound ? "Bound & Policy Issued" : (isQuoteImported ? "Imported JSON Rating Engine Quote" : "Underwriter Issued Quote"),
     date: new Date().toISOString().slice(0, 16).replace("T", " "),
     author: `${roleConfig.name} (${roleConfig.title})`,
-    baseCoveragePremium: Math.round(currentPrem * 0.85),
+    baseCoveragePremium: dp.basePremium,
     appliedDiscounts: 0,
-    feesAndTaxes: Math.round(currentPrem * 0.15),
+    feesAndTaxes: typeof slTaxFor === "function" ? slTaxFor(sub).total : 0,
     premium: currentPrem,
     finalPremium: currentPrem,
-    liabilityLimit: sub.exposure ? `$${sub.exposure} CSL` : "$1,000,000 CSL",
-    pdDeductible: "$2,500",
+    liabilityLimit: sub.exposureVal ? `$${Number(sub.exposureVal).toLocaleString("en-US")} CSL` : "Not stated",
+    pdDeductible: ((sub.coverageRows || []).filter(r => /physical|own damage|collision/i.test(String(r.line)))[0] || {}).ded || "Not stated",
     status: isBound ? "Bound Policy Issued" : "Official Bindable Quote",
     statusBadge: isBound ? "badge-success" : "badge-primary",
     isBound: isBound,
@@ -135,7 +135,8 @@ function applyImportedRatingDataToSubmission(parsed, sub) {
         // The base premium is the premium before tax and fees (the rating engine's coverage premium). Its own
         // final figure includes tax and fees, so it is only used when nothing better is given.
         const covPrem = parseFloat(String(parsed.quote.coveragePremium == null ? "" : parsed.quote.coveragePremium).replace(/[^0-9.]/g, ""));
-        const baseFromQuote = (!isNaN(covPrem) && covPrem > 0) ? covPrem : numPrem;
+        // A coverage added through a met quote condition is not in the rating engine's figure; it is added once, here.
+        const baseFromQuote = ((!isNaN(covPrem) && covPrem > 0) ? covPrem : numPrem) + (typeof qcMetPremium === "function" ? qcMetPremium(sub) : 0);
 
         // Sync discretionary pricing so Final Quoted Premium and TOTAL BINDABLE POLICY PREMIUM match
         sub.discretionaryPricing = {
@@ -173,6 +174,9 @@ function normalizeRatingEngineJson(parsed, sub) {
   }
   if (parsed.productId || parsed.product || parsed.studios) {
     try {
+      // A product definition holds no premiums. It can only be adapted when the case already carries rated coverage premiums.
+      const rated = ((sub && sub.coverageRows) || []).reduce((s, r) => s + (Number(r.premVal) || 0), 0);
+      if (!(rated > 0)) return { error: "This file is a product definition, which holds no premiums, and the case has no rated coverage premium. Import the rating engine's output instead." };
       const adapted = buildDynamicRatingPayloadFromProduct(parsed, sub);
       return { payload: adapted, adapted: true };
     } catch (e) {
@@ -250,7 +254,9 @@ function renderIssueAndBindCard(sub) {
         <div><span class="text-xs text-muted">Effective Date</span><br><strong>${p.effectiveDate}</strong></div>
         <div><span class="text-xs text-muted">Synced By</span><br><strong>${p.syncedBy}</strong></div>
         <div><span class="text-xs text-muted">Synced At</span><br><strong>${p.syncedAt}</strong></div>
-      </div>`;
+        ${sub.invoice ? `<div><span class="text-xs text-muted">Invoice</span><br><strong class="font-mono">${sub.invoice.invoiceNumber}</strong></div>` : ""}
+      </div>
+      ${sub.invoice ? `<div style="margin-top:12px;"><button class="btn btn-outline" id="downloadInvoiceBtn" onclick="downloadInvoicePdf('${sub.id}')"><i class="ph ph-receipt"></i> Download invoice (PDF)</button></div>` : ""}`;
   } else if (!issued) {
     body = `<p class="text-xs text-muted mb-2">Issuing the quote needs the underwriter's e-signature and sends the quote to the broker. Binding opens once the customer has accepted it.</p>
       <button class="btn btn-primary" id="issueQuoteBtn" onclick="openESignatureModal()"><i class="ph ph-paper-plane-tilt"></i> Issue Quote</button>`;
@@ -475,6 +481,8 @@ function simulatePASBindSync(subId) {
         syncedBy: `${roleConfig.name} (${roleConfig.title.split(' (')[0]})`,
         syncedAt
       };
+      // The invoice is made now, from the bound policy; it is not downloaded automatically.
+      if (typeof createInvoiceRecord === "function") createInvoiceRecord(sub);
 
       if (!sub.decisionLog) sub.decisionLog = [];
       sub.decisionLog.push({

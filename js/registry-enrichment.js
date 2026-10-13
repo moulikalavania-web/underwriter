@@ -91,7 +91,7 @@ function renderDriverLicenseVerification(sub) {
   const NP = '<span class="text-muted">—</span>';
 
   const rows = drivers.map((d, idx) => {
-    const name = [d.given_name, d.last_name].filter(Boolean).join(" ") || `Driver ${idx + 1}`;
+    const name = [d.given_name, d.last_name].filter(Boolean).join(" ") || d.name || '<span class="text-muted">Name not in the documents</span>';
     const hasDl = !!d.licenseNumber;
     const statusBadge = !hasDl
       ? `<span class="badge badge-light">No DL Number</span>`

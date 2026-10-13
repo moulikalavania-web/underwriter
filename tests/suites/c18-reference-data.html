@@ -1,0 +1,114 @@
+<!-- Suite C18: the licensing registry and the sanctions watchlist can be loaded from a file in the cards. With real data loaded the checks pass or flag
+     for real; with none loaded the cards say so in amber (not red) and nothing is cleared. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  function setFile(id, text, name){ var dt = new DataTransfer(); dt.items.add(new File([text], name || 'data.csv')); el(id).files = dt.files; }
+  function mkSub(over){
+    var s = { id: 'SUB-RD-1', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: 'Links Freight LLC', fein: '74-9842109', dot: '1234567', broker: 'Arora & Sons Insurance Agency', channelType: 'broker', email: 'a@b.com', address: '1 Main St, Dallas, TX 75201', exposureVal: 1000000, currentStep: 2, completedSteps: [1], decisionLog: [], vehicles: [], drivers: [{ given_name: 'Arjun', last_name: 'Mehta' }], losses: [], coverageRows: [], priority: 'P3', receivedAt: 'Just Now', statusText: 'x', slaText: 'x', slaCountdown: 'x' };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'senior'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior';
+
+    // ---------- parsing the watchlist
+    var sdn = '36,"AEROCARIBBEAN AIRLINES","-0- ","CUBA","-0-","-0-","-0-","-0-","-0-","-0-","-0-","a.k.a. \'ARAWAK\'."\n306,"MAKAROV, Ivan Petrovich","individual","RUSSIA-EO14024","-0-","-0-","-0-","-0-","-0-","-0-","-0-","-0-"\n999,"","individual","X","-0-"\n';
+    var w1 = refParseWatchlist(sdn, 'sdn.csv');
+    t('the OFAC SDN.CSV is read as downloaded (no header row)', w1.format === 'OFAC SDN.CSV (no header row)' && w1.entries.length === 2 && w1.entries[0].name === 'AEROCARIBBEAN AIRLINES' && w1.entries[0].type === 'entity' && w1.entries[0].program === 'CUBA');
+    t('an individual written "SURNAME, Given" is also held as "Given Surname", keeping the original as an alias', w1.entries[1].name === 'Ivan Petrovich MAKAROV' && w1.entries[1].aliases.indexOf('MAKAROV, Ivan Petrovich') > -1 && w1.entries[1].type === 'individual');
+    t('a row with no name is listed as skipped, not guessed', w1.skipped.length === 1 && w1.skipped[0].row === 3 && /no name/.test(w1.skipped[0].reason));
+    var w2 = refParseWatchlist('Name,Aliases,Type,Program\nZarvan Trading,Zarvan Co; ZT Ltd,entity,PROG-1\nIvan Demov,,Individual,PROG-2\n', 'list.csv');
+    t('a CSV with a header row is read, with aliases split on ; and |', w2.entries.length === 2 && w2.entries[0].aliases.join() === 'Zarvan Co,ZT Ltd' && w2.entries[1].type === 'individual' && w2.entries[0].program === 'PROG-1');
+    var w3 = refParseWatchlist(JSON.stringify({ name: 'Internal list', version: 'v7', entries: [{ name: 'Northwind Holdings', aliases: ['NWH'], type: 'entity', program: 'P' }, 'Plain Name Co'] }), 'x.json');
+    t('JSON is read, with its own list name and version', w3.format === 'JSON' && w3.name === 'Internal list' && w3.version === 'v7' && w3.entries.length === 2 && w3.entries[1].name === 'Plain Name Co');
+    t('invalid JSON, an empty file and a CSV with no name column load nothing and say why', refParseWatchlist('{bad', 'x').entries.length === 0 && /not valid/.test(refParseWatchlist('{bad', 'x').skipped[0].reason) && /empty/.test(refParseWatchlist('  ', 'x').skipped[0].reason) && /no column for the name/.test(refParseWatchlist('a,b\n1,2\n', 'x').skipped[0].reason));
+
+    // ---------- parsing the registry
+    var csv = 'producer_name,npn,license_state,license_number,license_lines,license_status,license_expires,appointment_carrier,appointment_state,appointment_lobs,appointment_status,appointment_effective\n' +
+      'Arora & Sons Insurance Agency,10000001,TX,TX-L-1,Property & Casualty;Surplus Lines,Active,2027-06-30,,,,,\n' +
+      'Arora & Sons Insurance Agency,10000001,,,,,,Acme Specialty Insurance,TX,trucking;property,Active,2026-01-01\n' +
+      'Gallagher Commercial Brokers,10000002,OH,OH-L-2,Property & Casualty,Active,12/31/2027,Acme Specialty Insurance,OH,*,Active,2026-02-01\n' +
+      'Lapsed Agency,10000003,TX,TX-L-3,Property & Casualty,Active,2025-01-31,Acme Specialty Insurance,TX,trucking,Active,2024-01-01\n' +
+      'No Date Agency,10000004,TX,TX-L-4,Property & Casualty,Active,,,,,,\n';
+    var r1 = refParseRegistry(csv);
+    t('a registry CSV groups rows by NPN into one producer with its licences and appointments', r1.records.length === 4 && r1.records[0].npn === '10000001' && r1.records[0].licenses.length === 1 && r1.records[0].appointments.length === 1 && r1.counts.producers === 4 && r1.counts.appointments === 3 && r1.counts.licences === 3, JSON.stringify(r1.counts));
+    t('lines, lobs and dates are normalised (; lists, "*" = every line of business, MM/DD/YYYY -> ISO)', r1.records[0].licenses[0].lines.join() === 'Property & Casualty,Surplus Lines' && r1.records[0].appointments[0].lobs.join() === 'trucking,property' && r1.records[1].appointments[0].lobs.length === ALL_LOB_KEYS.length && r1.records[1].licenses[0].expires === '2027-12-31');
+    t('a single carrier in the file becomes the carrier appointments are checked against', r1.carrier === 'Acme Specialty Insurance' && r1.carriers.length === 1);
+    t('a licence with no expiry is reported with the producer it belongs to, not loaded half-way', r1.skipped.length === 1 && /No Date Agency/.test(r1.skipped[0].reason) && r1.records[3].licenses.length === 0);
+    t('a registry in JSON is read too, and a header without npn is refused', refParseRegistry(JSON.stringify([{ name: 'Z Agency', npn: '9', licenses: [{ state: 'tx', number: 'N', lines: 'Property & Casualty', expires: '2027-01-01' }], appointments: [] }])).records[0].licenses[0].state === 'TX' && /npn/.test(refParseRegistry('name,state\nA,TX\n').skipped[0].reason));
+
+    // ---------- with nothing loaded: amber, and nothing is cleared
+    refClear('watchlist'); refClear('registry');
+    var sub = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    runSanctionsScreening(sub, 'test'); runProducerCheck(sub, 'test'); renderSanctionsCard(sub); renderProducerCard(sub);
+    var sHtml = el('sanctionsScreeningContainer').innerHTML, pHtml = el('producerLicensingContainer').innerHTML;
+    t('with no watchlist the card says so in amber, not red, and the parties are "Not screened" in amber', getSanctionsStatus(sub).state === 'no_list' && /badge-warning[^>]*>[^<]*<i class="ph ph-warning-octagon"><\/i> No Watchlist Loaded/.test(sHtml.replace(/\s+/g, ' ')) && !/alert-danger/.test(sHtml) && !/badge-danger/.test(sHtml));
+    t('with no registry the producer card says "No Registry Loaded" in amber, not red', /No Registry Loaded/.test(pHtml) && !/badge-danger[^>]*>[^<]*<i class="ph ph-database"/.test(pHtml.replace(/\s+/g, ' ')) && !/alert-danger/.test(pHtml));
+    t('and neither is cleared: binding stays blocked until real data or a recorded verification', sanctionsAllowsBind(getSanctionsStatus(sub)) === false && producerAllowsBind('not_found') === false);
+    t('each card has its data-source panel, with the format help', /Watchlist:<\/strong> No watchlist is loaded/.test(sHtml) && /OFAC SDN\.CSV/.test(sHtml) && id_ok('ref_wl_file') && /Licensing registry:<\/strong> No licensing registry is loaded/.test(pHtml) && id_ok('ref_rg_file') && /producer_name, npn/.test(pHtml));
+    function id_ok(i){ return !!el(i); }
+
+    // ---------- permissions
+    currentUserRole = 'junior'; renderSanctionsCard(sub); renderProducerCard(sub);
+    t('a role without approval rights sees why it cannot load, and no file control', /needs approval rights on sanctions screening/.test(el('sanctionsScreeningContainer').innerHTML) && !el('ref_wl_file') && !el('ref_rg_file'));
+    toasts.length = 0; await refLoadWatchlist(); t('and the action itself is refused', /does not have "approve"/.test(last()) && SANCTIONS_WATCHLIST.length === 0);
+    currentUserRole = 'senior'; renderSanctionsCard(sub); renderProducerCard(sub);
+
+    // ---------- loading the watchlist from the card
+    setFile('ref_wl_file', 'Name,Aliases,Type,Program\nNorthwind Demo Sanctioned Holdings,Northwind DSH,entity,PROG-1\nIvan Makarov,,individual,PROG-2\n', 'my-list.csv'); el('ref_wl_name').value = 'Our sanctions list'; el('ref_wl_ver').value = '2026-10-12';
+    toasts.length = 0; await refLoadWatchlist();
+    t('the file is loaded with the name and version typed, and the toast says how many and from where', SANCTIONS_WATCHLIST.length === 2 && SANCTIONS_LIST_NAME === 'Our sanctions list' && SANCTIONS_LIST_VERSION === '2026-10-12' && /2 entries from my-list\.csv/.test(last()), last());
+    t('the open case is screened again at once: clean parties are Clear and the card is green', getSanctionsStatus(sub).state === 'clear' && /Clear/.test(el('sanctionsScreeningContainer').innerHTML) && /alert-success/.test(el('sanctionsScreeningContainer').innerHTML) && !/alert-danger/.test(el('sanctionsScreeningContainer').innerHTML));
+    t('the card names the list, who loaded it and when', /Our sanctions list<\/strong>, version 2026-10-12: 2 entries/.test(el('sanctionsScreeningContainer').innerHTML) && /Loaded from my-list\.csv by Marcus Vance/.test(el('sanctionsScreeningContainer').innerHTML));
+    t('the screening itself records which list it used', sub.sanctions.screens[sub.sanctions.screens.length - 1].listName === 'Our sanctions list' && sub.sanctions.screens[sub.sanctions.screens.length - 1].trigger === 'watchlist loaded');
+    var hit = mkSub({ id: 'SUB-RD-2', insured: 'Northwind Demo Sanctioned Holdings Ltd' }); SUBMISSIONS_DATASET.push(hit); activeSubmissionId = hit.id; runSanctionsScreening(hit, 'test'); renderSanctionsCard(hit);
+    t('a party that matches the loaded list is flagged for review, not cleared', getSanctionsStatus(hit).state === 'review_required' && /Potential Match/.test(el('sanctionsScreeningContainer').innerHTML) && /Northwind Demo Sanctioned Holdings/.test(el('sanctionsScreeningContainer').innerHTML));
+    activeSubmissionId = sub.id;
+    var saved = JSON.parse(localStorage.getItem(REF_KEYS.watchlist));
+    t('the list is kept in the browser, with who loaded it and from which file', saved.version === REF_VERSION && saved.data.length === 2 && saved.meta.fileName === 'my-list.csv' && saved.listName === 'Our sanctions list');
+
+    // ---------- loading the registry from the card
+    setFile('ref_rg_file', csv, 'registry.csv');
+    renderProducerCard(sub); setFile('ref_rg_file', csv, 'registry.csv');
+    toasts.length = 0; await refLoadRegistry();
+    t('the registry loads, and the one carrier in the file is the carrier the check uses', PRODUCER_REGISTRY.length === 4 && PRODUCER_DEFAULT_CARRIER === 'Acme Specialty Insurance' && /4 producer\(s\), 3 licence\(s\), 3 appointment\(s\) from registry\.csv \(1 row\(s\) skipped\)/.test(last()), last());
+    t('the open case\'s producer is checked again and is Verified: licensed in TX, authority held, appointed for trucking', (function(){ var r = producerCurrent(sub); return r.status === 'verified' && r.checks.every(function(c){ return c.pass === true; }) && r.npn === '10000001'; })());
+    t('the card is green: Verified, every check Pass, no red', /Verified/.test(el('producerLicensingContainer').innerHTML) && /alert-success/.test(el('producerLicensingContainer').innerHTML) && !/alert-danger/.test(el('producerLicensingContainer').innerHTML) && !/badge-danger/.test(el('producerLicensingContainer').innerHTML) && /Source: the loaded licensing registry/.test(el('producerLicensingContainer').innerHTML));
+    t('the panel shows the file, who loaded it, and the rows that could not be read', /Loaded from registry\.csv by Marcus Vance/.test(el('producerLicensingContainer').innerHTML) && /1 row\(s\) could not be read/.test(el('producerLicensingContainer').innerHTML) && /No Date Agency/.test(el('producerLicensingContainer').innerHTML));
+    var prop = mkSub({ id: 'SUB-RD-3', lobKey: 'gl_cas' }); SUBMISSIONS_DATASET.push(prop);
+    t('a line of business the producer is not appointed for fails, for the right reason', (function(){ var r = evaluateProducerCompliance(prop, new Date(), null); return r.status === 'failed' && r.checks.some(function(c){ return c.id === 'appointment' && c.pass === false && /Appointed in TX for/.test(c.detail); }); })());
+    t('a lapsed licence fails on the licence, an unknown producer is not found', evaluateProducerCompliance(mkSub({ broker: 'Lapsed Agency' }), new Date(), null).checks.some(function(c){ return c.id === 'license' && c.pass === false && /expired on 2025-01-31/.test(c.detail); }) && evaluateProducerCompliance(mkSub({ broker: 'Nobody Brokers' }), new Date(), null).status === 'not_found');
+    t('with a registry loaded, "not found" is a real failure and is red again', (function(){ var s = mkSub({ id: 'SUB-RD-4', broker: 'Nobody Brokers' }); SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; runProducerCheck(s, 'test'); renderProducerCard(s); var h = el('producerLicensingContainer').innerHTML; activeSubmissionId = sub.id; return /Record Not Found/.test(h) && /alert-danger/.test(h) && !/No Registry Loaded/.test(h); })());
+    el('ref_rg_carrier').value = 'Another Carrier'; refSetCarrier();
+    t('the carrier can be changed, and the producer is then checked against that carrier', PRODUCER_DEFAULT_CARRIER === 'Another Carrier' && producerCurrent(sub).status === 'failed' && producerCurrent(sub).checks.some(function(c){ return c.id === 'appointment' && /No appointment with Another Carrier/.test(c.detail); }));
+    el('ref_rg_carrier').value = 'Acme Specialty Insurance'; refSetCarrier();
+    t('and back', producerCurrent(sub).status === 'verified');
+
+    // ---------- kept across a reload
+    var wlBefore = SANCTIONS_WATCHLIST.length, rgBefore = PRODUCER_REGISTRY.length;
+    SANCTIONS_WATCHLIST.length = 0; PRODUCER_REGISTRY.length = 0; SANCTIONS_LIST_NAME = 'No watchlist loaded'; PRODUCER_DEFAULT_CARRIER = 'x'; REF_META.watchlist = null; REF_META.registry = null;
+    refRestore();
+    t('after a reload both are back, with their names, carrier and load details', SANCTIONS_WATCHLIST.length === wlBefore && PRODUCER_REGISTRY.length === rgBefore && SANCTIONS_LIST_NAME === 'Our sanctions list' && PRODUCER_DEFAULT_CARRIER === 'Acme Specialty Insurance' && REF_META.registry.fileName === 'registry.csv' && REF_META.watchlist.loadedBy === 'Marcus Vance (Chief Underwriting Officer (CUO))');
+    localStorage.setItem(REF_KEYS.registry, JSON.stringify({ version: REF_VERSION + 1, data: [{ names: ['X'], npn: '1', licenses: [], appointments: [] }] })); PRODUCER_REGISTRY.length = 0; refRestore();
+    t('data saved by another version is not loaded', PRODUCER_REGISTRY.length === 0);
+
+    // ---------- clearing, and a file that cannot be used
+    await (async function(){ setFile('ref_wl_file', '{broken', 'bad.json'); toasts.length = 0; var before = SANCTIONS_WATCHLIST.length; await refLoadWatchlist(); return t('a file that cannot be read leaves the loaded list as it was and says why', SANCTIONS_WATCHLIST.length === before && /Nothing could be loaded from bad\.json/.test(last()), last()); })();
+    refClear('watchlist');
+    t('clearing the watchlist empties it, forgets the saved copy, and the open case goes back to "no list" (amber)', SANCTIONS_WATCHLIST.length === 0 && localStorage.getItem(REF_KEYS.watchlist) === null && getSanctionsStatus(sub).state === 'no_list');
+    toasts.length = 0; refLoadWatchlist(); t('choosing no file is refused politely', /Choose a file first/.test(last()));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  localStorage.removeItem(REF_KEYS.registry); localStorage.removeItem(REF_KEYS.watchlist);
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

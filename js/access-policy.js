@@ -36,18 +36,18 @@ var ROLE_DEFINITIONS = {
   assistant: {
     purpose: "Underwriting Assistant: checks assigned submissions them against the line's application requirements, asks the producer for what is missing and runs clearance and sanctions screening.",
     may: ["View cases and documents", "Enter intake data, documents and completeness items on assigned cases", "Run clearance, sanctions screening and producer checks", "Request missing information from the producer", "Log producer correspondence and renewal tasks"],
-    mustNot: ["Approve, override or waive anything", "Clear a sanctions match", "Change pricing, issue a quote or bind", "See underwriter-level performance"],
+    mustNot: ["Approve, override or waive anything", "Clear a sanctions match", "Change pricing, issue a quote or bind", "See underwriter-level performance", "Draft and issue quote conditions, extend a deadline, and confirm a met condition"],
     separation: "No approval authority of any kind; every decision is made by someone else."
   },
   junior: {
     purpose: "Underwriter I: underwrites straightforward risks inside a written authority letter (premium and policy-limit ceilings by line and state) and inside the carrier's delegated authority, and refers anything beyond it.",
-    may: ["Edit the underwriting file and apply credits or debits within the permitted band", "Approve workflow steps and bind inside their own authority, subject to the producer, surplus lines and carrier checks", "Raise a referral to a senior underwriter", "Record a producer licence lookup"],
+    may: ["Edit the underwriting file and apply credits or debits within the permitted band", "Approve workflow steps and bind inside their own authority, subject to the producer, surplus lines and carrier checks", "Raise a referral to a senior underwriter", "Record a producer licence lookup", "Draft quote conditions and confirm a met condition (adds the coverage and premium) inside their authority"],
     mustNot: ["Approve a referral they raised or a price they set", "Go beyond their authority ceilings", "Override rates or appetite rules", "Clear a sanctions match", "Change guidelines, configuration or access"],
     separation: "A risk above their authority needs a different, more senior approver; their own sign-off never covers it."
   },
   senior_uw: {
     purpose: "Senior Underwriter: underwrites complex risks to a higher authority letter and decides referrals from Underwriters I.",
-    may: ["Approve referrals within their authority", "Grant diligent-search exemptions and enter a state surplus lines rate with a cited source", "Override appetite and rate rules with a written reason", "Waive a pre-bind subjectivity with a reason", "Propose rate, fee and limit changes"],
+    may: ["Approve referrals within their authority", "Grant diligent-search exemptions and enter a state surplus lines rate with a cited source", "Override appetite and rate rules with a written reason", "Waive a pre-bind subjectivity with a reason", "Propose rate, fee and limit changes", "Draft and issue quote conditions, extend a deadline, and confirm a met condition"],
     mustNot: ["Approve a referral they raised or a price they set", "Approve a configuration change they proposed", "Record the carrier's approval or submit a bordereau (CUO)", "Clear a sanctions match (CUO)", "Change guidelines or access"],
     separation: "Proposes but does not approve configuration changes; a risk beyond their authority goes to the Chief Underwriting Officer."
   },
@@ -76,7 +76,7 @@ var ACCESS_OWNER_ROLE = "admin";
 
 // Resources where a decision is made on a case or a price: the access owner must hold no edit, approve or override on these.
 // (Guidelines and configuration - appetite rules, review routing, rates and limits, archival - are governance, not case decisions.)
-var ACCESS_CASE_RESOURCES = ["documents", "submissionData", "premiumAdjustment", "unifiedAccount", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "authority", "bordereaux"];
+var ACCESS_CASE_RESOURCES = ["documents", "submissionData", "premiumAdjustment", "unifiedAccount", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "authority", "bordereaux", "quoteConditions"];
 
 var ACCESS_RULES = [
   { id: "SOD-1", basis: "AC-5, AC-6", text: "The Head of Underwriting, who sets everyone's access, holds no edit, approve or override right on case data, pricing or underwriting decisions (workflow steps are the exception: they run the department's process)." },

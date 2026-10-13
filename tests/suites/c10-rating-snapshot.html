@@ -1,0 +1,116 @@
+<!-- Suite C10: Rating Snapshot in Quote & Bind. The risk details sent to the Actuarial Rating Engine, the risk score and the premium are saved
+     as versions. A new version is saved whenever they change; earlier versions are kept untouched with the changes between them. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, step){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = step; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker';
+    ['ratingSnapshots', 'pasSync', 'authorityRef', 'importedRatingData', 'riskScore', 'riskScoreOverridden'].forEach(function(k){ delete s[k]; });
+    s.exposureVal = 1000000; s.address = '1 Main St, Dallas, TX 75201';
+    s.vehicles = [{ id: 1, xid: 1, year: 2022, make: 'Volvo', model: 'VNL 760', vin: '4V4NC9EH5NN123456', stated_value: 125000, dashcam: true }, { id: 2, xid: 2, year: 2021, make: 'Kenworth', model: 'T680', vin: '1XKYD49X0NJ654321', stated_value: 98500, dashcam: false }];
+    s.drivers = [{ id: 'DRV-1', given_name: 'Rahul', last_name: 'Sharma', dob: '04/12/1999', licenseNumber: 'D1234567', licensestate: 'TX', licenseclasstype: 'Class A', experience: '3 Years', age: 27, violations: 0 }];
+    s.losses = [{ carrier: 'Acme Mutual Insurance Company', sourceDocument: 'a.txt', year: '2024', desc: 'Rear-end', status: 'Closed', incurred: '$12,500' }];
+    s.coverageRows = [{ line: 'Auto Liability', limit: '$1,000,000', ded: '$0', prem: '$10,000', premVal: 10000 }];
+    s.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 10000 };
+    s.currentPremium = 10000; return s;
+  }
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+
+    // ---------- before the rating step nothing is saved
+    var early = mk('SUB-RS-0', 3); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(early); activeSubmissionId = early.id; currentWorkflowStep = 3;
+    renderRatingEnginePayload(early); rsRender(early);
+    t('before Step 6 no snapshot is saved, and the card says when one will be', (early.ratingSnapshots || []).length === 0 && /once the case reaches the rating step/.test(el('ratingSnapshotContainer').innerHTML));
+    t('the Rating Snapshot card sits in the Quote & Bind screen', !!el('ratingSnapshotContainer') && !!el('ratingSnapshotContainer').closest('#screen-8'));
+
+    // ---------- version 1: when the rating details are generated
+    var sub = mk('SUB-RS-1', 6); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentWorkflowStep = 6;
+    renderRatingEnginePayload(sub);
+    var v1 = sub.ratingSnapshots[0];
+    t('generating the rating payload saves version 1', sub.ratingSnapshots.length === 1 && v1.version === 1 && v1.previousVersion === null && v1.changes.length === 0 && /Step 6/.test(v1.trigger) && !!v1.at && !!v1.by);
+    var c = v1.content;
+    t('it holds the rating inputs sent to the engine', !!c.ratingInputs.coveragesInfo && !!c.ratingInputs.radiusOfOperationsInfo && !!c.ratingInputs.filingInfo && c.insured.name === 'Links Freight LLC' && c.insured.garagingState !== undefined);
+    t('it holds the vehicles with value and dashcam, and the drivers\' risk details', c.vehicles.length === 2 && c.vehicles[0].stated_value === 125000 && c.vehicles[0].dashcam === true && c.vehicles[1].dashcam === false && c.vehicles[0].vin === '4V4NC9EH5NN123456' && c.drivers[0].age === 27 && c.drivers[0].licensestate === 'TX' && c.drivers[0].experience === '3 Years' && c.drivers[0].violations === 0);
+    t('the driver\'s name, date of birth and licence number are not copied', JSON.stringify(c.drivers).indexOf('Rahul') === -1 && JSON.stringify(c.drivers).indexOf('1999') === -1 && JSON.stringify(c.drivers).indexOf('D1234567') === -1);
+    t('it holds the loss history by company and the coverages on the quote', c.losses[0].carrier === 'Acme Mutual Insurance Company' && c.losses[0].incurred === '$12,500' && c.coverages[0].line === 'Auto Liability');
+    t('it holds the risk score with each factor', typeof c.riskScore.effective === 'number' && c.riskScore.factors.length >= 5 && c.riskScore.factors.every(function(f){ return typeof f.points === 'number'; }) && c.riskScore.effective === getEffectiveRiskScore(sub));
+    t('it holds the premium: base, adjustment, final', c.premium.basePremium === 10000 && c.premium.finalPremium === 10000 && c.premium.adjustment === 'none');
+    t('it holds the request as sent to the engine (without workflow state)', c.engineRequest.submission_id === 'SUB-RS-1' && !('binding' in c.engineRequest.genInfo) && c.engineRequest.vehicles.length >= 1);
+    t('the payload\'s dashcam answer comes from the vehicles (one unit lacks one, so No)', c.engineRequest.coveragesInfo.dashcam === 'No');
+    t('the save is in the audit log', sub.decisionLog.some(function(d){ return d.decision === 'rating_snapshot_saved' && /v1/.test(d.notes); }) && !!AUDIT_ACTION_META.rating_snapshot_saved);
+
+    // ---------- nothing changed: nothing saved
+    renderRatingEnginePayload(sub); renderStep7View(sub); rsCapture(sub, 'again');
+    t('generating the same details again saves nothing', sub.ratingSnapshots.length === 1);
+    var v1json = JSON.stringify(v1);
+    sub.currentStep = 7; currentWorkflowStep = 7; renderStep7View(sub);
+    t('moving to the next step is workflow, not a rating detail: no new version', sub.ratingSnapshots.length === 1);
+
+    // ---------- details change: a new version, the old one kept
+    sub.vehicles[1].dashcam = true; sub.drivers[0].age = 22; sub.vehicles.push({ id: 3, xid: 3, year: 2019, make: 'Mack', model: 'Granite', stated_value: 64000, dashcam: true });
+    renderRatingEnginePayload(sub);
+    var v2 = sub.ratingSnapshots[1];
+    t('changed rating details save version 2 and keep version 1 exactly as it was', sub.ratingSnapshots.length === 2 && v2.version === 2 && v2.previousVersion === 1 && JSON.stringify(sub.ratingSnapshots[0]) === v1json);
+    var paths = v2.changes.map(function(x){ return x.path; });
+    t('version 2 lists what changed: the dashcam, the driver age and the new unit', paths.indexOf('vehicles[1].dashcam') > -1 && paths.indexOf('drivers[0].age') > -1 && paths.some(function(p){ return /^vehicles\[2\]/.test(p); }));
+    var dc = v2.changes.filter(function(x){ return x.path === 'vehicles[1].dashcam'; })[0], age = v2.changes.filter(function(x){ return x.path === 'drivers[0].age'; })[0];
+    t('each change shows the old and the new value', dc.from === 'false' && dc.to === 'true' && age.from === '27' && age.to === '22');
+    t('the risk score change is recorded with its cause', v2.summary.riskScore !== v1.summary.riskScore && paths.indexOf('riskScore.effective') > -1 && v2.changes.some(function(x){ return /^riskScore\.factors/.test(x.path); }), v1.summary.riskScore + ' -> ' + v2.summary.riskScore);
+    t('the payload\'s dashcam answer is now Yes (every unit has one)', v2.content.engineRequest.coveragesInfo.dashcam === 'Yes');
+
+    // ---------- the premium changes
+    sub.discretionaryPricing.adjustmentType = 'debit'; sub.discretionaryPricing.adjustmentPercent = 10; sub.discretionaryPricing.finalPremium = 11000; sub.currentPremium = 11000;
+    renderStep7View(sub);
+    var v3 = sub.ratingSnapshots[2];
+    t('a premium change saves version 3 with old and new premium', !!v3 && v3.previousVersion === 2 && v3.changes.some(function(x){ return x.path === 'premium.finalPremium' && x.from === '10000' && x.to === '11000'; }) && v3.changes.some(function(x){ return x.path === 'premium.adjustment' && x.to === 'debit 10%'; }));
+    t('the risk score is unchanged between 2 and 3, and the headline says so', v3.summary.riskScore === v2.summary.riskScore && /Premium \$10,000 → \$11,000/.test(rsChangeHeadline(v3)) && !/Risk score/.test(rsChangeHeadline(v3)));
+
+    // ---------- the rating output is imported
+    applyImportedRatingDataToSubmission(clone(SAMPLE_RATING_JSON), sub);
+    var v4 = sub.ratingSnapshots[3];
+    t('importing the engine\'s output saves another version', !!v4 && /imported/.test(v4.trigger) && v4.content.premium.ratingOutputImported === true && v4.previousVersion === 3);
+    t('all four versions are kept in order', sub.ratingSnapshots.map(function(s){ return s.version; }).join() === '1,2,3,4' && JSON.stringify(sub.ratingSnapshots[0]) === v1json);
+
+    // ---------- a quote condition that adds a coverage changes the premium and is captured
+    var before = sub.ratingSnapshots.length;
+    sub.quoteConditions = [{ id: 'QC-1', status: 'signed', coverage: { line: 'Own Damage', limit: '$1,000,000', ded: '$300' }, condition: 'Install a dashcam on each unit listed.', premium: 4800, deadline: qcAddDays(qcToday(), 5), versions: [{ version: 1, kind: 'created', condition: 'x', coverage: {}, premium: 4800, deadline: qcAddDays(qcToday(), 5), changes: [], reason: '', by: 'x', at: 'x' }], messages: [], signature: { version: 1, signedBy: 'D', signedOn: qcToday(), reference: 'r' }, outcome: null }];
+    qcRender(sub); el('qc_met_ref_QC-1').value = 'Certificate'; qcConfirmMet('QC-1');
+    var v5 = sub.ratingSnapshots[sub.ratingSnapshots.length - 1];
+    t('a Quote Condition met adds a version that shows the new coverage and premium', sub.ratingSnapshots.length === before + 1 && /Quote Condition QC-1 met/.test(v5.trigger) && v5.changes.some(function(x){ return /^coverages\[/.test(x.path) && /Own Damage/.test(String(x.to)); }) && v5.content.premium.addedByQuoteConditions === 4800);
+
+    // ---------- comparing versions
+    rsRender(sub);
+    t('the card lists every version, newest first, with who, when, why, risk score and premium', (el('ratingSnapshotContainer').innerHTML.match(/<strong>v\d+<\/strong>/g) || []).join('') === '<strong>v5</strong><strong>v4</strong><strong>v3</strong><strong>v2</strong><strong>v1</strong>' && /Rating payload generated/.test(el('ratingSnapshotContainer').innerHTML) && /imported/.test(el('ratingSnapshotContainer').innerHTML));
+    rsCompare(1, 2);
+    var cmp = el('rs_compare_out').innerHTML;
+    t('comparing v1 with v2 shows each changed field, old against new, grouped by section', /vehicles\[1\]\.dashcam/.test(cmp) && /drivers\[0\]\.age/.test(cmp) && /Vehicles \(/.test(cmp) && /Risk score \d+ → <strong>\d+<\/strong>/.test(cmp));
+    rsCompare(2, 1);
+    t('the order of the two choices does not matter', /v1 \(/.test(el('rs_compare_out').innerHTML) && /→ v2/.test(el('rs_compare_out').innerHTML));
+    rsCompare(2, 2);
+    t('comparing a version with itself says to pick two', /Pick two different versions/.test(el('rs_compare_out').innerHTML));
+    var d = rsDiff({ a: { b: 1, c: [1, 2] }, x: 'k' }, { a: { b: 2, c: [1, 2, 3] }, y: 'z' });
+    t('the comparison finds changed, added and removed fields', d.some(function(x){ return x.path === 'a.b' && x.from === '1' && x.to === '2'; }) && d.some(function(x){ return x.path === 'a.c[2]' && x.from === '—' && x.to === '3'; }) && d.some(function(x){ return x.path === 'x' && x.to === '—'; }) && d.some(function(x){ return x.path === 'y' && x.from === '—'; }));
+    t('identical contents compare as no difference', rsDiff(v1.content, JSON.parse(JSON.stringify(v1.content))).length === 0);
+
+    // ---------- view a version, and the data survives a save and reload
+    rsView(1);
+    t('a version can be opened in full', el('rsViewModal').style.display === 'flex' && /"riskScore"/.test(el('rsViewJson').textContent) && /SUB-RS-1/.test(el('rsViewJson').textContent));
+    rsCloseView();
+    var round = JSON.parse(JSON.stringify(sub.ratingSnapshots));
+    t('versions survive saving and reloading unchanged', JSON.stringify(round) === JSON.stringify(sub.ratingSnapshots) && rsHash(round[0].content) === round[0].hash);
+
+    // ---------- a submission that is not tracked, or no rating yet, saves nothing
+    t('a record that is not on the queue is ignored', rsCapture({ id: 'NOPE', vehicles: [] }, 'x', true) === null);
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

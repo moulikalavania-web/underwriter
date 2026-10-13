@@ -152,10 +152,12 @@
     el('sl_exKind').value = 'export_list'; el('sl_exRef').value = 'TX export list item 14'; el('sl_exWhy').value = 'Class is on the export list so no search is needed'; slSetExemption();
     renderSurplusCard(A); el('sl_ackBox').checked = true; el('sl_ackRef').value = 'email 10/08'; slAckDisclosure();
     t('the search exemption and disclosure can be recorded', !!(A.diligentSearch && A.diligentSearch.exemption) && !!A.slDisclosure);
+    var pdfMade = 0, origPdf = window.renderLinesToPdf; window.renderLinesToPdf = function(){ pdfMade++; return true; };
     toasts.length = 0; el('issueQuoteBtn').click();
     t('Issue Quote opens the e-signature step', getComputedStyle(el('eSignatureModal')).display !== 'none', lastToast());
     el('eSigNameInput').value = 'David Chen'; el('eSigAttestCheckbox').checked = true; confirmESignatureAndBind();
     t('the quote is issued', A.quoteIssued === true && !!A.eSignature, lastToast());
+    t('issuing downloads nothing, and no quote + invoice document is made at that point', pdfMade === 0 && typeof generateIssuedQuotePdf === 'undefined', String(pdfMade));
     t('the page moves to "customer accepts"', !!el('customerApproveBtn') && !el('issueQuoteBtn') && /Awaiting customer/.test(el('pasSyncCard').innerHTML));
     t('and the bottom bar still does not claim completion', !/Finish/.test(el('btnNextStep').innerHTML) && /not bound yet/.test(el('btnNextStep').textContent));
     el('customerApproveBtn').click();
@@ -169,6 +171,7 @@
     await sleep(2600);
     Math.random = realRandom;
     t('the policy binds and gets a policy number', !!(A.pasSync && A.pasSync.status === 'success' && A.pasSync.policyNumber), JSON.stringify(A.pasSync) + ' ' + lastToast());
+    t('the invoice is made at bind, from the bound policy, and nothing was downloaded by it', !!A.invoice && A.invoice.policyNumber === A.pasSync.policyNumber && /^INV-/.test(A.invoice.invoiceNumber) && pdfMade === 0 && !!el('downloadInvoiceBtn'), JSON.stringify(A.invoice || null).slice(0, 120));
     t('the Step 7 card shows the policy number', /Bound/.test(el('pasSyncCard').innerHTML) && A.pasSync && el('pasSyncCard').innerHTML.indexOf(A.pasSync.policyNumber) > -1);
     t('only now does the bottom bar say the policy is bound', /Policy bound/.test(el('btnNextStep').textContent), el('btnNextStep').textContent);
     toasts.length = 0; el('btnNextStep').click();

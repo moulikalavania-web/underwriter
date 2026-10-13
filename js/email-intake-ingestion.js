@@ -526,12 +526,15 @@ function parseLossLineDetails(line) {
   if (statusMatch) desc = desc.replace(new RegExp(statusMatch[0], "i"), "").trim();
   desc = desc.replace(/[-–—,\s]+$/, "").trim();
 
-  return {
+  const claimNoMatch = line.match(/\bclaim\s*(?:no\.?|number|#)\s*[:#]?\s*([A-Za-z0-9-]{4,})/i);
+  const parsed = {
     year,
     desc: desc || "No description provided",
     status: statusMatch ? statusMatch[1].replace(/^\w/, c => c.toUpperCase()) : (amountMatch ? "Closed" : "Clean"),
     incurred: amountMatch ? `$${amountMatch[1]}` : "$0"
   };
+  if (claimNoMatch) parsed.claimNo = claimNoMatch[1];
+  return parsed;
 }
 
 function extractLossHistory(raw) {
@@ -611,7 +614,10 @@ function parseVehicleLineDetails(line) {
   const makeModelParts = makeModelText.split(/\s+/).filter(Boolean);
   const model = makeModelParts.slice(1).join(" ");
 
+  const dashcam = /\b(?:no|without)\s+dash\s*-?\s*cam/i.test(line) || /dash\s*-?\s*cam\s*[:=]\s*(?:no|none)\b/i.test(line) ? false
+    : (/\bdash\s*-?\s*cam\b/i.test(line) ? true : undefined);
   return {
+    dashcam: dashcam,
     year: parseInt(yearMatch[0], 10),
     make: makeModelParts[0] || "",
     model: model,
@@ -662,7 +668,7 @@ const OPERATIONS_PROFILE_FIELD_PATTERNS = {
   years_in_business: /Years in Business\s*:\s*(\d+)/i,
   operating_authority: /Operating Authority\s*:\s*([^\n,]+)/i,
   interstate_intrastate: /Interstate\s*\/\s*Intrastate\s*:\s*([^\n,]+)/i,
-  operating_radius: /Operating Radius\s*:\s*([\d,]+)\s*(?:miles)?/i,
+  operating_radius: /Operating Radius\s*:\s*(?:up to|about|approximately|max(?:imum)?(?: of)?)?\s*([\d,]+)\s*(?:miles)?/i,
   annual_mileage: /Annual Mileage\s*:\s*([\d,]+)/i,
   annual_revenue: /Annual Revenue\s*:\s*\$?\s*([\d,]+)/i,
   states_operated: /States Operated\s*:\s*([^\n]+)/i,
@@ -671,7 +677,9 @@ const OPERATIONS_PROFILE_FIELD_PATTERNS = {
   common_contract_carrier: /Common\s*\/\s*Contract Carrier\s*:\s*([^\n,]+)/i,
   owner_operator_usage: /Owner Operator Usage\s*:\s*([^\n,]+)/i,
   brokerage_operations: /Brokerage Operations\s*:\s*([^\n,]+)/i,
-  hazmat_operations: /Hazmat Operations\s*:\s*([^\n,]+)/i
+  hazmat_operations: /Hazmat Operations\s*:\s*([^\n,]+)/i,
+  // What the insured hauls, when the email or document has a labelled line for it.
+  commodities_hauled: /(?:Commodit(?:y|ies)(?:\s+(?:Hauled|Transported|Carried))?|Cargo(?:\s+(?:Hauled|Type|Carried))?|Type\s+of\s+Cargo|Freight\s+Type|Primary\s+Commodity)\s*[:\-]\s*([^\n]+)/i
 };
 
 function extractOperationsProfileFromEmail(raw) {
@@ -688,6 +696,14 @@ function extractOperationsProfileFromEmail(raw) {
     }
     profile[key] = val;
   });
+  // No labelled line: take it from a sentence such as "We haul dry goods and packaged food across Texas."
+  if (!profile.commodities_hauled) {
+    const prose = raw.match(/\b(?:we|company|business|fleet)\s+(?:primarily\s+|mainly\s+|mostly\s+|regularly\s+)?(?:haul|hauls|hauling|transport|transports|carry|carries|move|moves)\s+([^.\n]{3,120})/i)
+      || raw.match(/\b(?:hauling|transporting)\s+(?:of\s+)?([^.\n]{3,120})/i);
+    if (prose) profile.commodities_hauled = prose[1].replace(/\s+(?:across|throughout|in|within|from|for|to)\s+[A-Z].*$/i, "").replace(/[\s,;:-]+$/, "").trim();
+  }
+  if (profile.commodities_hauled) profile.commodities_hauled = String(profile.commodities_hauled).replace(/\s+/g, " ").trim().slice(0, 160);
+  if (!profile.commodities_hauled) delete profile.commodities_hauled;
   return profile;
 }
 
@@ -761,7 +777,7 @@ function buildLocalNormalizationDraft(sub) {
   // wrong whenever a broker/agent is the one signing the email instead.
   const insured = find(/(?:legal\s+(?:named\s+)?insured|insured\s+legal\s+entity|company\s+name|(?:our|new|the)\s+client)\s*(?:is|:|,)\s*([^\n,.(]+(?:\s+(?:LLC|Inc\.?|Corp\.?|Corporation|Co\.?))?)/i)
     || find(/(?:for\s+coverage|for)\s*:\s*([^\n,.(]+)/i)
-    || find(/(?:insured|named\s+insured)\s*:\s*([^\n,.(]+)/i)
+    || find(/(?:insured|named\s+insured|business\s+name|applicant(?:\s+name)?|legal\s+name|account\s+name)\s*:\s*([^\n,.(]+)/i)
     || extractSignOffName(raw);
 
   // Broker: prefer an explicit "Broker(of record)/Brokerage: X" or "Broker: X
@@ -1242,14 +1258,15 @@ function applyNormalizedDataToSubmission(subId) {
   sub.exposureVal = exposureVal || sub.exposureVal;
   sub.exposure = exposureVal ? `$${exposureVal.toLocaleString()}` : sub.exposure;
 
-  sub.priority = needsReview ? "P2" : "P1";
-  sub.priorityScore = needsReview ? 70 : 92;
-  sub.slaText = needsReview ? "Manual Review Required" : "4h Fast-Track SLA";
-  sub.slaCountdown = needsReview ? "Pending underwriter triage" : "4h 00m remaining";
+  // Nothing here measures priority, so a clean extraction is not given a score or a fast-track SLA; it is queued as standard.
+  sub.priority = needsReview ? "P2" : "P3";
+  sub.priorityScore = null;
+  sub.slaText = needsReview ? "Manual Review Required" : "Standard FIFO";
+  sub.slaCountdown = needsReview ? "Pending underwriter triage" : "Awaiting triage";
   const reviewReasons = draft.review_reasons || [];
   sub.priorityReason = needsReview
     ? `AI-Normalized from Raw Email • Needs Review (${reviewReasons.length} item${reviewReasons.length === 1 ? '' : 's'}): ${reviewReasons.slice(0, 2).join("; ")}${reviewReasons.length > 2 ? "…" : ""}`
-    : "AI-Normalized from Raw Email • High-Confidence Extraction • Fast-Track FIFO Position #1";
+    : "Normalized from the submitted documents and confirmed by an underwriter • No open review items";
   sub.statusText = needsReview ? "Needs Review (AI-Normalized)" : "Intake Ingested (AI-Normalized)";
   sub.statusBadge = needsReview ? "badge-warning" : "badge-primary";
 
@@ -1379,6 +1396,7 @@ function applyNormalizedDataToSubmission(subId) {
       vehicleRecord.make = v.make;
       vehicleRecord.model = v.model;
       vehicleRecord.stated_value = v.stated_value;
+      if (v.dashcam !== undefined) vehicleRecord.dashcam = v.dashcam;
       vehicleRecord.assigned_driver = v.assigned_driver;
       if (v.vehicle_type) vehicleRecord.vehicle_type = v.vehicle_type;
     });
@@ -1497,8 +1515,8 @@ function applyNormalizedDataToSubmission(subId) {
 
   showToast(
     needsReview
-      ? `⚠️ [${sub.id}] normalized but flagged Needs Review — raw email preserved, verify low-confidence fields.`
-      : `✅ [${sub.id}] normalized into Standard Data — raw email preserved and viewable anytime.`,
+      ? `⚠️ [${sub.id}] normalized but flagged Needs Review: ${(draft.review_reasons || []).slice(0, 3).join("; ") || "see the review reasons on the case"}${(draft.review_reasons || []).length > 3 ? "…" : ""}.`
+      : `✅ [${sub.id}] normalized into Standard Data. Nothing is left to review; the originals are preserved.`,
     needsReview ? "warning" : "success"
   );
 }

@@ -79,6 +79,14 @@ window.validateVehicleBaseRateOverride = validateVehicleBaseRateOverride;
 
 /* ===== Merged: Product Studio JSON Ingestion — helper builders (from app_combined.html) ===== */
 
+/** true / false when the submission says so about a unit, null when it does not. */
+function vehicleDashcamState(v) {
+  if (!v || v.dashcam === undefined || v.dashcam === null || v.dashcam === "") return null;
+  if (v.dashcam === true || /^(y|yes|true|installed|1)$/i.test(String(v.dashcam).trim())) return true;
+  if (v.dashcam === false || /^(n|no|false|none|0|not installed)$/i.test(String(v.dashcam).trim())) return false;
+  return null;
+}
+
 function buildProductAppetiteRules(schemaObj, sub) {
   const p = schemaObj || window.ACTIVE_INSURANCE_PRODUCT || (typeof ACTIVE_INSURANCE_PRODUCT !== 'undefined' ? ACTIVE_INSURANCE_PRODUCT : null) || {};
   const studios = p.studios || {};
@@ -162,6 +170,29 @@ function buildProductAppetiteRules(schemaObj, sub) {
           pass: true
         });
       }
+      return;
+    }
+
+    // Dashcam Required: judged unit by unit against what the submission states (a vehicle schedule column, the email, or a person's entry).
+    // A unit with no dashcam, or no statement about one, does not meet the rule. The product may offer a Quote Condition for it (onFail).
+    if (n.includes("dashcam") || c.includes("dashcam")) {
+      if (!subVehicles.length) {
+        rules.push({ id: elg.id || `ELG-${idx+1}`, code: elg.code || `ELG-00${idx+1}`, name: elg.name, desc: elg.name, val: "Fleet Data Pending", threshold: threshold, ruleType: "Eligibility", category: elg.category || "Cover Eligibility", cover: elg.cover || "All Covers", conditions: condArr, pass: true });
+        return;
+      }
+      subVehicles.forEach((veh, vIdx) => {
+        const has = vehicleDashcamState(veh);
+        const label = [veh.year, veh.make, veh.model].filter(Boolean).join(" ") || `Unit ${vIdx + 1}`;
+        rules.push({
+          id: (elg.id || `ELG-${idx+1}`) + `-V${vIdx+1}`, family: elg.id || `ELG-${idx+1}`,
+          code: (elg.code || `ELG-00${idx+1}`) + `-V${vIdx+1}`,
+          name: `${elg.name} — Unit ${vIdx + 1} (${label})`, desc: `${elg.name} — Unit ${vIdx + 1} (${label})`,
+          val: has === true ? "Dashcam installed" : (has === false ? "No dashcam" : "Not stated"),
+          threshold: threshold, ruleType: "Eligibility", category: elg.category || "Cover Eligibility", cover: elg.cover || "All Covers", conditions: condArr,
+          pass: has === true, onFail: elg.onFail || null, vehicleIndex: vIdx,
+          note: has === null ? "The submission does not say whether this unit has a dashcam, so the rule is not met." : ""
+        });
+      });
       return;
     }
 
@@ -291,8 +322,6 @@ function buildProductCoverageRows(productSchema, exposureVal, subIdx) {
   const covers = (p.studios && p.studios.coverage) || p.coverages || p.coverage || [];
   
   if (covers && covers.length > 0) {
-    const baseMult = (exposureVal || 1000000) / 1000000;
-    
     return covers.map((c, idx) => {
       let limitStr = "$1,000,000";
       if (c.maxSingleLimit) {
@@ -321,18 +350,9 @@ function buildProductCoverageRows(productSchema, exposureVal, subIdx) {
         dedStr = "None / NIL";
       }
 
-      let basePrem = 12000;
-      if (c.availability === 'mandatory') {
-        basePrem = (idx === 0 ? 14850 : 6200);
-      } else if (c.availability === 'addon') {
-        basePrem = 1450 + (idx * 400);
-      } else {
-        basePrem = 2450 + (idx * 500);
-      }
-      
-      const subScale = (subIdx === 0) ? 1.0 : (subIdx === 1 ? 0.75 : 0.55);
-      const premVal = Math.round(basePrem * baseMult * subScale);
-      const premStr = "$" + premVal.toLocaleString() + ".00";
+      // The product defines the cover, not its price: the premium comes from the rating engine's output.
+      const premVal = null;
+      const premStr = "Not rated";
 
       return {
         id: c.id || `COV-00${idx+1}`,
@@ -366,7 +386,7 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
   const pLob = pInfo.lineOfBusiness || pInfo.segment || "Auto Liability";
   const pVer = p.version || pInfo.version || "2026.10";
 
-  const coverageRows = (sub && sub.coverageRows) || buildProductCoverageRows(p, sub ? sub.exposureVal : 1850000, 0);
+  const coverageRows = (sub && sub.coverageRows) || buildProductCoverageRows(p, sub ? sub.exposureVal : 0, 0);
   const totalCoveragePrem = coverageRows.reduce((sum, c) => sum + (c.premVal || parseFloat((c.prem || "0").replace(/[^0-9.]/g, '')) || 0), 0);
 
   const state = (sub && sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (pInfo.jurisdictions && pInfo.jurisdictions[0]) || "AL";
@@ -375,9 +395,8 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
   const slR = (typeof slRatesFor === "function" && sub) ? slRatesFor(sub) : null; // js/surplus-lines.js
   const effectiveTaxRatePct = slR ? slR.taxPct : 0;
   const surplusTax = Math.round(totalCoveragePrem * (effectiveTaxRatePct / 100));
-  const stampingFee = Math.round(totalCoveragePrem * (slR ? slR.stampingPct / 100 : 0.0015));
-  const discountAmt = Math.round(totalCoveragePrem * 0.08);
-  const netPrem = totalCoveragePrem - discountAmt + surplusTax + stampingFee + brokerFee;
+  const stampingFee = Math.round(totalCoveragePrem * (slR ? slR.stampingPct / 100 : 0));
+  const netPrem = totalCoveragePrem + surplusTax + stampingFee + brokerFee;
 
   const ratingGroups = (p.studios && p.studios.rating) || [];
   const factorsList = [];
@@ -396,13 +415,8 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
       type: c.type || "Property Damage",
       limit: c.limit,
       deductible: c.ded,
-      subtotal: c.premVal || parseFloat((c.prem || "0").replace(/[^0-9.]/g, '')) || 10000,
-      factors: factorsList.length > 0 ? factorsList : [
-        { name: "Base Vehicle Rate", value: "1.00x", code: "F_BASE" },
-        { name: "Territory / State Relativity (" + state + ")", value: "0.95x", code: "F_TERR" },
-        { name: "Fleet Size Relativity", value: "0.97x", code: "F_FLEET" },
-        { name: "Driver Experience Multiplier", value: "1.00x", code: "F_DRV" }
-      ],
+      subtotal: c.premVal || parseFloat((c.prem || "0").replace(/[^0-9.]/g, '')) || 0,
+      factors: factorsList,
       wordings: c.wordingDocs || []
     };
   });
@@ -420,13 +434,10 @@ function buildDynamicRatingPayloadFromProduct(productSchema, sub) {
       countyTax: stampingFee,
       fees: [
         { name: "Surplus Lines State Tax (" + effectiveTaxRatePct + "%)", code: "FEE_SL_TAX", amt: surplusTax },
-        { name: "State Stamping Office Fee (0.15%)", code: "FEE_STAMP", amt: stampingFee },
-        { name: "Underwriting Inspection & Origination Fee", code: "FEE_INSPECT", amt: 250 },
+        { name: "State Stamping Office Fee (" + (slR ? slR.stampingPct : 0) + "%)", code: "FEE_STAMP", amt: stampingFee },
         { name: "Commercial Broker Placement Fee", code: "FEE_BROKER", amt: brokerFee }
       ],
-      discounts: [
-        { name: "Claims-Free & Verified Risk Credit (8%)", value: -0.08, amt: -discountAmt, why: "Verified clean loss runs & active CDL compliance" }
-      ],
+      discounts: [],
       creditsNotApplied: [
         { name: "Renewal Discount", code: "DISC_RENEWAL", reason: "New Business submission (applicable on renewal)", undetermined: false },
         { name: "Multi-Policy Grouping", code: "DISC_MULTI", reason: "Single monoline policy package", undetermined: false }
@@ -1559,6 +1570,25 @@ var SAMPLE_PRD021_JSON = {
         "conditions": [
           "CDL_Years >= 2"
         ]
+      },
+      {
+        "id": "ELG-mtgsfrji7d1",
+        "name": "Dashcam Required",
+        "code": "ELG-007",
+        "status": "draft",
+        "category": "Cover Eligibility",
+        "cover": "Own Damage",
+        "description": "Own Damage cover is provided only if the vehicle has a dashcam installed.",
+        "conditions": [
+          "Dashcam_Installed == true"
+        ],
+        "onFail": {
+          "offer": "quoteCondition",
+          "field": "dashcam",
+          "coverage": "Own Damage",
+          "defaultDays": 30,
+          "condition": "Install a dashcam on each vehicle listed and send the installer's certificate."
+        }
       }
     ],
     "rating": [
@@ -1743,7 +1773,7 @@ var SAMPLE_PRD021_JSON = {
     {
       "studio": "Eligibility Studio",
       "status": "configured",
-      "note": "6 Eligibility Criteria Ready"
+      "note": "7 Eligibility Criteria Ready"
     },
     {
       "studio": "Rating & Pricing Studio",

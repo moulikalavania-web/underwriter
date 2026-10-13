@@ -1,0 +1,156 @@
+<!-- Suite C08: Quote Conditions (Clearance Check). A coverage the insured cannot qualify for yet is added later if a signed condition is
+     met by its deadline. Met on time: coverage added, premium updated. Not met on time: nothing added, premium unchanged. Extensions are
+     new versions that keep the old deadline. A chat with the broker sits inside each condition. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  function setv(id, v){ var e = el(id); if (!e) throw new Error('missing field ' + id); e.value = v; }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 2; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker';
+    ['quoteConditions', 'pasSync', 'authorityRef', 'importedRatingData'].forEach(function(k){ delete s[k]; });
+    s.coverageRows = [{ line: 'Auto Liability', limit: '$1,000,000', ded: '$0', prem: '$10,000', premVal: 10000 }];
+    s.discretionaryPricing = { basePremium: 10000, adjustmentType: 'debit', adjustmentPercent: 10, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 11000 };
+    s.currentPremium = 11000; return s;
+  }
+  var today = qcToday(), in10 = qcAddDays(today, 10), in30 = qcAddDays(today, 30), yesterday = qcAddDays(today, -1);
+  function fill(over){
+    var v = Object.assign({ line: 'Physical Damage', limit: '$250,000', ded: '$2,500', premium: '4,800', deadline: in10, condition: 'Install forward-facing cameras on all 12 power units and send the installer certificate.' }, over || {});
+    setv('qc_cov_line', v.line); setv('qc_cov_limit', v.limit); setv('qc_cov_ded', v.ded); setv('qc_premium', v.premium); setv('qc_deadline', v.deadline); setv('qc_condition', v.condition);
+  }
+  function openForm(){ if (!el('qc_condition')) { qcToggleForm(); } }
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    var sub = mk('SUB-QC-1');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentUserRole = 'senior_uw';
+    qcRender(sub);
+
+    t('the Quote Condition card sits in the Clearance Check screen', !!el('quoteConditionContainer') && !!el('quoteConditionContainer').closest('#screen-3') && /Quote Condition/.test(el('quoteConditionContainer').innerHTML));
+    t('a resource for it exists with rights for every internal role', RBAC_RESOURCES.some(function(r){ return r.key === 'quoteConditions'; }) && ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].every(function(r){ return !!PERMISSIONS_MATRIX[r].quoteConditions; }));
+
+    // ---------- drafting is validated
+    openForm();
+    t('an empty form is refused', (qcCreate(), sub.quoteConditions === undefined || sub.quoteConditions.length === 0) && /coverage/i.test(last()));
+    fill({ condition: 'short' }); qcCreate(); t('a one-word condition is refused', qcStore(sub).length === 0 && /Describe the condition/.test(last()));
+    fill({ premium: '0' }); qcCreate(); t('no premium is refused', qcStore(sub).length === 0 && /premium/i.test(last()));
+    fill({ deadline: yesterday }); qcCreate(); t('a deadline in the past is refused', qcStore(sub).length === 0 && /past/.test(last()));
+    fill({ deadline: qcAddDays(today, 400) }); qcCreate(); t('a deadline beyond the limit is refused', qcStore(sub).length === 0 && /more than 180 days/.test(last()));
+    fill(); qcCreate();
+    var c1 = sub.quoteConditions[0];
+    t('a valid condition is saved as version 1, a draft', !!c1 && c1.id === 'QC-1' && c1.status === 'draft' && c1.versions.length === 1 && c1.versions[0].deadline === in10 && c1.premium === 4800 && c1.coverage.line === 'Physical Damage');
+    t('nothing is added to the quote while it is only a draft', sub.coverageRows.length === 1 && sub.discretionaryPricing.finalPremium === 11000);
+
+    // ---------- the document the insured signs
+    var docHtml = qcDocumentHtml(sub, c1, 1);
+    t('the document shows the condition, the deadline, the coverage and the premium', docHtml.indexOf('forward-facing cameras') > -1 && docHtml.indexOf(in10) > -1 && docHtml.indexOf('Physical Damage') > -1 && docHtml.indexOf('$4,800') > -1 && docHtml.indexOf('Links Freight LLC') > -1);
+    t('it states both outcomes and carries a signature block', /is <strong>not<\/strong> added/.test(docHtml) && /premium stays as quoted/.test(docHtml) && /Signature of the insured/.test(docHtml) && /Date signed/.test(docHtml));
+    qcOpenDocument('QC-1');
+    t('it opens for viewing', el('qcDocModal').style.display === 'flex' && el('qcDocFrame').srcdoc.indexOf(in10) > -1);
+    qcCloseDocument();
+
+    // ---------- issue, sign
+    toasts.length = 0; qcIssue('QC-1');
+    t('issuing moves it to awaiting signature and posts to the thread', c1.status === 'issued' && c1.messages.some(function(m){ return /issued for the insured/.test(m.text); }));
+    qcRender(sub); setv('qc_sig_name_QC-1', 'Jo'); qcRecordSignature('QC-1');
+    t('a signature without a proper name is refused', c1.status === 'issued' && /name/.test(last()));
+    setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', qcAddDays(today, 1)); qcRecordSignature('QC-1');
+    t('a signature dated in the future is refused', c1.status === 'issued' && /today or earlier/.test(last()));
+    setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email 4 Jun, signed PDF'); qcRecordSignature('QC-1');
+    t('the signed copy is recorded against version 1', c1.status === 'signed' && c1.signature.version === 1 && c1.signature.signedBy === 'Dana Whitfield');
+
+    // ---------- permissions
+    currentUserRole = 'assistant'; qcRender(sub); toasts.length = 0; qcSend('QC-1');
+    t('an Underwriting Assistant can read but not act', hasPermission('quoteConditions', 'view') && !hasPermission('quoteConditions', 'edit') && /does not have "edit"/.test(last()) && !/qc_cov_line|New Quote Condition/.test(el('quoteConditionContainer').innerHTML));
+    currentUserRole = 'admin'; toasts.length = 0; qcCreate();
+    t('the Head of Underwriting can read but not act on a case', hasPermission('quoteConditions', 'view') && !hasPermission('quoteConditions', 'edit') && !hasPermission('quoteConditions', 'approve'));
+    currentUserRole = 'compliance'; t('the Compliance Officer can read only', hasPermission('quoteConditions', 'view') && !hasPermission('quoteConditions', 'edit') && !hasPermission('quoteConditions', 'approve'));
+    currentUserRole = 'senior_uw';
+
+    // ---------- met on time: coverage added, premium updated
+    qcRender(sub); setv('qc_met_ref_QC-1', ''); toasts.length = 0; qcConfirmMet('QC-1');
+    t('confirming without evidence is refused', c1.status === 'signed' && /evidence/i.test(last()) && sub.coverageRows.length === 1);
+    setv('qc_met_ref_QC-1', 'Installer certificate IC-2291'); qcConfirmMet('QC-1');
+    var added = sub.coverageRows.filter(function(r){ return r.viaQuoteCondition === 'QC-1'; })[0];
+    t('met on time: the coverage is added to the quote', c1.status === 'met' && !!added && added.line === 'Physical Damage' && added.limit === '$250,000' && added.prem === '$4,800' && sub.coverageRows.length === 2);
+    t('and the premium is updated: base 10,000 + 4,800 = 14,800, plus the 10% debit = 16,280', sub.discretionaryPricing.basePremium === 14800 && sub.discretionaryPricing.finalPremium === 16280 && sub.currentPremium === 16280 && c1.outcome.premiumBefore === 11000 && c1.outcome.premiumAfter === 16280);
+    t('the added premium survives a new rating base: it is added once, not lost or doubled', qcMetPremium(sub) === 4800 && (function(){ var keep = sub.discretionaryPricing; delete sub.discretionaryPricing; var d = ensureDiscretionaryPricingSeed(sub); var ok = d.basePremium === getBasePremiumFromRatingPayload(sub) + 4800; sub.discretionaryPricing = keep; return ok; })());
+    t('the thread and the log record it', c1.messages.some(function(m){ return /Physical Damage added/.test(m.text); }) && sub.decisionLog.some(function(d){ return d.decision === 'qc_met' && /16,280/.test(d.notes); }));
+
+    // ---------- not met on time: nothing added, premium unchanged
+    var before = JSON.stringify([sub.coverageRows, sub.discretionaryPricing.finalPremium, sub.currentPremium]);
+    openForm(); fill({ line: 'Motor Truck Cargo', premium: '3,000', deadline: in10, condition: 'Provide the signed cargo securement policy for all drivers.' }); qcCreate();
+    var c2 = sub.quoteConditions[1]; qcIssue('QC-2');
+    setv('qc_sig_name_QC-2', 'Dana Whitfield'); setv('qc_sig_date_QC-2', today); setv('qc_sig_ref_QC-2', 'Email'); qcRecordSignature('QC-2');
+    t('the second condition is signed and open', c2.status === 'signed');
+    c2.deadline = yesterday; c2.versions[0].deadline = yesterday;   // time passes
+    qcRender(sub);
+    t('not met by the deadline: it lapses', c2.status === 'lapsed' && c2.outcome.kind === 'lapsed');
+    t('the coverage is not added and the premium is unchanged', JSON.stringify([sub.coverageRows, sub.discretionaryPricing.finalPremium, sub.currentPremium]) === before && c2.outcome.premiumBefore === c2.outcome.premiumAfter && !sub.coverageRows.some(function(r){ return r.line === 'Motor Truck Cargo'; }));
+    toasts.length = 0; qcConfirmMet('QC-2');
+    t('it cannot be confirmed as met afterwards', c2.status === 'lapsed' && /lapsed/.test(last()) && sub.coverageRows.length === 2);
+    t('the lapse is in the log and the thread', sub.decisionLog.some(function(d){ return d.decision === 'qc_lapsed' && /premium unchanged/.test(d.notes); }) && c2.messages.some(function(m){ return /not added and the premium is unchanged/.test(m.text); }));
+    t('an unsigned condition past its deadline lapses too', (function(){ var c = { id: 'QC-9', coverage: { line: 'X', limit: '', ded: '' }, condition: 'long enough text', premium: 100, deadline: yesterday, status: 'issued', versions: [{ version: 1, deadline: yesterday, changes: [] }], messages: [], signature: null, outcome: null }; sub.quoteConditions.push(c); qcSweep(sub); var ok = c.status === 'lapsed'; sub.quoteConditions.pop(); return ok; })());
+
+    // ---------- more time: every version kept
+    openForm(); fill({ line: 'Trailer Interchange', premium: '1,200', deadline: in10, condition: 'Send the trailer interchange agreement with the leasing company.' }); qcCreate();
+    var c3 = sub.quoteConditions[2]; qcIssue(c3.id);
+    setv('qc_sig_name_' + c3.id, 'Dana Whitfield'); setv('qc_sig_date_' + c3.id, today); setv('qc_sig_ref_' + c3.id, 'Email'); qcRecordSignature(c3.id);
+    qcRender(sub);
+    setv('qc_ext_date_' + c3.id, in10); setv('qc_ext_reason_' + c3.id, 'Insured asks for time'); toasts.length = 0; qcExtend(c3.id);
+    t('an extension to a date that is not later is refused', c3.versions.length === 1 && /later than the current deadline/.test(last()));
+    setv('qc_ext_date_' + c3.id, in30); setv('qc_ext_reason_' + c3.id, 'x'); qcExtend(c3.id);
+    t('an extension without a reason is refused', c3.versions.length === 1 && /why more time/i.test(last()));
+    setv('qc_ext_reason_' + c3.id, 'Insured asked through the broker: the leasing company is slow to reply.'); setv('qc_ext_cond_' + c3.id, 'Send the trailer interchange agreement and the lessor insurance certificate.'); setv('qc_ext_prem_' + c3.id, '1,500');
+    qcExtend(c3.id);
+    var v2 = c3.versions[1];
+    t('the extension is saved as version 2 with the old and new deadline', c3.versions.length === 2 && v2.version === 2 && c3.deadline === in30 && v2.changes.some(function(x){ return x.field === 'Deadline' && x.from === in10 && x.to === in30; }));
+    t('every other change is listed too (condition, premium)', v2.changes.some(function(x){ return x.field === 'Condition' && /lessor insurance certificate/.test(x.to) && /^Send the trailer interchange agreement with/.test(x.from); }) && v2.changes.some(function(x){ return x.field === 'Additional premium' && x.from === '$1,200' && x.to === '$1,500'; }) && /leasing company/.test(v2.reason));
+    t('version 1 is kept unchanged', c3.versions[0].deadline === in10 && c3.versions[0].premium === 1200 && /interchange agreement with the leasing company/.test(c3.versions[0].condition));
+    t('the insured must sign the new version', c3.status === 'issued' && c3.signature === null);
+    var d1 = qcDocumentHtml(sub, c3, 1), d2 = qcDocumentHtml(sub, c3, 2);
+    t('each version has its own document; version 2 says what it replaces', d1.indexOf(in10) > -1 && d1.indexOf(in30) === -1 && d2.indexOf(in30) > -1 && /replaces version 1/.test(d2) && d2.indexOf(in10) > -1);
+    t('the versions list shows both', /v2 \(current\)/.test(el('quoteConditionContainer').innerHTML) && /v1/.test(el('quoteConditionContainer').innerHTML) && el('quoteConditionContainer').innerHTML.indexOf(in10) > -1 && el('quoteConditionContainer').innerHTML.indexOf(in30) > -1);
+    t('the thread and log record the extension', c3.messages.some(function(m){ return /Version 2 issued/.test(m.text) && m.text.indexOf(in10) > -1 && m.text.indexOf(in30) > -1; }) && sub.decisionLog.some(function(d){ return d.decision === 'qc_extended'; }));
+    toasts.length = 0; qcConfirmMet(c3.id);
+    t('the extended version cannot be confirmed until it is signed again', c3.status === 'issued' && /not signed this version/.test(last()));
+    setv('qc_sig_name_' + c3.id, 'Dana Whitfield'); setv('qc_sig_date_' + c3.id, today); setv('qc_sig_ref_' + c3.id, 'Email v2'); qcRecordSignature(c3.id);
+    qcRender(sub); setv('qc_met_ref_' + c3.id, 'Lessor certificate LC-77'); qcConfirmMet(c3.id);
+    t('met inside the extended deadline: coverage added at the version 2 premium', c3.status === 'met' && sub.coverageRows.some(function(r){ return r.viaQuoteCondition === c3.id && r.prem === '$1,500'; }) && sub.discretionaryPricing.basePremium === 16300);
+
+    // ---------- withdrawn
+    var p0 = sub.discretionaryPricing.finalPremium, rows0 = sub.coverageRows.length;
+    openForm(); fill({ line: 'Non-Owned Trailer', premium: '900', condition: 'Provide the non-owned trailer list with values.' }); qcCreate();
+    var c4 = sub.quoteConditions[3]; qcIssue(c4.id); qcRender(sub); setv('qc_wd_reason_' + c4.id, ''); toasts.length = 0; qcWithdraw(c4.id);
+    t('withdrawing needs a reason', c4.status === 'issued' && /reason/i.test(last()));
+    setv('qc_wd_reason_' + c4.id, 'Insured no longer wants it'); qcWithdraw(c4.id);
+    t('withdrawn: no coverage, premium unchanged', c4.status === 'withdrawn' && sub.coverageRows.length === rows0 && sub.discretionaryPricing.finalPremium === p0);
+
+    // ---------- chat with the broker
+    qcRender(sub); setv('qc_msg_' + c3.id, ''); toasts.length = 0; qcSend(c3.id);
+    t('an empty message is refused', /Type a message/.test(last()));
+    setv('qc_msg_' + c3.id, 'Broker: please confirm the insured can send the certificate by the new date.'); setv('qc_msg_from_' + c3.id, 'underwriter'); qcSend(c3.id);
+    qcRender(sub); setv('qc_msg_' + c3.id, 'Insured confirms they will send it by the 20th.'); setv('qc_msg_from_' + c3.id, 'broker'); el('qc_msg_insured_' + c3.id).checked = true; qcSend(c3.id);
+    var chat = c3.messages.filter(function(m){ return m.kind === 'chat'; });
+    t('the underwriter\'s message and the broker\'s reply are in one thread', chat.length === 2 && chat[0].from === 'underwriter' && chat[1].from === 'broker' && chat[1].name === 'Arora & Sons');
+    t('a reply that relays the insured\'s response is marked, with who recorded it', chat[1].relayedInsured === true && !chat[0].relayedInsured && /Senior Underwriter/.test(chat[1].recordedBy));
+    t('the thread shows both messages with who and when', /please confirm the insured/.test(el('quoteConditionContainer').innerHTML) && /relaying the insured/.test(el('quoteConditionContainer').innerHTML) && /Arora &amp; Sons/.test(el('quoteConditionContainer').innerHTML));
+    t('the chat explains that the broker passes messages to the insured', /shares them with the insured/.test(el('quoteConditionContainer').innerHTML));
+    t('chat messages are logged', sub.decisionLog.filter(function(d){ return d.decision === 'qc_message'; }).length >= 2);
+    t('the audit log knows these events', ['qc_created', 'qc_issued', 'qc_signed', 'qc_extended', 'qc_met', 'qc_lapsed', 'qc_withdrawn', 'qc_message'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+
+    // ---------- a direct submission talks to the customer
+    var dsub = mk('SUB-QC-2'); dsub.channelType = 'direct'; dsub.broker = 'Direct / Unassigned Producer';
+    SUBMISSIONS_DATASET.push(dsub); activeSubmissionId = dsub.id; qcRender(dsub); openForm(); fill(); qcCreate(); qcIssue('QC-1'); qcRender(dsub);
+    t('on a direct submission the chat is with the customer', /Chat with the customer/.test(el('quoteConditionContainer').innerHTML));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

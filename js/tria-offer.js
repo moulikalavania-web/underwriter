@@ -417,31 +417,13 @@ function triaGuardBind(source, subId, stage) {
       return r;
     };
   }
-  const origESig = window.openESignatureModal;
-  if (typeof origESig === "function") {
-    window.openESignatureModal = function () {
-      if (!triaGuardBind("e-signature", null, "quote")) return;
-      return origESig.apply(this, arguments);
-    };
-  }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      if (!triaGuardBind("issue quote", null, "quote")) return;
-      return origIssue.apply(this, arguments);
-    };
-  }
+  registerGuard("eSign", "TRIA offer", function () { return triaGuardBind("e-signature", null, "quote"); });
+  registerGuard("issueQuote", "TRIA offer", function () { return triaGuardBind("issue quote", null, "quote"); });
 })();
 
 // The real bind: the insured must have elected, and the quote must reconcile with the election.
 (function installTriaBindStage() {
-  const origPasBind = window.simulatePASBindSync;
-  if (typeof origPasBind === "function") {
-    window.simulatePASBindSync = function (subId) {
-      if (!triaGuardBind("PAS bind", subId, "bind")) return;
-      return origPasBind.apply(this, arguments);
-    };
-  }
+  registerGuard("bind", "TRIA offer", function (a) { return triaGuardBind("PAS bind", a[0], "bind"); });
 })();
 
 window.triaCreateOffer = triaCreateOffer;

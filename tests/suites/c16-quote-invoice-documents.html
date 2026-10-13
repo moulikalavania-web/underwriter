@@ -1,0 +1,103 @@
+<!-- Suite C16: the quote and invoice documents state only what the case states. Nothing is cut off, the premium and its schedule agree, and the
+     invoice is made at bind (from the policy the PAS returned), never at Issue Quote. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.channelType = 'broker';
+    ['quoteConditions', 'ratingSnapshots', 'pasSync', 'invoice', 'authorityRef', 'importedRatingData', 'producerCheck', 'quoteNo', 'quote_id', 'subjectivities', 'carrier', 'broker_fee', 'insuredInfo', 'genInfo'].forEach(function(k){ delete s[k]; });
+    s.insured = 'Apex Freight LLC'; s.broker = 'Marsh & McLennan Commercial Brokerage'; s.dot = '3194022'; s.mcNumber = 'MC-881924';
+    s.address = '10440 Highway 290 West, Suite 400, Houston, TX 77040'; s.exposureVal = 1850000; s.exposure = '$1,850,000';
+    s.coverageRows = [{ line: 'Commercial Auto Liability (Combined Single Limit)', limit: '$1,850,000 CSL', ded: '$2,500', prem: '$36,200.00', premVal: 36200 }, { line: 'Auto Physical Damage (Comp & Collision)', limit: '$1,850,000 Stated Value', ded: '$2,500', prem: '$10,252.00', premVal: 10252 }, { line: 'Motor Truck Cargo Legal Liability', limit: '$250,000 Per Occurrence', ded: '$1,000', prem: '$2,148.00', premVal: 2148 }];
+    s.discretionaryPricing = { basePremium: 48600, adjustmentType: null, adjustmentPercent: 0, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 48600 };
+    s.currentPremium = 48600;
+    for (var k in (over || {})) s[k] = over[k];
+    return s;
+  }
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+    var sub = mk('SUB-QD-1'); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    var text = buildQuoteProposalLines(sub).join('\n'), lines = buildQuoteProposalLines(sub);
+
+    // ---------- nothing cut off, nothing made up
+    t('the address is shown in full and the state is the state, not the city', /10440 Highway 290 West, Suite 400, Houston, TX 77040/.test(text) && /Garaging state: TX/.test(text) && !/Garaging State: Houston/.test(text) && !/GAddress on File/.test(text));
+    t('"Address on File" is never printed in place of an address the case does not have', !/Address on File/.test(text) && /Address not stated/.test(buildQuoteProposalLines(mk('SUB-QD-2', { address: '' })).join('\n')));
+    t('a long coverage description is wrapped, not cut ("Each Occu", "Aggrega")', /Commercial Auto Liability \(Combined/.test(text) && /Single Limit\)/.test(text) && /Stated/.test(text) && /Value/.test(text));
+    t('the agent ID is not built from the broker\'s name: it says not recorded until a licence is verified', /Agent ID: Not recorded/.test(text) && !/MAR-/.test(text));
+    var withNpn = mk('SUB-QD-3'); withNpn.producerCheck = { result: { status: 'verified', npn: '1234567' }, manual: null };
+    t('once the producer is verified, the NPN is shown', /Agent ID: NPN 1234567/.test(buildQuoteProposalLines(withNpn).join('\n')));
+    t('the underwriter is the assigned underwriter, or "Not assigned"', /Underwriter      : David Chen, Senior Underwriter/.test(text) && /Underwriter      : Not assigned/.test(buildQuoteProposalLines(mk('SUB-QD-4', { assignedTo: null })).join('\n')));
+    t('the policy effective date is the case\'s, or "Not stated"', /Policy effective  : Not stated/.test(text) && /Policy effective  : 01-Nov-2026/.test(buildQuoteProposalLines(mk('SUB-QD-5', { effectiveDate: 'November 1, 2026' })).join('\n')));
+    t('with no quote number it says "Not issued", not N/A', /Quote Number     : Not issued/.test(text));
+    t('with no carrier it says "Not stated"; placement comes from the case', /Risk Company \(Paper\)  : Not stated/.test(text) && /Placement             : Surplus lines \(non-admitted\)/.test(text));
+    t('with no subjectivities it says "None stated." and invents none', /None stated\./.test(text) && !/Receipt of signed MVRs|Fraud Warning|12:01 AM/.test(text));
+    t('the on-screen quote says the same', (function(){ var h = renderQuoteDocumentHtml(sub); return /Not issued/.test(h) && /Not assigned|David Chen/.test(h) && /None stated\./.test(h) && !/Address on File|Receipt of signed MVRs/.test(h) && /Garaging state: TX/.test(h); })());
+
+    // ---------- the premium and its schedule agree
+    var apex = mk('SUB-QD-6');
+    apex.coverageRows = [{ line: 'Commercial Auto Liability', limit: 'x', ded: 'y', prem: '$36,200.00', premVal: 36200 }, { line: 'Auto Physical Damage', limit: 'x', ded: 'y', prem: '$10,252.00', premVal: 10252 }, { line: 'Cargo', limit: 'x', ded: 'y', prem: '$2,148.00', premVal: 2148 }];
+    apex.discretionaryPricing.basePremium = 35062; apex.discretionaryPricing.finalPremium = 35062; apex.currentPremium = 35062;
+    var al = buildQuoteProposalLines(apex).join('\n');
+    t('Base Rating Premium equals the total when no credit or debit is applied', /Base Rating Premium:\s+\$35,062\.00/.test(al) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$35,062\.00/.test(al) && /No discretionary underwriting adjustments applied/.test(al));
+    t('premium the schedule does not itemise is shown as its own line, so the schedule adds up to the base', /Rated premium not itemised by line\s+-\$13,538\.00/.test(al), al.split('\n').filter(function(l){ return /Other rated|Base Rating/.test(l); }).join(' | '));
+    var agree = mk('SUB-QD-7'); var al2 = buildQuoteProposalLines(agree).join('\n');
+    t('when the schedule already adds up there is no balancing line', !/Rated premium not itemised/.test(al2) && /Base Rating Premium:\s+\$48,600\.00/.test(al2));
+    var adj = mk('SUB-QD-8'); adj.discretionaryPricing = { basePremium: 48600, adjustmentType: 'credit', adjustmentPercent: 10, reason: 'Telematics', appliedBy: 'x', appliedAt: 'x', finalPremium: 43740 }; adj.currentPremium = 43740;
+    var al3 = buildQuoteProposalLines(adj).join('\n');
+    t('a credit is shown against the base and the total follows', /Underwriting Credit \(10%\)/.test(al3) && /-\$4,860\.00/.test(al3) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$43,740\.00/.test(al3));
+    var unrated = mk('SUB-QD-9'); unrated.coverageRows = [{ line: 'Own Damage', limit: '$1,000,000', ded: '$300', prem: 'Not rated', premVal: null }]; delete unrated.discretionaryPricing; delete unrated.currentPremium;
+    var al4 = buildQuoteProposalLines(unrated).join('\n');
+    t('a coverage the engine has not priced reads "Not rated", not a number', /Own Damage\s+\$1,000,000\s+\$300\s+Not rated/.test(al4), al4.split('\n').filter(function(l){ return /Own Damage/.test(l); }).join());
+    var withImport = mk('SUB-QD-10'); withImport.importedRatingData = { quote: { finalPremium: 48600 }, coverages: [{ name: 'Commercial Auto Liability', subtotal: 40000, limit: '$1,850,000 CSL', deductible: '$2,500' }, { name: 'Cargo', subtotal: 8600 }] };
+    var al5 = buildQuoteProposalLines(withImport).join('\n');
+    t('when the rating output itemises the premium, the schedule is the engine\'s own itemisation and adds up', /\$40,000\.00/.test(al5) && /\$8,600\.00/.test(al5) && !/Rated premium not itemised/.test(al5) && !/\$36,200\.00/.test(al5));
+
+    // ---------- the invoice does not exist before the bind
+    t('before the bind there is no invoice document and none can be made', buildInvoiceLines(sub).length === 0 && createInvoiceRecord(sub) === null && !sub.invoice);
+    toasts.length = 0; var dl = downloadInvoicePdf(sub.id);
+    t('asking to download one is refused, and says why', dl === false && /made when the policy is bound/.test(toasts.join(' ')));
+    t('the quote document carries no invoice, policy number or bind transaction', !/COMMERCIAL INVOICE|Invoice Number|Policy Number|New Business Bind|BROKER COMMISSION/.test(text));
+    t('there is no combined quote-and-invoice document any more', typeof buildFuturisticQuoteDocumentLines === 'undefined' && typeof generateIssuedQuotePdf === 'undefined');
+
+    // ---------- made at bind
+    sub.pasSync = { status: 'failed', code: 'PAS_TIMEOUT', message: 'x' };
+    t('a failed bind makes no invoice', createInvoiceRecord(sub) === null);
+    sub.pasSync = { status: 'success', policyNumber: 'TRK-2026-482913', pasRecordId: 'PAS-REC-1', effectiveDate: '2026-11-01', syncedBy: 'David Chen (Senior Underwriter)', syncedAt: '2026-10-13 10:00' };
+    sub.effectiveDate = 'November 1, 2026'; sub.expirationDate = 'November 1, 2027';
+    var inv = createInvoiceRecord(sub);
+    t('binding makes the invoice, with the policy number the PAS returned', !!inv && inv.policyNumber === 'TRK-2026-482913' && inv === sub.invoice && /^INV-\d{6}$/.test(inv.invoiceNumber));
+    t('it records who it is billed to, the premium, fee, tax, commission and net due, from the case', inv.broker === sub.broker && inv.insured === 'Apex Freight LLC' && inv.state === 'TX' && inv.grossPremium === 48600 && inv.brokerFee === cfgValueFor(sub, 'broker_fee_invoice_default') && inv.totalCharges > inv.grossPremium && inv.netDueToMga === inv.grossPremium - inv.commissionAmt + inv.brokerFee);
+    t('the bind is in the audit log', sub.decisionLog.some(function(d){ return d.decision === 'invoice_issued' && /TRK-2026-482913/.test(d.notes); }) && !!AUDIT_ACTION_META.invoice_issued);
+    var il = buildInvoiceLines(sub), itext = il.join('\n');
+    t('the invoice shows the real policy number and the real policy dates', /Policy Number    : TRK-2026-482913/.test(itext) && /Effective Date   : 01-Nov-2026 to 01-Nov-2027/.test(itext) && !/N\/A to N\/A/.test(itext) && !/POL-/.test(itext));
+    t('the insured, broker and state are in full and the state is a state', /Apex Freight LLC/.test(itext) && /Marsh & McLennan Commercial Brokerage/.test(itext) && /Garaging state: TX/.test(itext) && !/Houston/.test(itext) && /State Surplus Lines Tax \(TX\)/.test(itext));
+    t('the billing lines add up: premium + fee + tax + stamping = total charges', (function(){ return Math.abs(inv.grossPremium + inv.brokerFee + inv.surplusTax + inv.stampingFee - inv.totalCharges) < 0.01; })() && new RegExp('TOTAL INVOICE CHARGES:\\s+\\$' + inv.totalCharges.toLocaleString('en-US', { minimumFractionDigits: 2 }).replace(/\./g, '\\.')).test(itext));
+    t('no line of either document is cut off mid-word (every line fits the page width)', il.concat(lines).every(function(l){ return l.length <= 110; }), il.concat(lines).filter(function(l){ return l.length > 110; })[0]);
+    t('calling it again returns the same invoice, not a second one', createInvoiceRecord(sub) === inv && sub.decisionLog.filter(function(d){ return d.decision === 'invoice_issued'; }).length === 1);
+    sub.discretionaryPricing.finalPremium = 99999; sub.currentPremium = 99999;
+    t('what was billed cannot change afterwards', buildInvoiceLines(sub).join('\n') === itext && /\$48,600\.00/.test(itext));
+    var spy = 0, real = window.renderLinesToPdf; window.renderLinesToPdf = function(lns, name){ spy++; t('the invoice file is named for the case and the invoice', /Invoice_INV-/.test(name) && /Apex_Freight_LLC/.test(name) && lns.length > 20); return true; };
+    toasts.length = 0; downloadInvoicePdf(sub.id); window.renderLinesToPdf = real;
+    t('the invoice downloads only when asked', spy === 1 && /downloaded/.test(toasts.join(' ')));
+
+    // ---------- an invoice carries a coverage added under a Quote Condition
+    var qc = mk('SUB-QD-11'); qc.pasSync = { status: 'success', policyNumber: 'TRK-2026-1', pasRecordId: 'r', effectiveDate: '2026-11-01', syncedBy: 'x', syncedAt: 'y' };
+    qc.quoteConditions = [{ id: 'QC-1', status: 'met', coverage: { line: 'Own Damage', limit: 'x', ded: 'y' }, condition: 'Install a dashcam', premium: 4800, deadline: '2026-12-01', versions: [{ version: 1 }], messages: [], signature: null, outcome: { kind: 'met', coverageAdded: true, metOn: '2026-10-20' } }];
+    createInvoiceRecord(qc);
+    t('the invoice says which coverage came in under a Quote Condition', /Quote Condition: Own Damage \(QC-1, \$4,800\.00\)/.test(buildInvoiceLines(qc).join('\n')));
+
+    // ---------- the quote version history
+    t('the quote record no longer splits the premium 85/15 or fixes the deductible and limit', (function(){ var s = mk('SUB-QD-12'); SUBMISSIONS_DATASET.push(s); recordQuoteVersion(s, false); var g = QUOTE_VERSIONS_DATASET.filter(function(x){ return x.subId === 'SUB-QD-12'; })[0] || { quotes: [] }; var v = g.quotes[g.quotes.length - 1] || {}; return v.baseCoveragePremium === 48600 && v.baseCoveragePremium !== Math.round(48600 * 0.85) && /1,850,000/.test(v.liabilityLimit) && v.pdDeductible === '$2,500'; })(), JSON.stringify(((QUOTE_VERSIONS_DATASET.filter(function(x){ return x.subId === 'SUB-QD-12'; })[0] || { quotes: [] }).quotes.slice(-1)[0]) || {}).slice(0, 400));
+    t('the email data carries no invented dates, limits, deductibles or contact address', (function(){ var x = mk('SUB-QD-13', { exposureVal: 0, email: '' }); delete x.coveragesInfo; var d = buildIssueQuoteEmailPayload(x); return d.policyDates.effectiveDate === null && d.limits.liabilityLimit === null && d.deductibles.physicalDamage === null && d.deductibles.cargoLimit === null && d.to.contactEmail === null; })(), '');
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

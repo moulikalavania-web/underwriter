@@ -55,7 +55,7 @@ function buildIssueQuoteEmailPayload(sub) {
   const riskBandLabel = (riskScoreValue !== null && typeof riskBand === "function") ? riskBand(riskScoreValue).label : null;
 
   return {
-    to: { broker: sub.broker, contactEmail: `operations@${(sub.broker || "broker").toLowerCase().replace(/[^a-z]/g, "").substring(0, 20)}.com` },
+    to: { broker: sub.broker, contactEmail: sub.email || null },
     parties: {
       customer: sub.customerName || sub.insured,
       broker: sub.broker,
@@ -68,17 +68,17 @@ function buildIssueQuoteEmailPayload(sub) {
       lob: sub.lobName || q.lob
     },
     policyDates: {
-      effectiveDate: sub.effectiveDate || "09/01/2026",
-      expirationDate: sub.expirationDate || "09/01/2027",
-      term: "12 Months"
+      effectiveDate: sub.effectiveDate || null,
+      expirationDate: sub.expirationDate || null,
+      term: sub.effectiveDate && sub.expirationDate ? "As stated" : null
     },
     coverages: coverages.map(c => ({ name: c.name, subtotal: c.subtotal })),
     limits: {
-      liabilityLimit: sub.exposure ? `$${(sub.exposureVal || 0).toLocaleString()} CSL` : "$1,000,000 CSL"
+      liabilityLimit: sub.exposureVal ? `$${Number(sub.exposureVal).toLocaleString("en-US")} CSL` : null
     },
     deductibles: {
-      physicalDamage: sub.coveragesInfo ? `$${(sub.coveragesInfo.pd_deductible_amount || 2500).toLocaleString()}` : "$2,500",
-      cargoLimit: sub.coveragesInfo ? `$${(sub.coveragesInfo.cargo_limit || 100000).toLocaleString()}` : "$100,000"
+      physicalDamage: sub.coveragesInfo && sub.coveragesInfo.pd_deductible_amount ? `$${Number(sub.coveragesInfo.pd_deductible_amount).toLocaleString("en-US")}` : null,
+      cargoLimit: sub.coveragesInfo && sub.coveragesInfo.cargo_limit ? `$${Number(sub.coveragesInfo.cargo_limit).toLocaleString("en-US")}` : null
     },
     premium: {
       basePremium: (dp && dp.basePremium) || q.coveragePremium || 0,
@@ -100,6 +100,8 @@ function buildIssueQuoteEmailPayload(sub) {
       pricingRationale: (dp && dp.adjustmentType) ? `${dp.adjustmentType === "credit" ? "Credit" : "Debit"} of ${dp.adjustmentPercent}% applied — ${dp.reason || "no reason on file"}.` : "No discretionary pricing adjustment applied — standard rated premium stands."
     },
     conditionsToBind: sub.subjectivities || [],
+    quoteConditions: typeof qcDocSummary === "function" ? qcDocSummary(sub) : { pending: [], added: [], notAdded: [] },
+    ratingBasis: typeof rsBasis === "function" ? rsBasis(sub) : null,
     brokerAction: "Please review the enclosed quote details with the insured and confirm bind instructions within 30 days of this notice. Contact your MGA underwriting desk with any questions before the quote validity window expires.",
     quotePayloadAttached: true,
     generatedAt: new Date().toISOString()
@@ -240,8 +242,62 @@ const FQ_DOC_WIDTH = 100;
 function fqPadR(str, len) { str = String(str == null ? "" : str); return str.length >= len ? str.slice(0, len) : str + " ".repeat(len - str.length); }
 function fqPadL(str, len) { str = String(str == null ? "" : str); return str.length >= len ? str.slice(0, len) : " ".repeat(len - str.length) + str; }
 function fqCenter(str, len) { str = String(str == null ? "" : str); const pad = Math.max(0, len - str.length); const l = Math.floor(pad / 2); return " ".repeat(l) + str + " ".repeat(pad - l); }
-function fqMoney(n) { return `$${(Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+function fqMoney(n) { const v = Number(n) || 0; return `${v < 0 ? "-" : ""}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
 function fqDate(d) { const dt = (d instanceof Date) ? d : new Date(d); const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${String(dt.getDate()).padStart(2, "0")}-${months[dt.getMonth()]}-${dt.getFullYear()}`; }
+
+/** Word-wraps text to a column width, so a long name or address is shown in full instead of being cut off. */
+function fqWrap(str, width) {
+  const words = String(str == null ? "" : str).split(/\s+/).filter(Boolean), out = [];
+  let line = "";
+  words.forEach(w => {
+    while (w.length > width) { if (line) { out.push(line); line = ""; } out.push(w.slice(0, width)); w = w.slice(width); }
+    if (!line) line = w; else if ((line + " " + w).length <= width) line += " " + w; else { out.push(line); line = w; }
+  });
+  if (line) out.push(line);
+  return out.length ? out : [""];
+}
+/** Two text blocks side by side; each is an array of lines already wrapped to its column. */
+function fqSideBySide(left, right, leftWidth) {
+  const rows = Math.max(left.length, right.length), out = [];
+  for (let i = 0; i < rows; i++) out.push(fqPadR(left[i] || "", leftWidth) + (right[i] || ""));
+  return out;
+}
+/** The two-letter state at the end of the address (", TX 75201"), else the insured's recorded state when it is two letters; null if neither. */
+function fqState(sub) {
+  const addr = String(sub.address || "");
+  const m = /,\s*([A-Z]{2})\b(?:\s+\d{5}(?:-\d{4})?)?\s*$/.exec(addr.trim()) || /,\s*([A-Z]{2})\b/.exec(addr);
+  if (m) return m[1];
+  const g = sub.insuredInfo && sub.insuredInfo.insured_garaging_state;
+  return g && /^[A-Za-z]{2}$/.test(String(g).trim()) ? String(g).trim().toUpperCase() : null;
+}
+function fqParseDate(s) { const t = Date.parse(s); return isNaN(t) ? null : new Date(t); }
+/** "01-Nov-2026" for a date the case states, "Not stated" otherwise. */
+function fqDateOrNone(s) { const d = fqParseDate(s); return d ? fqDate(d) : "Not stated"; }
+/** The producer's licence number when one has been verified or recorded; never built from the name. */
+function fqAgentId(sub) {
+  const r = typeof producerCurrent === "function" ? producerCurrent(sub) : null;
+  return r && r.npn ? "NPN " + r.npn : "Not recorded";
+}
+function fqUnderwriterText(sub) {
+  const r = sub.assignedTo && USER_ROLES_CONFIG[sub.assignedTo];
+  return r ? `${r.name}, ${r.title}` : "Not assigned";
+}
+/** The coverage schedule shown on the quote: the rating output's own itemisation when there is one, else the case's coverage rows. */
+function fqSchedule(sub, payload) {
+  const num = v => { const n = parseFloat(String(v === null || v === undefined ? "" : v).replace(/[^0-9.]/g, "")); return isNaN(n) ? null : n; };
+  const label = v => (typeof v === "string" && v.trim() && num(v) === null ? v.trim() : null);
+  const mine = sub.coverageRows || [];
+  const imp = sub.importedRatingData && Array.isArray(sub.importedRatingData.coverages) ? sub.importedRatingData.coverages : [];
+  let rows;
+  if (imp.length && imp.every(c => num(c.subtotal) !== null)) {
+    rows = imp.map(c => { const m = mine.filter(r => String(r.line).toLowerCase() === String(c.name).toLowerCase())[0] || {}; return { line: c.name, limit: c.limit || m.limit || "Per rating output", ded: c.deductible || m.ded || "Per rating output", prem: num(c.subtotal), premLabel: null }; });
+    mine.filter(r => r.viaQuoteCondition).forEach(r => rows.push({ line: r.line, limit: r.limit, ded: r.ded, prem: num(r.premVal !== undefined ? r.premVal : r.prem), premLabel: null }));
+  } else {
+    rows = mine.map(r => ({ line: r.line, limit: r.limit, ded: r.ded, prem: num(r.premVal !== undefined && r.premVal !== null ? r.premVal : r.prem), premLabel: label(r.prem) }));
+  }
+  return { rows: rows, rowsTotal: Math.round(rows.reduce((s, r) => s + (r.prem || 0), 0) * 100) / 100 };
+}
+function fqPremText(r) { return r.prem !== null && r.prem !== undefined ? fqMoney(r.prem) : (r.premLabel || "Not rated"); }
 
 function fqCoverageCode(name) {
   const n = (name || "").toLowerCase();
@@ -264,11 +320,12 @@ function buildFuturisticQuoteFigures(sub) {
   const expiration = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const paymentDue = new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000);
 
-  const coverageRows = (sub.coverageRows && sub.coverageRows.length)
-    ? sub.coverageRows
-    : payload.coverages.map(c => ({ line: c.name, limit: "N/A", ded: "N/A", prem: fqMoney(c.subtotal) }));
-
-  const basePremiumTotal = coverageRows.reduce((s, r) => s + (parseFloat(String(r.prem).replace(/[^0-9.]/g, "")) || 0), 0) || payload.premium.basePremium;
+  const sched = fqSchedule(sub, payload);
+  const coverageRows = sched.rows;
+  // The rated base is the pricing record's base when there is one, so the schedule and the total can never disagree silently.
+  const pricing = sub.discretionaryPricing || null;
+  const basePremiumTotal = pricing && typeof pricing.basePremium === "number" ? pricing.basePremium : (sched.rowsTotal || payload.premium.basePremium);
+  const unitemised = Math.round((basePremiumTotal - sched.rowsTotal) * 100) / 100;   // rated premium the schedule does not itemise by coverage
 
   const dp = payload.premium.premiumWasAdjusted ? {
     label: payload.premium.adjustmentType === "credit" ? "Underwriting Credit" : "Underwriting Debit",
@@ -277,8 +334,8 @@ function buildFuturisticQuoteFigures(sub) {
   } : null;
 
   const finalPremium = payload.premium.finalPremium || basePremiumTotal;
-  const garagingState = (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || (sub.address || "").match(/,\s*([A-Z]{2})\b/)?.[1] || "TX";
-  const agentId = `${(sub.broker || "AGT").replace(/[^A-Za-z]/g, "").substring(0, 3).toUpperCase()}-${garagingState}-${String(sub.id || "000").replace(/[^0-9]/g, "").slice(-3).padStart(3, "0")}`;
+  const garagingState = fqState(sub);
+  const agentId = fqAgentId(sub);
 
   const brokerFee = (sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValueFor === "function" ? cfgValueFor(sub, "broker_fee_invoice_default") : 50);
   // Tax and stamping fee come from the confirmed state basis (js/surplus-lines.js). Admitted placements carry none.
@@ -295,11 +352,11 @@ function buildFuturisticQuoteFigures(sub) {
   const netDueToMga = finalPremium - commissionAmt + brokerFee;
 
   const invoiceNumber = `INV-${(sub.id || "000000").replace(/[^0-9]/g, "").padStart(6, "0") || "000000"}`;
-  const policyNumber = sub.genInfo && sub.genInfo.company ? `POL-${garagingState}-${sub.genInfo.application_type_id || "483"}-${String(sub.genInfo.company).padStart(5, "0")}` : `POL-${sub.id}`;
+  const policyNumber = sub.pasSync && sub.pasSync.policyNumber ? sub.pasSync.policyNumber : null;   // issued by the PAS at bind
 
   return {
     payload, outputPayload, now, expiration, paymentDue, coverageRows, basePremiumTotal, dp,
-    finalPremium, garagingState, agentId, brokerFee, surplusTax, stampingFee, totalInvoiceCharges,
+    finalPremium, unitemised, garagingState, agentId, brokerFee, surplusTax, stampingFee, totalInvoiceCharges,
     commissionRate, commissionAmt, netDueToMga, invoiceNumber, policyNumber, surplusTaxRate, stampingRate
   };
 }
@@ -324,21 +381,23 @@ function buildQuoteProposalLines(sub) {
   add(rule("="));
   add("COMMERCIAL LINES QUOTE PROPOSAL");
   add(rule("-"));
-  add(`${fqPadR("Quote Number     : " + (payload.submission.quoteNo || "N/A"), 52)}Date Issued       : ${fqDate(now)}`);
+  add(`${fqPadR("Quote Number     : " + (payload.submission.quoteNo || "Not issued"), 52)}Date Issued       : ${fqDate(now)}`);
   add(`${fqPadR("App Type Code    : " + ((sub.genInfo && sub.genInfo.application_type_id) || "483") + " (Binding Program)", 52)}Expiration Date   : ${fqDate(expiration)} (30 Days)`);
-  add(`${fqPadR("Underwriter      : " + (payload.underwritingSummary.riskBand ? "Underwriting Desk" : "Underwriting Desk"), 52)}Status            : Underwritten / Quoted`);
+  add(`${fqPadR("Status           : Underwritten / Quoted", 52)}Policy effective  : ${fqDateOrNone(sub.effectiveDate)}`);
+  add(`Underwriter      : ${fqUnderwriterText(sub)}`);
   add("");
+  const insBlock = fqWrap(sub.insured || "Not stated", 52).concat(fqWrap(sub.address || "Address not stated", 52), ["Garaging state: " + (garagingState || "Not stated")], fqWrap(`USDOT #: ${sub.dot || "N/A"} | MC/FF #: ${sub.mcNumber || "N/A"}`, 52));
+  const brkBlock = fqWrap(sub.broker || "Direct (no producer)", 44).concat(["Agent ID: " + agentId]);
   add(`${fqPadR("NAMED INSURED & MAILING ADDRESS:", 55)}PRODUCING BROKER / RETAIL AGENCY:`);
   add(`${fqPadR("-".repeat(32), 55)}${"-".repeat(33)}`);
-  add(`${fqPadR(sub.insured || "N/A", 55)}${sub.broker || "N/A"}`);
-  add(`${fqPadR(`${sub.address || "Address on File"}, Garaging State: ${garagingState}`, 55)}Address on File`);
-  add(`${fqPadR(`USDOT #: ${sub.dot || "N/A"} | MC/FF #: ${sub.mcNumber || "N/A"}`, 55)}Agent ID: ${agentId}`);
+  fqSideBySide(insBlock, brkBlock, 55).forEach(add);
   add("");
   add(rule("-"));
   add("PROGRAM & RISK SPECIFICATIONS");
   add(rule("-"));
-  add(`Risk Company (Paper)  : ${sub.carrier || "N/A"} (Non-Admitted / E&S)`);
-  add(`Line of Business      : ${sub.lobName || payload.submission.lob || "N/A"}`);
+  add(`Risk Company (Paper)  : ${sub.carrier || "Not stated"}`);
+  if (typeof slIsSurplus === "function") add(`Placement             : ${slIsSurplus(sub) ? "Surplus lines (non-admitted)" : "Admitted"}`);
+  add(`Line of Business      : ${sub.lobName || payload.submission.lob || "Not stated"}`);
   add(`Minimum Earned Premium: 25% of Original Policy Premium at Bind`);
   add("");
   add("COVERAGE SUMMARY & SCHEDULED LIMITS:");
@@ -346,8 +405,10 @@ function buildQuoteProposalLines(sub) {
   add(`${fqPadR("Code", 7)}${fqPadR("Coverage Description", 39)}${fqPadR("Limit / Valuation", 31)}${fqPadR("Deductible", 14)}Premium`);
   add(rule("-"));
   coverageRows.forEach(r => {
-    add(`${fqPadR(fqCoverageCode(r.line), 7)}${fqPadR(r.line, 39)}${fqPadR(r.limit, 31)}${fqPadR(r.ded, 14)}${fqPadL(typeof r.prem === "number" ? fqMoney(r.prem) : r.prem, 12)}`);
+    const d = fqWrap(r.line, 37), lim = fqWrap(r.limit, 29), ded = fqWrap(r.ded, 13), n = Math.max(d.length, lim.length, ded.length);
+    for (let i = 0; i < n; i++) add(`${fqPadR(i === 0 ? fqCoverageCode(r.line) : "", 7)}${fqPadR(d[i] || "", 39)}${fqPadR(lim[i] || "", 31)}${fqPadR(ded[i] || "", 14)}${i === 0 ? fqPadL(fqPremText(r), 12) : ""}`);
   });
+  if (Math.abs(f.unitemised) >= 1) add(`${fqPadR("", 7)}${fqPadR("Rated premium not itemised by line", 39)}${fqPadR("", 31)}${fqPadR("", 14)}${fqPadL(fqMoney(f.unitemised), 12)}`);
   add(rule("-"));
   add(`${fqPadR("", 76)}Base Rating Premium:${fqPadL(fqMoney(basePremiumTotal), 13)}`);
   add("UNDERWRITING CREDITS & SURCHARGES:");
@@ -362,29 +423,69 @@ function buildQuoteProposalLines(sub) {
   add(`  • Prohibited/Excluded : Hazardous Materials, Nuclear Waste, Oil Paints, Auto Hauling`);
   add(rule("-"));
   add(`TOTAL ESTIMATED TERM PREMIUM:${" ".repeat(58)}${fqPadL(fqMoney(finalPremium), 12)}`);
+  if (payload.ratingBasis) add(`  Rating basis: snapshot v${payload.ratingBasis.version} (${payload.ratingBasis.savedAt}), risk score ${payload.ratingBasis.riskScore === null ? "n/a" : payload.ratingBasis.riskScore}`);
+  const qcs = payload.quoteConditions || { pending: [], added: [] };
+  if (qcs.added.length) {
+    add(rule("-"));
+    add("COVERAGE ADDED UNDER A QUOTE CONDITION (included in the premium above):");
+    qcs.added.forEach(c => add(`  • ${c.coverage} (${c.id}): condition met ${c.metOn || ""}; ${fqMoney(c.premium)} additional annual premium.`));
+  }
+  if (qcs.pending.length) {
+    add(rule("-"));
+    add("QUOTE CONDITIONS — COVERAGE NOT INCLUDED IN THE PREMIUM ABOVE:");
+    qcs.pending.forEach(c => {
+      add(`  • ${c.coverage} (${c.id}) — limit ${c.limit}, deductible ${c.deductible}.`);
+      add(`    Added for ${fqMoney(c.premium)} additional annual premium only if this is met by ${c.deadline}: ${c.condition}`);
+      add(`    If it is not met by then, the coverage is not added and the premium above is unchanged. Not in force until added.`);
+    });
+  }
   add(rule("="));
   add("BINDING SUBJECTIVITIES & CONDITIONS:");
-  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : ["Receipt of signed MVRs for all scheduled drivers.", "Signed Fraud Warning & Surplus Lines Tax Acknowledgement.", "Formal bind request must be received prior to 12:01 AM on the effective date."];
+  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : [];
   subjectivities.forEach((s, i) => add(`${i + 1}. ${s}`));
+  if (!subjectivities.length) add("None stated.");
   add(rule("="));
 
   return L;
 }
 
-// The Invoice half only — mirrors buildQuoteProposalLines() above; both are
-// combined below for the full downloadable PDF.
-function buildInvoiceLines(sub) {
+/**
+ * The invoice is made when the policy is bound: the PAS has returned the policy number and the customer has accepted. It is kept on
+ * the case (sub.invoice) so that what was billed cannot change afterwards. Nothing about it exists before the bind.
+ */
+function createInvoiceRecord(sub) {
+  if (!sub || !sub.pasSync || sub.pasSync.status !== "success" || !sub.pasSync.policyNumber) return null;
+  if (sub.invoice) return sub.invoice;
   const f = buildFuturisticQuoteFigures(sub);
-  if (!f) return [];
-  const {
-    payload, now, paymentDue, garagingState, brokerFee, surplusTax, stampingFee,
-    totalInvoiceCharges, commissionRate, commissionAmt, netDueToMga, invoiceNumber,
-    policyNumber, finalPremium
-  } = f;
+  if (!f) return null;
+  const now = new Date();
+  sub.invoice = {
+    invoiceNumber: f.invoiceNumber, issuedAt: now.toISOString(), paymentDue: f.paymentDue.toISOString(),
+    policyNumber: sub.pasSync.policyNumber, quoteNo: sub.quoteNo || null, transaction: "New Business Bind",
+    billingModel: (sub.genInfo && sub.genInfo.billtype) || (sub.channelType === "direct" ? "Direct Bill" : "Agency Bill"),
+    effective: sub.effectiveDate || sub.pasSync.effectiveDate || null, expiration: sub.expirationDate || null,
+    broker: sub.broker || null, insured: sub.insured || null, address: sub.address || null, state: f.garagingState, lobName: sub.lobName || null,
+    grossPremium: f.finalPremium, brokerFee: f.brokerFee, taxRate: f.surplusTaxRate, surplusTax: f.surplusTax, stampingRate: f.stampingRate, stampingFee: f.stampingFee,
+    totalCharges: f.totalInvoiceCharges, commissionRate: f.commissionRate, commissionAmt: f.commissionAmt, netDueToMga: f.netDueToMga,
+    coverages: f.coverageRows.map(r => ({ line: r.line, limit: r.limit, ded: r.ded, premium: r.prem })),
+    ratingBasis: typeof rsBasis === "function" ? rsBasis(sub) : null,
+    conditionsAdded: (typeof qcDocSummary === "function" ? qcDocSummary(sub).added : []).map(c => ({ id: c.id, coverage: c.coverage, premium: c.premium }))
+  };
+  if (!sub.decisionLog) sub.decisionLog = [];
+  sub.decisionLog.push({ step: 7, decision: "invoice_issued", by: sub.pasSync.syncedBy, at: sub.pasSync.syncedAt, notes: `Invoice ${sub.invoice.invoiceNumber} issued at bind for policy ${sub.invoice.policyNumber}: total charges ${fqMoney(sub.invoice.totalCharges)}, net due to the MGA ${fqMoney(sub.invoice.netDueToMga)}.` });
+  return sub.invoice;
+}
+
+/** The invoice document, from the record made at bind. Empty before the policy is bound. */
+function buildInvoiceLines(sub) {
+  const inv = sub && sub.invoice;
+  if (!inv) return [];
   const W = FQ_DOC_WIDTH;
   const rule = (ch) => ch.repeat(W);
   const L = [];
   const add = (s) => L.push(s == null ? "" : s);
+  const issued = new Date(inv.issuedAt);
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
   add(rule("="));
   add(fqCenter("FUTURISTIC UNDERWRITING MGA", W));
@@ -393,43 +494,48 @@ function buildInvoiceLines(sub) {
   add(rule("="));
   add("COMMERCIAL INVOICE");
   add(rule("-"));
-  add(`${fqPadR("Invoice Number   : " + invoiceNumber, 55)}Invoice Date      : ${fqDate(now)}`);
-  add(`${fqPadR("Policy Number    : " + policyNumber, 55)}Billing Model     : ${(sub.genInfo && sub.genInfo.billtype) || "Agency Bill (AB)"}`);
-  add(`${fqPadR("Effective Date   : " + (sub.effectiveDate || "N/A") + " to " + (sub.expirationDate || "N/A"), 55)}Payment Due Date  : ${fqDate(paymentDue)}`);
-  add(`${fqPadR("Transaction Type : New Business Bind", 55)}Accounting Period : ${["January","February","March","April","May","June","July","August","September","October","November","December"][now.getMonth()]}-${now.getFullYear()} (Period ID: ${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getFullYear()).slice(-2)})`);
+  add(`${fqPadR("Invoice Number   : " + inv.invoiceNumber, 55)}Invoice Date      : ${fqDate(issued)}`);
+  add(`${fqPadR("Policy Number    : " + inv.policyNumber, 55)}Billing Model     : ${inv.billingModel}`);
+  add(`${fqPadR("Effective Date   : " + fqDateOrNone(inv.effective) + " to " + fqDateOrNone(inv.expiration), 55)}Payment Due Date  : ${fqDate(new Date(inv.paymentDue))}`);
+  add(`${fqPadR("Transaction Type : " + inv.transaction, 55)}Accounting Period : ${months[issued.getMonth()]}-${issued.getFullYear()}`);
+  if (inv.quoteNo) add(`Quote Number     : ${inv.quoteNo}`);
   add("");
+  const billed = fqWrap(inv.broker || "Direct (no producer)", 52).concat(["Attn: Accounts Payable"]);
+  const insured = fqWrap(inv.insured || "Not stated", 44).concat(fqWrap("Policy Type: " + (inv.lobName || "Not stated"), 44), ["Garaging state: " + (inv.state || "Not stated")]);
   add(`${fqPadR("BILLED TO (RETAIL BROKER):", 55)}INSURED DETAILS:`);
   add(`${fqPadR("-".repeat(26), 55)}${"-".repeat(16)}`);
-  add(`${fqPadR(sub.broker || "N/A", 55)}${sub.insured || "N/A"}`);
-  add(`${fqPadR("Attn: Accounts Payable", 55)}Policy Type: ${sub.lobName || "N/A"}`);
-  add(`${fqPadR("Address on File", 55)}Garaging State: ${garagingState}`);
+  fqSideBySide(billed, insured, 55).forEach(add);
   add("");
   add(rule("-"));
   add("BILLING BREAKDOWN & FINANCIAL COMPONENTS");
   add(rule("-"));
   add(`${fqPadR("Item", 7)}${fqPadR("Description", 47)}${fqPadR("Basis / Rate", 27)}Amount (USD)`);
   add(rule("-"));
-  add(`${fqPadR("101", 7)}${fqPadR("Policy Gross Premium", 47)}${fqPadR("Full Term Premium", 27)}${fqPadL(fqMoney(finalPremium), 12)}`);
-  add(`${fqPadR("201", 7)}${fqPadR("Broker Policy Fee (Fully Earned at Bind)", 47)}${fqPadR("Flat Fee", 27)}${fqPadL(fqMoney(brokerFee), 12)}`);
-  add(`${fqPadR("701", 7)}${fqPadR(`State Surplus Lines Tax (${garagingState})`, 47)}${fqPadR(`${+(f.surplusTaxRate*100).toFixed(4)}% of Premium`, 27)}${fqPadL(fqMoney(surplusTax), 12)}`);
-  add(`${fqPadR("702", 7)}${fqPadR("Stamping Office Fee", 47)}${fqPadR(`${+(f.stampingRate*100).toFixed(4)}%`, 27)}${fqPadL(fqMoney(stampingFee), 12)}`);
+  add(`${fqPadR("101", 7)}${fqPadR("Policy Gross Premium", 47)}${fqPadR("Full Term Premium", 27)}${fqPadL(fqMoney(inv.grossPremium), 12)}`);
+  add(`${fqPadR("201", 7)}${fqPadR("Broker Policy Fee (Fully Earned at Bind)", 47)}${fqPadR("Flat Fee", 27)}${fqPadL(fqMoney(inv.brokerFee), 12)}`);
+  if (inv.taxRate || inv.surplusTax) add(`${fqPadR("701", 7)}${fqPadR(`State Surplus Lines Tax (${inv.state || "state not stated"})`, 47)}${fqPadR(`${+(inv.taxRate * 100).toFixed(4)}% of Premium`, 27)}${fqPadL(fqMoney(inv.surplusTax), 12)}`);
+  if (inv.stampingRate || inv.stampingFee) add(`${fqPadR("702", 7)}${fqPadR("Stamping Office Fee", 47)}${fqPadR(`${+(inv.stampingRate * 100).toFixed(4)}%`, 27)}${fqPadL(fqMoney(inv.stampingFee), 12)}`);
   add(rule("-"));
-  add(`TOTAL INVOICE CHARGES:${" ".repeat(65)}${fqPadL(fqMoney(totalInvoiceCharges), 12)}`);
+  add(`TOTAL INVOICE CHARGES:${" ".repeat(65)}${fqPadL(fqMoney(inv.totalCharges), 12)}`);
   add(rule("-"));
+  if ((inv.conditionsAdded || []).length) {
+    add("");
+    add("Premium includes coverage added under a Quote Condition: " + inv.conditionsAdded.map(c => `${c.coverage} (${c.id}, ${fqMoney(c.premium)})`).join("; ") + ".");
+  }
   add("");
   add("BROKER COMMISSION & REMITTANCE SUMMARY:");
-  add(`  Gross Premium Billed                          : ${fqMoney(finalPremium)}`);
-  add(`  Less: Broker Commission Retained (${(commissionRate * 100).toFixed(1)}%)     : -${fqMoney(commissionAmt)}`);
-  add(`  Plus: Fully Earned Broker Fee Retained        : +${fqMoney(brokerFee)}`);
-  add(`  Net Premium & Taxes Due to MGA                : ${fqMoney(netDueToMga)}`);
+  add(`  Gross Premium Billed                          : ${fqMoney(inv.grossPremium)}`);
+  add(`  Less: Broker Commission Retained (${(inv.commissionRate * 100).toFixed(1)}%)     : -${fqMoney(inv.commissionAmt)}`);
+  add(`  Plus: Fully Earned Broker Fee Retained        : +${fqMoney(inv.brokerFee)}`);
+  add(`  Net Premium & Taxes Due to MGA                : ${fqMoney(inv.netDueToMga)}`);
   add(rule("-"));
-  add(`TOTAL NET AMOUNT DUE TO MGA:${" ".repeat(59)}${fqPadL(fqMoney(netDueToMga), 12)}`);
+  add(`TOTAL NET AMOUNT DUE TO MGA:${" ".repeat(59)}${fqPadL(fqMoney(inv.netDueToMga), 12)}`);
   add(rule("="));
   add("REMITTANCE INSTRUCTIONS:");
   add(`  Bank Name      : First Commercial Bank, N.A.`);
   add(`  Account Name   : Futuristic MGA Escrow Account`);
   add(`  Account / GL   : 1000-01-Bank (Asset Series 1)`);
-  add(`  ACH / Wire Ref : ${invoiceNumber} / ${policyNumber}`);
+  add(`  ACH / Wire Ref : ${inv.invoiceNumber} / ${inv.policyNumber}`);
   add("");
   add(`* Note: 25% minimum earned premium applies on early cancellations; broker fee is non-refundable.`);
   add(rule("="));
@@ -437,12 +543,20 @@ function buildInvoiceLines(sub) {
   return L;
 }
 
-// Full document — Quote Proposal + Invoice, used for the downloadable PDF.
-function buildFuturisticQuoteDocumentLines(sub) {
-  const proposal = buildQuoteProposalLines(sub);
-  if (!proposal.length) return [];
-  return proposal.concat([""], buildInvoiceLines(sub));
+/** Downloads the invoice made at bind. Before the bind there is none. */
+function downloadInvoicePdf(subId) {
+  const sub = SUBMISSIONS_DATASET.find(s => s.id === (subId || activeSubmissionId));
+  if (!sub) return false;
+  if (!sub.invoice) { showToast("⛔ There is no invoice yet: it is made when the policy is bound.", "danger"); return false; }
+  const safeInsuredName = (sub.insured || "Policy").replace(/[^a-zA-Z0-9]/g, "_");
+  const ok = renderLinesToPdf(buildInvoiceLines(sub), `${sub.id}_${safeInsuredName}_Invoice_${sub.invoice.invoiceNumber}.pdf`);
+  if (ok) showToast(`📥 Invoice ${sub.invoice.invoiceNumber} downloaded.`, "success");
+  return ok;
 }
+window.downloadInvoicePdf = downloadInvoicePdf;
+window.createInvoiceRecord = createInvoiceRecord;
+if (typeof AUDIT_ACTION_META !== "undefined") AUDIT_ACTION_META.invoice_issued = { label: "Invoice Issued at Bind", icon: "ph-receipt", badge: "badge-success", outcome: "outcome-approve" };
+
 window.buildQuoteProposalLines = buildQuoteProposalLines;
 window.buildInvoiceLines = buildInvoiceLines;
 
@@ -480,14 +594,6 @@ function renderLinesToPdf(lines, filename) {
   return true;
 }
 
-// Full document (Quote Proposal + Invoice) — downloaded automatically when
-// "Issue Quote" is clicked.
-function generateIssuedQuotePdf(sub) {
-  if (!sub) return false;
-  const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
-  return renderLinesToPdf(buildFuturisticQuoteDocumentLines(sub), `${sub.id}_${safeInsuredName}_Quote_Invoice.pdf`);
-}
-
 // Quote Document only (Quote Proposal — no Invoice) — this is the exact
 // same content as the View Quote sidebar (buildQuoteProposalLines), and is
 // what "Send Quotation to Customer" / the Download → Quotation button both
@@ -497,9 +603,7 @@ function generateQuoteProposalPdf(sub) {
   const safeInsuredName = (sub.insured || "Quote").replace(/[^a-zA-Z0-9]/g, "_");
   return renderLinesToPdf(buildQuoteProposalLines(sub), `${sub.id}_${safeInsuredName}_Quotation.pdf`);
 }
-window.buildFuturisticQuoteDocumentLines = buildFuturisticQuoteDocumentLines;
 window.generateQuoteProposalPdf = generateQuoteProposalPdf;
-window.generateIssuedQuotePdf = generateIssuedQuotePdf;
 
 /**
  * ============================================================================
@@ -531,11 +635,7 @@ function renderQuoteDocumentHtml(sub) {
   const { payload, now, expiration, coverageRows, basePremiumTotal, dp, finalPremium, garagingState, agentId } = f;
 
   const fmtDate = (d) => d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
-  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : [
-    "Receipt of signed MVRs for all scheduled drivers.",
-    "Signed Fraud Warning & Surplus Lines Tax Acknowledgement.",
-    "Formal bind request must be received prior to 12:01 AM on the effective date."
-  ];
+  const subjectivities = (sub.subjectivities && sub.subjectivities.length) ? sub.subjectivities : [];
 
   return `
     <div class="qd-sheet">
@@ -551,11 +651,12 @@ function renderQuoteDocumentHtml(sub) {
       </div>
 
       <div class="qd-meta-grid">
-        <div class="qd-meta-item"><span class="qd-meta-label">Quote Number</span><span class="qd-meta-value">${qdEsc(payload.submission.quoteNo || "N/A")}</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Quote Number</span><span class="qd-meta-value">${qdEsc(payload.submission.quoteNo || "Not issued")}</span></div>
         <div class="qd-meta-item"><span class="qd-meta-label">Date Issued</span><span class="qd-meta-value">${fmtDate(now)}</span></div>
         <div class="qd-meta-item"><span class="qd-meta-label">App Type Code</span><span class="qd-meta-value">${qdEsc((sub.genInfo && sub.genInfo.application_type_id) || "483")} (Binding Program)</span></div>
         <div class="qd-meta-item"><span class="qd-meta-label">Expiration Date</span><span class="qd-meta-value">${fmtDate(expiration)} <span class="text-xs text-muted">(30 Days)</span></span></div>
-        <div class="qd-meta-item"><span class="qd-meta-label">Underwriter</span><span class="qd-meta-value">Underwriting Desk</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Underwriter</span><span class="qd-meta-value">${qdEsc(fqUnderwriterText(sub))}</span></div>
+        <div class="qd-meta-item"><span class="qd-meta-label">Policy effective</span><span class="qd-meta-value">${qdEsc(fqDateOrNone(sub.effectiveDate))}</span></div>
         <div class="qd-meta-item"><span class="qd-meta-label">Status</span><span class="qd-meta-value">Underwritten / Quoted</span></div>
       </div>
 
@@ -563,13 +664,13 @@ function renderQuoteDocumentHtml(sub) {
         <div class="qd-party-card">
           <div class="qd-party-title"><i class="ph ph-identification-card"></i> Named Insured &amp; Mailing Address</div>
           <div class="qd-party-name">${qdEsc(sub.insured || "N/A")}</div>
-          <div class="qd-party-line">${qdEsc(sub.address || "Address on File")}, Garaging State: ${qdEsc(garagingState)}</div>
+          <div class="qd-party-line">${qdEsc(sub.address || "Address not stated")}</div>
+          <div class="qd-party-line">Garaging state: ${qdEsc(garagingState || "Not stated")}</div>
           <div class="qd-party-line">USDOT #: ${qdEsc(sub.dot || "N/A")} &nbsp;|&nbsp; MC/FF #: ${qdEsc(sub.mcNumber || "N/A")}</div>
         </div>
         <div class="qd-party-card">
           <div class="qd-party-title"><i class="ph ph-buildings"></i> Producing Broker / Retail Agency</div>
-          <div class="qd-party-name">${qdEsc(sub.broker || "N/A")}</div>
-          <div class="qd-party-line">Address on File</div>
+          <div class="qd-party-name">${qdEsc(sub.broker || "Direct (no producer)")}</div>
           <div class="qd-party-line">Agent ID: ${qdEsc(agentId)}</div>
         </div>
       </div>
@@ -577,7 +678,8 @@ function renderQuoteDocumentHtml(sub) {
       <div class="qd-section">
         <div class="qd-section-title">Program &amp; Risk Specifications</div>
         <div class="qd-kv-grid">
-          <div class="qd-kv"><span>Risk Company (Paper)</span><strong>${qdEsc(sub.carrier || "N/A")} (Non-Admitted / E&amp;S)</strong></div>
+          <div class="qd-kv"><span>Risk Company (Paper)</span><strong>${qdEsc(sub.carrier || "Not stated")}</strong></div>
+          ${typeof slIsSurplus === "function" ? `<div class="qd-kv"><span>Placement</span><strong>${slIsSurplus(sub) ? "Surplus lines (non-admitted)" : "Admitted"}</strong></div>` : ""}
           <div class="qd-kv"><span>Line of Business</span><strong>${qdEsc(sub.lobName || payload.submission.lob || "N/A")}</strong></div>
           <div class="qd-kv"><span>Minimum Earned Premium</span><strong>25% of Original Policy Premium at Bind</strong></div>
         </div>
@@ -593,8 +695,9 @@ function renderQuoteDocumentHtml(sub) {
               <td>${qdEsc(r.line)}</td>
               <td>${qdEsc(r.limit)}</td>
               <td>${qdEsc(r.ded)}</td>
-              <td class="qd-num font-mono">${qdEsc(typeof r.prem === "number" ? fqMoney(r.prem) : r.prem)}</td>
+              <td class="qd-num font-mono">${qdEsc(fqPremText(r))}</td>
             </tr>`).join("")}
+            ${Math.abs(f.unitemised) >= 1 ? `<tr><td></td><td>Rated premium not itemised by line</td><td></td><td></td><td class="qd-num font-mono">${qdEsc(fqMoney(f.unitemised))}</td></tr>` : ""}
           </tbody>
           <tfoot><tr><td colspan="4">Base Rating Premium</td><td class="qd-num font-mono">${qdEsc(fqMoney(basePremiumTotal))}</td></tr></tfoot>
         </table>
@@ -617,11 +720,14 @@ function renderQuoteDocumentHtml(sub) {
         <span>Total Estimated Term Premium</span>
         <span class="qd-total-amount font-mono">${qdEsc(fqMoney(finalPremium))}</span>
       </div>
+      ${payload.ratingBasis ? `<div class="text-xs text-muted" style="margin:4px 0 8px;">Rating basis: snapshot v${qdEsc(payload.ratingBasis.version)} (${qdEsc(payload.ratingBasis.savedAt)}), risk score ${qdEsc(payload.ratingBasis.riskScore === null ? "n/a" : payload.ratingBasis.riskScore)}</div>` : ""}
+      ${(payload.quoteConditions && payload.quoteConditions.added.length) ? `<div class="qd-section"><div class="qd-section-title">Coverage added under a Quote Condition (included in the premium above)</div>${payload.quoteConditions.added.map(c => `<div class="qd-line-item"><span>${qdEsc(c.coverage)} (${qdEsc(c.id)}): condition met ${qdEsc(c.metOn || "")}</span><strong class="font-mono">${qdEsc(fqMoney(c.premium))}</strong></div>`).join("")}</div>` : ""}
+      ${(payload.quoteConditions && payload.quoteConditions.pending.length) ? `<div class="qd-section"><div class="qd-section-title">Quote Conditions: coverage not included in the premium above</div>${payload.quoteConditions.pending.map(c => `<div class="qd-line-item" style="display:block;"><strong>${qdEsc(c.coverage)} (${qdEsc(c.id)})</strong>, limit ${qdEsc(c.limit)}, deductible ${qdEsc(c.deductible)}.<br>Added for <span class="font-mono">${qdEsc(fqMoney(c.premium))}</span> additional annual premium only if this is met by <strong>${qdEsc(c.deadline)}</strong>: ${qdEsc(c.condition)}<br><span class="text-xs text-muted">If it is not met by then, the coverage is not added and the premium above is unchanged. It is not in force until added.</span></div>`).join("")}</div>` : ""}
 
       <div class="qd-section">
         <div class="qd-section-title">Binding Subjectivities &amp; Conditions</div>
         <ol class="qd-subjectivities">
-          ${subjectivities.map(s => `<li>${qdEsc(s)}</li>`).join("")}
+          ${subjectivities.map(s => `<li>${qdEsc(s)}</li>`).join("") || "<li>None stated.</li>"}
         </ol>
       </div>
     </div>

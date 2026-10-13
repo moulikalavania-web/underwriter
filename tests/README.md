@@ -28,6 +28,19 @@ persistence, rendering), not source text:
 | c01 | Consolidation of duplicated features: one way to change price, one risk measure, one "needs referral" rule, one way to request missing information, one subjectivity tracking board |
 | c03 | Discretionary pricing carries only the credit or debit; tax is the surplus lines basis; commission is on the priced premium |
 | c05 | Written role definitions; the six access-policy rules (separation of duties, least privilege, audit-log protection); every permission change checked; periodic access review by the Compliance Officer |
+| c06 | Only the Head of Underwriting creates, imports and assigns; a pending referral puts the case on the deciding role's desk |
+| c07 | Document ingestion: detection by file content, refusal of renamed files and programs, extraction by type (PDF, Word, Excel, PowerPoint, CSV, JSON, EML), OCR hook, consolidation with sources and conflicts, validation, canonical record |
+| c08 | Quote Conditions in Clearance Check: drafting rules, the document to sign, met on time (coverage added, premium updated), not met (nothing added, premium unchanged), extensions kept as versions, chat with the broker, permissions |
+| c09 | Sample product PRD-021 "Dashcam Required" rule: judged unit by unit, suggests a Quote Condition, coverage withheld; met in time = Own Damage added and premium updated; not met = coverage stays out, premium unchanged |
+| c10 | Rating Snapshot in Quote & Bind: risk details, risk score and premium saved as versions when rating details are generated; unchanged = nothing saved; old versions kept; changes and comparison |
+| c11 | Saved state restored on load: version key, storage-size guard (attachments first, then derived text), failed writes never break the app |
+| c12 | No invented premium, rating-request or SLA values |
+| c13 | Offline assets: fonts, icons and the PDF library are local |
+| c14 | Document viewer shows the attached file (no made-up previews) |
+| c15 | Quote Conditions and the Rating Snapshot wired into the quote, the binder and the final JSON |
+| c16 | Quote and invoice documents: nothing cut off or invented, schedule agrees with the premium, invoice made at bind |
+| c17 | Guard registry for e-signature, issue quote and bind |
+| c18 | Licensing registry and sanctions watchlist loaded from a file in the cards (OFAC SDN.CSV, CSV, JSON): parsing, pass/flag from real data, amber when nothing is loaded, kept across reloads |
 | c04 | A tester's path with no demonstration data in the app: fresh start, Create New Submission, no-watchlist / no-registry / no-producer-record gates, fixture cases through Steps 1-7, imported rating file, issue, accept, bind |
 | c02 | One home for each overlapping page: audit history, declines, quote history, choosing a user |
 | g02 | Sanctions / OFAC screening |

@@ -58,6 +58,27 @@ def static_checks():
     on_disk = {os.path.relpath(p, ROOT).replace("\\", "/") for p in glob.glob(os.path.join(ROOT, "js", "*.js"))}
     unused = sorted(on_disk - {s.replace("\\", "/") for s in local})
     res.append(("every file in js/ is loaded by index.html", not unused, ", ".join(unused)))
+    # The app runs with no network: no script, stylesheet, font or image is loaded from a web address, and what it needs is in vendor/.
+    css_text = open(os.path.join(ROOT, "css", "styles.css"), encoding="utf-8").read()
+    web = re.findall(r'(?:src|href)="(https?:[^"]+)"', idx) + re.findall(r"url\(['\"]?(https?:[^)'\"]+)", css_text) + re.findall(r"@import\s+(?:url\()?['\"]?(https?:[^'\")]+)", css_text)
+    res.append(("nothing is loaded from the web (no CDN): fonts, icons and the PDF library are local", not web, ", ".join(web)))
+    css_local = [h for h in re.findall(r'<link[^>]+href="([^"]+)"', idx) if not h.startswith("data:") and not re.match(r"https?:", h)]
+    need = ["vendor/fonts/fonts.css", "vendor/phosphor/style.css", "vendor/jspdf/jspdf.umd.min.js"]
+    gone = [n for n in need if not os.path.exists(os.path.join(ROOT, n))] + [h for h in css_local if not os.path.exists(os.path.join(ROOT, h))]
+    res.append(("the local stylesheets and vendor files exist", not gone and "vendor/fonts/fonts.css" in css_local and "vendor/phosphor/style.css" in css_local, ", ".join(gone)))
+    fontfiles = re.findall(r'url\("\./([^"]+)"\)', open(os.path.join(ROOT, "vendor", "fonts", "fonts.css"), encoding="utf-8").read())
+    icon_files = re.findall(r'url\("\./([^"#]+)', open(os.path.join(ROOT, "vendor", "phosphor", "style.css"), encoding="utf-8").read())
+    lost = [f for f in fontfiles if not os.path.exists(os.path.join(ROOT, "vendor", "fonts", f))] + [f for f in icon_files if not os.path.exists(os.path.join(ROOT, "vendor", "phosphor", f))]
+    res.append(("every font file the local stylesheets name is present", not lost, ", ".join(lost)))
+    # The gates of a quote are guarded through the guard registry (js/guard-registry.js); no module wraps those functions itself.
+    wrapped = []
+    for path in sorted(glob.glob(os.path.join(ROOT, "js", "*.js"))):
+        if os.path.basename(path) == "guard-registry.js":
+            continue
+        for ln, line in enumerate(open(path, encoding="utf-8").read().split("\n"), 1):
+            if re.search(r"window\.(openESignatureModal|issueQuoteAction|simulatePASBindSync)\s*=\s*function", line):
+                wrapped.append("%s:%d" % (os.path.basename(path), ln))
+    res.append(("no module wraps openESignatureModal, issueQuoteAction or simulatePASBindSync itself (use registerGuard)", not wrapped, ", ".join(wrapped)))
     ids = re.findall(r'\sid="([^"]+)"', idx)
     d = sorted({i for i in ids if ids.count(i) > 1})
     res.append(("no duplicate element ids in index.html", not d, ", ".join(d[:10])))

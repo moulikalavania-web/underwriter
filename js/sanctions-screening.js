@@ -323,7 +323,7 @@ var SANCTIONS_STATE_UI = {
   cleared_reviewed: { badge: "badge-success", icon: "ph-check-circle",     label: "Cleared After Review" },
   review_required:  { badge: "badge-warning", icon: "ph-warning",          label: "Review Required" },
   blocked:          { badge: "badge-danger",  icon: "ph-prohibit",         label: "Confirmed Match — Blocked" },
-  no_list:          { badge: "badge-danger",  icon: "ph-warning-octagon",  label: "No Watchlist Loaded" },
+  no_list:          { badge: "badge-warning", icon: "ph-warning-octagon",  label: "No Watchlist Loaded" },
   externally_screened: { badge: "badge-info", icon: "ph-clipboard-text",   label: "Screened Externally (recorded)" }
 };
 
@@ -340,7 +340,7 @@ function renderSanctionsCard(sub) {
   if (status.state === "not_screened") {
     banner = `<div class="alert alert-warning text-xs"><i class="ph ph-hourglass"></i> This submission has not been screened yet. Screening also runs automatically again at bind.</div>`;
   } else if (status.state === "no_list") {
-    banner = `<div class="alert alert-danger text-xs"><i class="ph ph-warning-octagon"></i> <strong>These parties have NOT been screened.</strong> No sanctions watchlist is loaded in this system, so a "clear" result cannot be given. The quote cannot be issued or bound until a list is loaded and the case re-screened, or an approver records that the parties were screened elsewhere.</div>`;
+    banner = `<div class="alert alert-warning text-xs"><i class="ph ph-warning-octagon"></i> <strong>These parties have NOT been screened.</strong> No sanctions watchlist is loaded in this system, so a "clear" result cannot be given. The quote cannot be issued or bound until a list is loaded and the case re-screened, or an approver records that the parties were screened elsewhere.</div>`;
   } else if (status.state === "externally_screened") {
     banner = `<div class="alert alert-info text-xs"><i class="ph ph-clipboard-text"></i> Screened outside this system: ${sanctionsEsc(status.external.by)} on ${sanctionsEsc(status.external.at)}, reference ${sanctionsEsc(status.external.reference)}. If a party is added or changed, the record no longer covers it.</div>`;
   } else if (status.state === "review_required") {
@@ -355,7 +355,7 @@ function renderSanctionsCard(sub) {
   const partyRows = status.latest ? status.latest.parties.map(p => {
     const resultBadge = p.result === "clear"
       ? `<span class="badge badge-success text-xs">Clear</span>`
-      : (p.result === "not_screened" ? `<span class="badge badge-danger text-xs">Not screened</span>` : `<span class="badge badge-warning text-xs">Potential Match</span>`);
+      : (p.result === "not_screened" ? `<span class="badge badge-warning text-xs">Not screened</span>` : `<span class="badge badge-warning text-xs">Potential Match</span>`);
     return `<tr><td>${sanctionsEsc(p.name)}</td><td>${sanctionsEsc(p.role)}</td><td>${resultBadge}</td></tr>`;
   }).join("") : `<tr><td colspan="3" class="text-muted" style="text-align:center;">No screening has been run.</td></tr>`;
 
@@ -538,28 +538,10 @@ function sanctionsGuardBind(source, subId) {
   }
 
   // Bind gates: opening e-signature, and the Issue Quote action itself
-  const origOpenESig = window.openESignatureModal;
-  if (typeof origOpenESig === "function") {
-    window.openESignatureModal = function () {
-      if (!sanctionsGuardBind("e-signature")) return;
-      return origOpenESig.apply(this, arguments);
-    };
-  }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      if (!sanctionsGuardBind("issue quote")) return;
-      return origIssue.apply(this, arguments);
-    };
-  }
+  registerGuard("eSign", "sanctions screening", function () { return sanctionsGuardBind("e-signature"); });
+  registerGuard("issueQuote", "sanctions screening", function () { return sanctionsGuardBind("issue quote"); });
   // The actual bind is "Bind & Sync to PAS", a separate step after the customer approves the quote.
-  const origPasBind = window.simulatePASBindSync;
-  if (typeof origPasBind === "function") {
-    window.simulatePASBindSync = function (subId) {
-      if (!sanctionsGuardBind("PAS bind", subId)) return;
-      return origPasBind.apply(this, arguments);
-    };
-  }
+  registerGuard("bind", "sanctions screening", function (a) { return sanctionsGuardBind("PAS bind", a[0]); });
 })();
 
 window.sanctionsAttestExternal = sanctionsAttestExternal; window.sanctionsRunClicked = sanctionsRunClicked;

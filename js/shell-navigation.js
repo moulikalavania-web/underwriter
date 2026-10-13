@@ -1,17 +1,47 @@
 // 2. INITIALIZATION & SETUP
 // ============================================================================
 // ============================================================================
-// PERSISTENCE — persistAppState() still writes a snapshot to localStorage
-// after most actions (harmless), but it is never read back: the
-// DOMContentLoaded handler below wipes this key on every page load. A
-// refresh must always come back fully blank, never resurrect a previous
-// session's ingested data.
+// PERSISTENCE: the working state is saved to the browser after most actions and restored on the next load.
+//   - The saved state carries a VERSION. A save made by a different version of the app is ignored (and cleared),
+//     never loaded into code that would not understand it.
+//   - A storage-size GUARD keeps the save inside the browser's limit (about 5 million characters per site). When it is
+//     too large, the original attachment files (base64) go first, then the large derived text; the cases themselves are
+//     always kept. If it still does not fit, the previous save is left as it was and the user is told.
+//   - "Clear saved session" (header) still wipes it and reloads blank.
 // ============================================================================
 const FUT_STORAGE_KEY = "veridex_app_state_v1";
+const APP_STATE_VERSION = 2;
+const APP_STATE_MAX_CHARS = 4500000;
+// Restoring the saved session when the page loads is switched OFF for now: a refresh starts blank, as before. The save, the version key,
+// the size guard and restoreAppState() all stay in place; set this to true to bring the restore back.
+var APP_STATE_RESTORE_ON_LOAD = false;
+var APP_STATE_STATUS = { savedChars: 0, trimmed: [], lastError: null, warned: {} };
+
+function appStateWarn(key, msg) {
+  if (APP_STATE_STATUS.warned[key]) return;
+  APP_STATE_STATUS.warned[key] = true;
+  if (typeof showToast === "function") showToast(msg, "warning");
+}
+
+/** Serialises the state, dropping the heaviest parts in steps until it fits. Returns { json, trimmed[] } or null when nothing fits. */
+function appStateSerialize(state) {
+  const tiers = [
+    { name: null, drop: [] },
+    { name: "the original attachment files", drop: ["base64"] },
+    { name: "extracted document text and rating-request copies", drop: ["base64", "textExcerpt", "engineRequest"] }
+  ];
+  for (let i = 0; i < tiers.length; i++) {
+    const drop = tiers[i].drop;
+    const json = JSON.stringify(state, drop.length ? (k, v) => (drop.indexOf(k) > -1 ? undefined : v) : undefined);
+    if (json.length <= APP_STATE_MAX_CHARS) return { json: json, trimmed: tiers[i].name ? [tiers[i].name] : [] };
+  }
+  return null;
+}
 
 function persistAppState() {
   try {
     const state = {
+      version: APP_STATE_VERSION,
       SUBMISSIONS_DATASET: SUBMISSIONS_DATASET,
       QUOTE_VERSIONS_DATASET: QUOTE_VERSIONS_DATASET,
       DECLINE_LOG: DECLINE_LOG,
@@ -19,15 +49,73 @@ function persistAppState() {
       ALL_LOB_KEYS: ALL_LOB_KEYS,
       ACTIVE_INSURANCE_PRODUCT: window.ACTIVE_INSURANCE_PRODUCT || null,
       activeSubmissionId: activeSubmissionId,
+      currentLOBFilter: typeof currentLOBFilter !== "undefined" ? currentLOBFilter : null,
       DISCRETIONARY_MAX_CREDIT_PCT: DISCRETIONARY_MAX_CREDIT_PCT,
       DISCRETIONARY_MAX_DEBIT_PCT: DISCRETIONARY_MAX_DEBIT_PCT,
       savedAt: new Date().toISOString()
     };
-    localStorage.setItem(FUT_STORAGE_KEY, JSON.stringify(state));
+    const out = appStateSerialize(state);
+    if (!out) {
+      APP_STATE_STATUS.lastError = "too large";
+      appStateWarn("full", "⚠️ The saved session is too large for browser storage, so the latest changes are not being saved. Export what you need or clear the saved session.");
+      return false;
+    }
+    localStorage.setItem(FUT_STORAGE_KEY, out.json);
+    APP_STATE_STATUS.savedChars = out.json.length; APP_STATE_STATUS.trimmed = out.trimmed; APP_STATE_STATUS.lastError = null;
+    if (out.trimmed.length) appStateWarn("trim", "ℹ️ Storage is nearly full: " + out.trimmed.join(" and ") + " are kept for this session only and will not be there after a reload. The cases themselves are saved.");
+    return true;
   } catch (e) {
+    APP_STATE_STATUS.lastError = String(e && e.message || e);
+    appStateWarn("error", "⚠️ The session could not be saved to browser storage (" + APP_STATE_STATUS.lastError + ").");
     console.warn("Failed to persist app state to localStorage:", e);
+    return false;
   }
 }
+
+/** Replaces the contents of an array in place (the data is held in shared top-level arrays). */
+function appStateFill(target, source) {
+  target.length = 0;
+  (Array.isArray(source) ? source : []).forEach(x => target.push(x));
+}
+
+/**
+ * Loads the saved state if there is one made by this version of the app. Returns true when something was restored.
+ * It only fills an app that has nothing in use yet: once someone has signed in or a case exists, the live session wins
+ * (pass force = true to load over it).
+ */
+function restoreAppState(force) {
+  if (!force && (appInitialised || SUBMISSIONS_DATASET.length)) return false;
+  let raw = null;
+  try { raw = localStorage.getItem(FUT_STORAGE_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  let state = null;
+  try { state = JSON.parse(raw); } catch (e) { state = null; }
+  if (!state || state.version !== APP_STATE_VERSION) {
+    try { localStorage.removeItem(FUT_STORAGE_KEY); } catch (e) {}
+    return false;
+  }
+  appStateFill(SUBMISSIONS_DATASET, state.SUBMISSIONS_DATASET);
+  appStateFill(QUOTE_VERSIONS_DATASET, state.QUOTE_VERSIONS_DATASET);
+  appStateFill(DECLINE_LOG, state.DECLINE_LOG);
+  if (Array.isArray(state.LOB_CATALOG) && state.LOB_CATALOG.length) { appStateFill(LOB_CATALOG, state.LOB_CATALOG); appStateFill(ALL_LOB_KEYS, state.ALL_LOB_KEYS && state.ALL_LOB_KEYS.length ? state.ALL_LOB_KEYS : LOB_CATALOG.map(l => l.key)); }
+  // Attachment files dropped by the size guard are not there to read again.
+  SUBMISSIONS_DATASET.forEach(s => (s.rawAttachments || []).forEach(a => { if (!a.base64) { a.base64 = null; a.unavailable = true; } }));
+  if (typeof state.DISCRETIONARY_MAX_CREDIT_PCT === "number") { DISCRETIONARY_MAX_CREDIT_PCT = state.DISCRETIONARY_MAX_CREDIT_PCT; window.DISCRETIONARY_MAX_CREDIT_PCT = DISCRETIONARY_MAX_CREDIT_PCT; }
+  if (typeof state.DISCRETIONARY_MAX_DEBIT_PCT === "number") { DISCRETIONARY_MAX_DEBIT_PCT = state.DISCRETIONARY_MAX_DEBIT_PCT; window.DISCRETIONARY_MAX_DEBIT_PCT = DISCRETIONARY_MAX_DEBIT_PCT; }
+  if (state.ACTIVE_INSURANCE_PRODUCT) {
+    window.ACTIVE_INSURANCE_PRODUCT = state.ACTIVE_INSURANCE_PRODUCT;
+    ACTIVE_INSURANCE_PRODUCT = state.ACTIVE_INSURANCE_PRODUCT;
+    const info = state.ACTIVE_INSURANCE_PRODUCT.product || state.ACTIVE_INSURANCE_PRODUCT.identity || {};
+    const pId = state.ACTIVE_INSURANCE_PRODUCT.productId || info.id;
+    const lobSelect = document.getElementById("lobSelect");
+    if (lobSelect && pId) lobSelect.innerHTML = '<option value="' + pId + '" selected>🚛 ' + pId + ': ' + (info.name || "") + ' (' + (info.lineOfBusiness || info.segment || "") + ' v' + (state.ACTIVE_INSURANCE_PRODUCT.version || info.version || "") + ')</option>';
+    if (typeof renderActiveInsuranceProduct === "function") renderActiveInsuranceProduct();
+  }
+  if (state.currentLOBFilter && typeof currentLOBFilter !== "undefined") currentLOBFilter = state.currentLOBFilter;
+  activeSubmissionId = SUBMISSIONS_DATASET.some(s => s.id === state.activeSubmissionId) ? state.activeSubmissionId : (SUBMISSIONS_DATASET[0] ? SUBMISSIONS_DATASET[0].id : null);
+  return true;
+}
+window.restoreAppState = restoreAppState;
 
 function resetPrototypeData() {
   try { localStorage.removeItem(FUT_STORAGE_KEY); } catch (e) {}
@@ -37,10 +125,12 @@ function resetPrototypeData() {
 window.resetPrototypeData = resetPrototypeData;
 
 document.addEventListener("DOMContentLoaded", () => {
-  // A page refresh must start fully blank — saved state is never restored
-  // across a reload, it's wiped instead, so the app always comes back to
-  // "nothing ingested yet" rather than resurrecting the last session's data.
-  try { localStorage.removeItem(FUT_STORAGE_KEY); } catch (e) { /* localStorage unavailable — ignore */ }
+  // Restoring is off for now (APP_STATE_RESTORE_ON_LOAD): a refresh starts blank and the old save is cleared.
+  // When it is on, the app comes back to where the last session left off. "Clear saved session" in the header always starts blank.
+  try {
+    if (APP_STATE_RESTORE_ON_LOAD) restoreAppState();
+    else localStorage.removeItem(FUT_STORAGE_KEY);
+  } catch (e) { console.warn("Could not restore the saved session:", e); }
 
   populateLoginUserSelect();
   // The rest of the app (submissions table, intake page, etc.) is only
@@ -248,22 +338,13 @@ function escalateSubmissionPriority(pLevel) {
   if (!sub) return;
 
   sub.priority = pLevel;
-  if (pLevel === "P1") {
-    sub.priorityScore = 98;
-    sub.slaText = "4h Fast-Track SLA";
-    sub.slaCountdown = "3h 50m remaining";
-    sub.priorityReason = "Manual Underwriter Escalation (P1 Highest Priority SLA Activated)";
-  } else if (pLevel === "P2") {
-    sub.priorityScore = 85;
-    sub.slaText = "24h Standard SLA";
-    sub.slaCountdown = "18h 30m remaining";
-    sub.priorityReason = "Standard High Priority SLA";
-  } else {
-    sub.priorityScore = 70;
-    sub.slaText = "48h FIFO SLA";
-    sub.slaCountdown = "36h remaining";
-    sub.priorityReason = "Standard FIFO Queue Position";
-  }
+  // The score is not measured by anything here, so it is cleared; the SLA wording and countdown come from the target
+  // for the level and the case's own receipt time.
+  sub.priorityScore = null;
+  sub.slaHours = slaHoursFor(pLevel);
+  sub.slaText = slaTextFor(pLevel);
+  sub.slaCountdown = slaCountdownFor(sub);
+  sub.priorityReason = pLevel === "P1" ? "Manual Underwriter Escalation (P1 Highest Priority SLA Activated)" : (pLevel === "P2" ? "Standard High Priority SLA" : "Standard FIFO Queue Position");
 
   // Update Screen 4 Triage Card
   const bBadge = document.getElementById("triagePriorityBadge");
@@ -271,10 +352,10 @@ function escalateSubmissionPriority(pLevel) {
   const bCount = document.getElementById("triageSlaCountdown");
   if (bBadge) {
     bBadge.className = `badge ${pLevel === 'P1' ? 'badge-danger' : (pLevel === 'P2' ? 'badge-warning' : 'badge-info')}`;
-    bBadge.textContent = `Priority: ${pLevel} - ${pLevel === 'P1' ? 'Highest' : (pLevel === 'P2' ? 'High' : 'FIFO')} (Score: ${sub.priorityScore}/100)`;
+    bBadge.textContent = `Priority: ${pLevel} - ${pLevel === 'P1' ? 'Highest' : (pLevel === 'P2' ? 'High' : 'FIFO')} ${priorityScoreText(sub)}`;
   }
   if (bSla) bSla.textContent = sub.slaText;
-  if (bCount) bCount.textContent = sub.slaCountdown;
+  if (bCount) bCount.textContent = slaCountdownFor(sub);
 
   // Reflect the new priority everywhere else this submission is displayed:
   // workflow top header pill, all downstream screens/cards bound to this

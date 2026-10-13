@@ -462,13 +462,7 @@ function subjectivitiesGuardBind(source, subId) {
   }
   // Pre-bind subjectivities gate the real bind ("Bind & Sync to PAS"), not the issuing of the quote:
   // the quote has to go out with its conditions listed so they can be satisfied.
-  const origPasBind = window.simulatePASBindSync;
-  if (typeof origPasBind === "function") {
-    window.simulatePASBindSync = function (subId) {
-      if (!subjectivitiesGuardBind("PAS bind", subId)) return;
-      return origPasBind.apply(this, arguments);
-    };
-  }
+  registerGuard("bind", "subjectivities", function (a) { return subjectivitiesGuardBind("PAS bind", a[0]); });
   // The post-bind clock starts when the policy is actually bound (the bound quote version is recorded).
   const origRecord = window.recordQuoteVersion;
   if (typeof origRecord === "function") {

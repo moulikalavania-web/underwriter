@@ -653,20 +653,8 @@ function noticesGuardBind(source) {
       return r;
     };
   }
-  const origESig = window.openESignatureModal;
-  if (typeof origESig === "function") {
-    window.openESignatureModal = function () {
-      if (!noticesGuardBind("e-signature")) return;
-      return origESig.apply(this, arguments);
-    };
-  }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      if (!noticesGuardBind("issue quote")) return;
-      return origIssue.apply(this, arguments);
-    };
-  }
+  registerGuard("eSign", "adverse-action notices", function () { return noticesGuardBind("e-signature"); });
+  registerGuard("issueQuote", "adverse-action notices", function () { return noticesGuardBind("issue quote"); });
 })();
 
 window.noticeOpenStudio = noticeOpenStudio;

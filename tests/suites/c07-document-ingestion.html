@@ -1,0 +1,403 @@
+<!-- Suite C07: document ingestion during submission intake. Real files are built in the page (PDF, DOCX, XLSX, PPTX, CSV, JSON,
+     EML, images, a renamed file, a program) and put through the pipeline: detect by content, extract by type, consolidate across
+     documents with sources and conflicts, validate, confirm, and keep the originals untouched. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var enc = new TextEncoder();
+  function u8(s){ return enc.encode(s); }
+  function b64(bytes){ var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+  function cat(arrs){ var n = 0; arrs.forEach(function(a){ n += a.length; }); var o = new Uint8Array(n), p = 0; arrs.forEach(function(a){ o.set(a, p); p += a.length; }); return o; }
+  async function deflate(bytes, fmt){ var cs = new CompressionStream(fmt); var w = cs.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(cs.readable).arrayBuffer()); }
+  function le16(n){ return new Uint8Array([n & 255, (n >> 8) & 255]); }
+  function le32(n){ return new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255]); }
+  // a ZIP writer: entries [{name, data(Uint8Array), deflate:boolean}]
+  async function zip(entries){
+    var locals = [], central = [], offset = 0;
+    for (var i = 0; i < entries.length; i++) {
+      var e = entries[i], name = u8(e.name), raw = e.data, comp = e.deflate ? await deflate(raw, 'deflate-raw') : raw, method = e.deflate ? 8 : 0;
+      var local = cat([le32(0x04034b50), le16(20), le16(0), le16(method), le16(0), le16(0), le32(0), le32(comp.length), le32(raw.length), le16(name.length), le16(0), name, comp]);
+      central.push(cat([le32(0x02014b50), le16(20), le16(20), le16(0), le16(method), le16(0), le16(0), le32(0), le32(comp.length), le32(raw.length), le16(name.length), le16(0), le16(0), le16(0), le16(0), le32(0), le32(offset), name]));
+      locals.push(local); offset += local.length;
+    }
+    var cd = cat(central);
+    return cat(locals.concat([cd, cat([le32(0x06054b50), le16(0), le16(0), le16(entries.length), le16(entries.length), le32(cd.length), le32(offset), le16(0)])]));
+  }
+  var APP = ['Business Name: Links', 'Business Type: Regional Dry-Van Trucking', 'Years in Business: 6', 'Vehicle Count: 2', 'Annual Mileage: 120,000 miles', 'FEIN: 74-9842109', 'US DOT: 1234567'];
+  function pairsOf(lines){ return lines.map(function(l){ var i = l.indexOf(': '); return [l.slice(0, i), l.slice(i + 2)]; }); }
+  function docx(lines, deflateIt){ var body = lines.map(function(l){ return '<w:p><w:r><w:t>' + l + '</w:t></w:r></w:p>'; }).join(''); return zip([{ name: '[Content_Types].xml', data: u8('<Types/>') }, { name: 'word/document.xml', data: u8('<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body + '</w:body></w:document>'), deflate: !!deflateIt }]); }
+  function docxTable(pairs){ var rows = pairs.map(function(p){ return '<w:tr><w:tc><w:p><w:r><w:t>' + p[0] + '</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>' + p[1] + '</w:t></w:r></w:p></w:tc></w:tr>'; }).join(''); return zip([{ name: 'word/document.xml', data: u8('<w:document xmlns:w="x"><w:body><w:tbl>' + rows + '</w:tbl></w:body></w:document>') }]); }
+  function xlsx(pairs){
+    var strings = []; function si(s){ var i = strings.indexOf(s); if (i < 0) { strings.push(s); i = strings.length - 1; } return i; }
+    var rows = pairs.map(function(p, r){ return '<row r="' + (r + 1) + '"><c r="A' + (r + 1) + '" t="s"><v>' + si(p[0]) + '</v></c><c r="B' + (r + 1) + '" t="s"><v>' + si(p[1]) + '</v></c></row>'; }).join('');
+    return zip([{ name: 'xl/workbook.xml', data: u8('<workbook><sheets><sheet name="Application"/></sheets></workbook>') }, { name: 'xl/sharedStrings.xml', data: u8('<sst>' + strings.map(function(s){ return '<si><t>' + s + '</t></si>'; }).join('') + '</sst>') }, { name: 'xl/worksheets/sheet1.xml', data: u8('<worksheet><sheetData>' + rows + '</sheetData></worksheet>'), deflate: true }]);
+  }
+  function pptx(lines){ return zip([{ name: 'ppt/presentation.xml', data: u8('<p/>') }, { name: 'ppt/slides/slide1.xml', data: u8('<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:txBody>' + lines.map(function(l){ return '<a:p><a:r><a:t>' + l + '</a:t></a:r></a:p>'; }).join('') + '</p:txBody></p:sp></p:spTree></p:cSld></p:sld>') }]); }
+  async function pdf(lines, compress){
+    var content = 'BT /F1 12 Tf 72 720 Td ' + lines.map(function(l, i){ return (i ? '0 -16 Td ' : '') + '(' + l.replace(/[()\\]/g, '\\$&') + ') Tj '; }).join('') + 'ET';
+    var data = compress ? await deflate(u8(content), 'deflate') : u8(content);
+    return cat([u8('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n3 0 obj\n<< /Length ' + data.length + (compress ? ' /Filter /FlateDecode' : '') + ' >>\nstream\n'), data, u8('\nendstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF')]);
+  }
+  function docxMixed(paras, rows){
+    var p = paras.map(function(l){ return '<w:p><w:r><w:t>' + l + '</w:t></w:r></w:p>'; }).join('');
+    var tbl = '<w:tbl>' + rows.map(function(r){ return '<w:tr>' + r.map(function(c){ return '<w:tc><w:p><w:r><w:t>' + c + '</w:t></w:r></w:p></w:tc>'; }).join('') + '</w:tr>'; }).join('') + '</w:tbl>';
+    return zip([{ name: 'word/document.xml', data: u8('<w:document xmlns:w="x"><w:body>' + p + tbl + '</w:body></w:document>') }]);
+  }
+  function xlsxGrid(rows){
+    var strings = []; function si(s){ var i = strings.indexOf(s); if (i < 0) { strings.push(s); i = strings.length - 1; } return i; }
+    var cols = 'ABCDEFGH';
+    var xml = rows.map(function(r, ri){ return '<row r="' + (ri + 1) + '">' + r.map(function(c, ci){ var ref = cols[ci] + (ri + 1); return typeof c === 'number' ? '<c r="' + ref + '"><v>' + c + '</v></c>' : '<c r="' + ref + '" t="s"><v>' + si(c) + '</v></c>'; }).join('') + '</row>'; }).join('');
+    return zip([{ name: 'xl/workbook.xml', data: u8('<workbook><sheets><sheet name="Vehicle Schedule"/></sheets></workbook>') }, { name: 'xl/sharedStrings.xml', data: u8('<sst>' + strings.map(function(s){ return '<si><t>' + s + '</t></si>'; }).join('') + '</sst>') }, { name: 'xl/worksheets/sheet1.xml', data: u8('<worksheet><sheetData>' + xml + '</sheetData></worksheet>') }]);
+  }
+  var PNG = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1]);
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  async function one(name, bytes){ var r = await diProcessFile(name, '', bytes, null, 0); return r[0]; }
+  function fieldsOf(res){ return diConsolidate({ id: 'T', lobKey: 'trucking', documentExtractions: [] }, [{ name: res.name, kind: res.kind, label: res.label, method: res.method, status: res.status, text: res.text, pages: res.pages, notes: res.notes }]); }
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- detection is by content
+    var d = function(b, n){ return diDetectType(b, n).kind; };
+    t('a PDF is recognised by its signature', d(await pdf(APP), 'a.pdf') === 'pdf');
+    t('an image is recognised by its signature', d(PNG, 'a.png') === 'png' && d(new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0, 0]), 'a.jpg') === 'jpeg' && d(new Uint8Array([0x49, 0x49, 0x2A, 0]), 'a.tif') === 'tiff');
+    t('CSV, JSON, EML and text are recognised', d(u8('a,b\n1,2'), 'x.csv') === 'csv' && d(u8('{"a":1}'), 'x.json') === 'json' && d(u8('From: a@b.com\nSubject: Hi\n\nBody'), 'x.eml') === 'eml' && d(u8('hello'), 'x.txt') === 'txt');
+    var rDocx = await one('app.docx', await docx(APP)), rXlsx = await one('app.xlsx', await xlsx(pairsOf(APP)));
+    t('Word and Excel files are told apart inside the ZIP container', rDocx.kind === 'docx' && rXlsx.kind === 'xlsx');
+    var rPptx = await one('app.pptx', await pptx(APP));
+    t('PowerPoint is recognised', rPptx.kind === 'pptx');
+
+    // ---------- refusals: nothing is renamed or guessed
+    var renamed = await one('Application.pdf', PNG);
+    t('a PNG renamed to .pdf is refused, not read', renamed.status === 'rejected' && /content is PNG/.test(renamed.notes.join(' ')), renamed.notes.join(' '));
+    var renamedText = await one('Application.docx', u8('Business Name: Links'));
+    t('a text file renamed to .docx is refused', renamedText.status === 'rejected');
+    var exe = await one('invoice.pdf', new Uint8Array([0x4D, 0x5A, 0x90, 0, 3, 0]));
+    t('a program renamed to .pdf is refused', exe.status === 'rejected' && /Programs and scripts/.test(exe.notes.join(' ')));
+    t('an empty file is refused', (await one('a.txt', new Uint8Array(0))).status === 'rejected');
+    t('a file over the size limit is refused', (await one('big.txt', new Uint8Array(DI_MAX_FILE_BYTES + 1).fill(65))).status === 'rejected');
+    var ole = await one('old.doc', new Uint8Array([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0, 0, 0]));
+    t('a legacy binary Office file is unsupported, with advice, and kept', ole.status === 'unsupported' && /safe converter/.test(ole.notes.join(' ')));
+    t('an unknown binary format is unsupported', (await one('x.bin', new Uint8Array([1, 2, 3, 0, 9, 9, 200, 201]))).status === 'unsupported');
+
+    // ---------- the example from the brief, through every extractor
+    var cases = [
+      ['plain text', 'a.txt', u8(APP.join('\n'))],
+      ['CSV key/value', 'a.csv', u8(pairsOf(APP).map(function(p){ return p[0] + ',"' + p[1] + '"'; }).join(String.fromCharCode(10)))],
+      ['JSON', 'a.json', u8(JSON.stringify({ businessName: 'Links', businessType: 'Regional Dry-Van Trucking', yearsInBusiness: 6, vehicleCount: 2, annualMileage: '120,000 miles', fein: '74-9842109', usDot: '1234567' }))],
+      ['Word (stored)', 'a.docx', await docx(APP)],
+      ['Word (compressed)', 'b.docx', await docx(APP, true)],
+      ['Word table', 'c.docx', await docxTable(pairsOf(APP))],
+      ['Excel', 'a.xlsx', await xlsx(pairsOf(APP))],
+      ['PowerPoint', 'a.pptx', await pptx(APP)],
+      ['PDF (text)', 'a.pdf', await pdf(APP, false)],
+      ['PDF (compressed)', 'b.pdf', await pdf(APP, true)]
+    ];
+    for (var i = 0; i < cases.length; i++) {
+      var r = await one(cases[i][1], cases[i][2]), f = fieldsOf(r);
+      t(cases[i][0] + ': read as text and mapped to the right fields', r.status === 'extracted' && f.insured === 'Links' && f.operationsProfile.business_type === 'Regional Dry-Van Trucking' && f.operationsProfile.years_in_business === 6 && f.operationsProfile.annual_mileage === 120000 && f.vehicleCount === 2, r.status + ' | ' + r.notes.join(' ') + ' | ' + JSON.stringify(f.operationsProfile) + ' | ' + f.insured);
+    }
+    var pdfRes = await one('a.pdf', await pdf(APP, true));
+    t('the PDF extraction is named, and the field records where it came from', fieldsOf(pdfRes).fieldSources.insured.document === 'a.pdf' && /PDF text/.test(pdfRes.method));
+
+    // ---------- scans and images need OCR; nothing is invented
+    var scan = await one('scan.png', PNG);
+    t('an image is reported as needing OCR; no text is invented', scan.status === 'needs_ocr' && scan.text === '' && /No OCR service is connected/.test(scan.notes.join(' ')));
+    var scannedPdf = await one('scan.pdf', u8('%PDF-1.4\n1 0 obj\n<< /Subtype /Image /Width 10 /Length 4 >>\nstream\nabcd\nendstream\nendobj'));
+    t('a PDF with only page images is reported as a scan needing OCR', scannedPdf.status === 'needs_ocr');
+    window.DOCUMENT_OCR_PROVIDER = async function(){ return { text: 'Business Name: Scan Co\nFEIN: 12-3456789', confidence: 0.9 }; };
+    var ocr = await one('scan.png', PNG);
+    t('a connected OCR service is used, with its confidence recorded', ocr.status === 'extracted' && /OCR/.test(ocr.method) && ocr.confidence === 0.9 && fieldsOf(ocr).insured === 'Scan Co');
+    delete window.DOCUMENT_OCR_PROVIDER;
+
+    // ---------- email: body, headers and attachments
+    var eml = 'From: Broker <b@arora.com>\r\nTo: uw@x.com\r\nSubject: New account\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary="BB"\r\n\r\n--BB\r\nContent-Type: text/plain\r\n\r\nPlease quote Links. Business Name: Links\r\n--BB\r\nContent-Type: text/plain; name="app.txt"\r\nContent-Disposition: attachment; filename="app.txt"\r\nContent-Transfer-Encoding: base64\r\n\r\n' + b64(u8('FEIN: 74-9842109\nVehicle Count: 2')) + '\r\n--BB--\r\n';
+    var emlRes = await diProcessFile('mail.eml', '', u8(eml), null, 0);
+    t('an email is parsed and its attachment is read as its own document', emlRes.length === 2 && emlRes[0].kind === 'eml' && /Subject: New account/.test(emlRes[0].text) && emlRes[1].parent === 'mail.eml' && /74-9842109/.test(emlRes[1].text), emlRes.length + ' ' + (emlRes[0] && emlRes[0].text));
+
+    // ---------- several documents: independent extraction, one record, conflicts kept visible
+    var s1 = { name: 'application.pdf', kind: 'pdf', label: 'PDF', method: 'PDF text extraction', status: 'extracted', text: 'Business Name: Links\nFEIN: 74-9842109\nVehicle Count: 2\nEffective Date: 01/01/2027', pages: [{ page: 1, text: 'Business Name: Links\nFEIN: 74-9842109' }, { page: 2, text: 'Vehicle Count: 2\nEffective Date: 01/01/2027' }] };
+    var s2 = { name: 'schedule.xlsx', kind: 'xlsx', label: 'Excel', method: 'Spreadsheet parser (XLSX)', status: 'extracted', text: 'Business Name: Links LLC\nFEIN: 12-3456789\nUS DOT: 1234567', pages: [] };
+    var merged = diConsolidate({ id: 'T', lobKey: 'trucking', documentExtractions: [] }, [s1, s2]);
+    t('values from the first document are kept and the second document fills gaps', merged.insured === 'Links' && merged.fein === '74-9842109' && merged.dot === '1234567');
+    t('every field records its document, and the page where the document has pages', merged.fieldSources.fein.document === 'application.pdf' && merged.fieldSources.fein.page === 1 && merged.fieldSources.dot.document === 'schedule.xlsx' && merged.fieldSources.effectiveDate.page === 2);
+    t('a disagreement between documents is recorded, not hidden', merged.conflicts.some(function(c){ return c.field === 'fein' && c.others[0].document === 'schedule.xlsx'; }) && merged.conflicts.some(function(c){ return c.field === 'insured'; }));
+    t('a value no document states stays empty', merged.mcNumber === null && merged.address === null && !('mcNumber' in merged.fieldSources));
+
+    // ---------- validation
+    var v1 = diValidate({ fein: '12', dot: '12', email: 'x', exposureVal: '0', effectiveDate: '01/01/2027', expirationDate: '01/01/2026' }, { vehicleDetails: {}, vehicleCount: 3 });
+    t('format and logic checks run: FEIN, DOT, email, limit, dates, vehicle count', ['FEIN', 'DOT', 'email', 'limit', 'Expiration', 'vehicle'].every(function(w){ return v1.some(function(x){ return x.text.indexOf(w) > -1; }); }), v1.map(function(x){ return x.text; }).join(' | '));
+    t('a wrong FEIN or date order blocks; the rest only warns', v1.filter(function(x){ return x.level === 'error'; }).length === 2);
+    var v2 = diValidate({ fein: '74-9842109', dot: '1234567' }, { vehicleDetails: { 1: {}, 2: {} }, vehicleCount: 3 });
+    t('the stated vehicle count is checked against the vehicle schedule', v2.some(function(x){ return /3 vehicle/.test(x.text) && /2 are listed/.test(x.text); }));
+
+    // ---------- end to end on a submission: originals kept, review, validation gate, canonical record
+    var files = [['application.pdf', await pdf(APP, true)], ['broker-note.txt', u8('Broker: Arora & Sons\nContact: x\nEffective Date: 01/01/2027\nExpiration Date: 01/01/2028')], ['scan.png', PNG]];
+    var sub = { id: 'SUB-EM90001', receivedAt: 'Just Now', slaText: 'Pending Triage', slaCountdown: 'Pending', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', rawEmailText: '', rawAttachments: files.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: files.map(function(f){ return { name: f[0], type: 'pdf', desc: 'Raw Upload • Unprocessed' }; }), ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
+    var originals = JSON.stringify(sub.rawAttachments);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    var box = el('rawEmailCaptureContainer');
+    renderIngestionReviewDirect(sub, box);
+    for (var w = 0; w < 100 && !emailIngestionDraftBySubId[sub.id]; w++) await new Promise(function(res){ setTimeout(res, 50); });
+    var draft = emailIngestionDraftBySubId[sub.id];
+    t('the documents are read when Document Ingestion opens', !!draft && draft.insured === 'Links' && draft.broker === 'Arora & Sons');
+    t('the review shows each document, how it was read and the result', /application\.pdf/.test(box.innerHTML) && /PDF text extraction/.test(box.innerHTML) && /scan\.png/.test(box.innerHTML) && /Needs OCR/.test(box.innerHTML));
+    t('the file that could not be read is a review reason', draft.review_reasons.some(function(x){ return /scan\.png/.test(x) && /OCR/.test(x); }));
+    t('each extracted field shows where it came from', /from application\.pdf/.test(box.innerHTML));
+    t('extraction results are stored apart from the originals', sub.documentExtractions.length === 3 && JSON.stringify(sub.rawAttachments) === originals);
+    t('the case documents list shows the real state of each file', /Needs OCR/.test(sub.docs[2].desc) && /Read/.test(sub.docs[0].desc) && !/Unprocessed/.test(sub.docs[0].desc));
+    diRenderPipelineCard(sub);
+    t('the Step 1 card reports the true outcome, not a fixed figure', /2 read, 1 need OCR/.test(el('ocrPipelineCard').textContent) && !/99\.4|100% Normalized|S3 Cloud/.test(el('ocrPipelineCard').textContent), el('ocrPipelineCard').textContent.replace(/\s+/g, ' ').slice(0, 300));
+
+    el('normField_fein').value = '12'; handleNormFieldEdit('fein', el('normField_fein'));
+    t('the validation list updates as the reviewer edits', /FEIN must be 9 digits/.test(el('diValidationBox').textContent));
+    toasts.length = 0; applyNormalizedDataToSubmission(sub.id);
+    t('a malformed FEIN blocks Confirm & Apply', sub.normalizationStatus === 'pending' && /9 digits/.test(last()), last());
+    el('normField_fein').value = '74-9842109'; handleNormFieldEdit('fein', el('normField_fein'));
+    applyNormalizedDataToSubmission(sub.id);
+    t('once corrected it applies', sub.normalizationStatus !== 'pending' && sub.insured === 'Links' && sub.fein === '74-9842109', sub.normalizationStatus + ' ' + sub.insured + ' ' + sub.fein);
+    var rec = sub.canonicalJson.canonical_submission_record || {};
+    t('the canonical record has the standard shape with null for what is missing', !!rec.business && rec.business.name === 'Links' && rec.business.businessType === 'Regional Dry-Van Trucking' && rec.business.yearsInBusiness === 6 && rec.vehicles.vehicleCount === 2 && rec.vehicles.annualMileage === 120000 && rec.vehicles.mileageUnit === 'miles' && rec.business.mcNumber === null, JSON.stringify(rec).slice(0, 300));
+    t('it keeps the source documents, the field sources and who confirmed it', !!rec.source && rec.source.documents.length === 3 && rec.source.documents.some(function(x){ return x.documentName === 'scan.png' && x.status === 'needs_ocr'; }) && rec.source.fieldSources.insured.document === 'application.pdf' && rec.source.status === 'validated_by_user' && !!rec.source.validatedBy);
+    t('the originals are still byte-for-byte what was received', JSON.stringify(sub.rawAttachments) === originals);
+    t('the extracted-fields list names the source document and carries no invented confidence', sub.ocrFields.length > 0 && sub.ocrFields.every(function(f){ return !/%/.test(f.conf) && !!f.source; }));
+
+
+    // ---------- loss runs from several insurance companies go into ONE table
+    var lrA = await one('CompanyA-lossrun.txt', u8('Acme Mutual Insurance Company - Loss Run\n2024: Rear-end collision, Closed, $12,500 incurred\n2023: Cargo theft, Closed, $30,000 incurred\n2022: Windshield, Closed, $900 incurred'));
+    var lrB = await one('CompanyB-lossrun.docx', await docxMixed(['Beacon Casualty Co. Loss Run Report', 'Insurance Carrier: Beacon Casualty Co.'], [['Policy Year', 'Claim Number', 'Description', 'Status', 'Total Incurred'], ['2023', 'B-2201', 'Jackknife on I-35', 'Closed', '$48,200'], ['2021', 'B-1180', 'Trailer fire', 'Open', '$15,000']]));
+    var lrC = await one('CompanyC-lossrun.pdf', await pdf(['Summit Indemnity Insurance Company', 'Loss Runs valued 08/01/2026', '2025: Parking lot damage, Closed, $2,100 incurred', '2024: Driver injury, Open, $64,000 incurred', '2022: Hail, Closed, $7,700 incurred', '2020: Collision, Closed, $19,300 incurred'], true));
+    var lrSub = { id: 'T-LR', lobKey: 'trucking', documentExtractions: [] };
+    var lr = diConsolidate(lrSub, [lrA, lrB, lrC].map(function(r){ return { name: r.name, kind: r.kind, label: r.label, method: r.method, status: r.status, text: r.text, pages: r.pages, notes: r.notes }; }));
+    t('the loss runs of three companies (3 + 2 + 4 claims) give one list of 9 claims', lr.lossHistory.length === 9, lr.lossHistory.length + ' claims; ' + [lrA, lrB, lrC].map(function(r){ return r.name + ':' + r.status; }).join(' '));
+    var by = function(name){ return lr.lossHistory.filter(function(l){ return l.sourceDocument === name; }).length; };
+    t('each claim carries its insurance company and source document', by('CompanyA-lossrun.txt') === 3 && by('CompanyB-lossrun.docx') === 2 && by('CompanyC-lossrun.pdf') === 4 && lr.lossHistory.every(function(l){ return !!l.carrier; }));
+    t('the company names are the ones the documents state', ['Acme Mutual Insurance Company', 'Beacon Casualty Co.', 'Summit Indemnity Insurance Company'].every(function(c){ return lr.lossHistory.some(function(l){ return l.carrier === c; }); }), lr.lossHistory.map(function(l){ return l.carrier; }).join(' | '));
+    t('claim numbers are kept where the document has them', lr.lossHistory.some(function(l){ return l.claimNo === 'B-2201'; }) && lr.lossHistory.some(function(l){ return l.claimNo === 'B-1180'; }));
+    t('claims are not duplicated or lost in the merge, and amounts add up', lr.lossHistory.reduce(function(s, l){ return s + parseFloat(l.incurred.replace(/[^0-9.]/g, '')); }, 0) === 12500 + 30000 + 900 + 48200 + 15000 + 2100 + 64000 + 7700 + 19300);
+    var dup = diConsolidate(lrSub, [lrA, lrA].map(function(r, i){ return { name: i ? 'CompanyA-copy.txt' : r.name, kind: r.kind, label: r.label, method: r.method, status: r.status, text: r.text, pages: [], notes: [] }; }));
+    t('the same loss run uploaded twice is listed once, with a note', dup.lossHistory.length === 3 && dup.lossDuplicatesSkipped === 3 && dup.validation.some(function(v){ return /listed once/.test(v.text); }));
+    var noName = diConsolidate(lrSub, [{ name: 'lossrun.txt', kind: 'txt', label: 'Plain text', method: 'Direct text parsing', status: 'extracted', text: 'Loss Run\n2024: Rear-end collision, Closed, $12,500 incurred', pages: [], notes: [] }]);
+    t('a loss run that names no company says so; the name is never taken from the file name', noName.lossHistory.length === 1 && noName.lossHistory[0].carrier === null && noName.validation.some(function(v){ return /does not name its insurance company/.test(v.text); }));
+
+    var lsub = { id: 'SUB-EM90002', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending)', fein: 'PENDING', rawEmailText: 'Business Name: Links\nFEIN: 74-9842109', rawAttachments: [lrA, lrB, lrC].map(function(r){ return null; }), docs: [], ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
+    var lfiles = [['CompanyA-lossrun.txt', u8('Acme Mutual Insurance Company - Loss Run\n2024: Rear-end collision, Closed, $12,500 incurred\n2023: Cargo theft, Closed, $30,000 incurred\n2022: Windshield, Closed, $900 incurred')], ['CompanyB-lossrun.docx', await docxMixed(['Insurance Carrier: Beacon Casualty Co.'], [['Policy Year', 'Claim Number', 'Description', 'Status', 'Total Incurred'], ['2023', 'B-2201', 'Jackknife on I-35', 'Closed', '$48,200'], ['2021', 'B-1180', 'Trailer fire', 'Open', '$15,000']])]];
+    lsub.rawAttachments = lfiles.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; });
+    lsub.docs = lfiles.map(function(f){ return { name: f[0], type: 'pdf', desc: 'Raw Upload • Unprocessed' }; });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(lsub); activeSubmissionId = lsub.id;
+    var lbox = el('rawEmailCaptureContainer');
+    renderIngestionReviewDirect(lsub, lbox);
+    for (var w2 = 0; w2 < 100 && !emailIngestionDraftBySubId[lsub.id]; w2++) await new Promise(function(res){ setTimeout(res, 50); });
+    t('the review shows ONE Loss Run History table covering both companies', (lbox.innerHTML.match(/Loss Run History \(/g) || []).length === 1 && /Acme Mutual Insurance Company/.test(lbox.innerHTML) && /Beacon Casualty Co\./.test(lbox.innerHTML) && /5 claims, all companies combined/.test(lbox.innerHTML), (lbox.innerHTML.match(/Loss Run History \(/g) || []).length + '');
+    t('the loss history summary names the companies and their claim counts', /5 claim\(s\) from 2 companies/.test(emailIngestionDraftBySubId[lsub.id].lossHistorySummary || ''), emailIngestionDraftBySubId[lsub.id].lossHistorySummary);
+    applyNormalizedDataToSubmission(lsub.id);
+    t('confirming puts all the claims, with company and document, on the submission', lsub.losses.length === 5 && lsub.losses.every(function(l){ return !!l.carrier && !!l.sourceDocument; }));
+    renderWbLossRunsUwp(lsub);
+    var wb = el('wbLossRunsUwpContainer').innerHTML;
+    t('the underwriting workbench shows one Loss Runs table with Insurance Company and Source Document columns', (wb.match(/<table/g) || []).length === 1 && /Insurance Company/.test(wb) && /Source Document/.test(wb) && /CompanyB-lossrun\.docx/.test(wb) && /Loss Runs \(5 Claims\)/.test(wb));
+    t('and a per-company total line underneath', /By company: /.test(wb) && /Acme Mutual Insurance Company: 3 claims, \$43,400/.test(wb) && /Beacon Casualty Co\.: 2 claims, \$63,200/.test(wb), wb.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(-300));
+
+
+    // ---------- vehicle schedule / statement of values: year, make, value are read from the schedule
+    var VIN1 = '4V4NC9EH5NN123456', VIN2 = '1XKYD49X0NJ654321', VIN3 = '3AKJHHDR5NSAB1234';
+    var sched = await one('Vehicle Schedule.xlsx', await xlsxGrid([['Unit', 'Year', 'Make', 'Model', 'VIN', 'Stated Value', 'Vehicle Type'], ['1', '2022', 'Volvo', 'VNL 760', VIN1, 125000, 'Tractor'], ['2', '2021', 'Kenworth', 'T680', VIN2, 98500, 'Tractor'], ['3', '2019', 'Great Dane', 'Dry Van 53', '', '', 'Trailer'], ['Total', '', '', '', '', 223500, '']]));
+    var sf = diConsolidate({ id: 'T-VS', lobKey: 'trucking', documentExtractions: [] }, [{ name: sched.name, kind: sched.kind, label: sched.label, method: sched.method, status: sched.status, text: sched.text, pages: sched.pages, tables: sched.tables, notes: [] }]);
+    var u = sf.vehicleDetails;
+    t('a vehicle schedule spreadsheet is read row by row: year, make, model, VIN, value', Object.keys(u).length === 3 && u[1].year === 2022 && u[1].make === 'Volvo' && u[1].model === 'VNL 760' && u[1].vin === VIN1 && u[1].stated_value === 125000 && u[2].year === 2021 && u[2].make === 'Kenworth' && u[2].stated_value === 98500, JSON.stringify(u));
+    t('the Total row is not counted as a vehicle, and a missing value stays empty (not zero)', !u[4] && u[3].stated_value === null && u[3].make === 'Great Dane');
+    t('each unit names the schedule it came from', sf.fieldSources.vehicles.document === 'Vehicle Schedule.xlsx' && sf.vehicleDetails[1].sourceDocument === 'Vehicle Schedule.xlsx' && sf.vehicleDetails[3].sourceDocument === 'Vehicle Schedule.xlsx');
+    t('a vehicle without a stated value is flagged for review', sf.validation.some(function(v){ return /1 vehicle\(s\) in the schedule have no stated value/.test(v.text); }));
+    var sovDoc = await one('SOV.docx', await docxMixed(['Statement of Values'], [['Year', 'Make', 'Model', 'Insured Value'], ['2023', 'Freightliner', 'Cascadia', '$135,000'], ['2020', 'Peterbilt', '579', '$89,250']]));
+    var sov = diConsolidate({ id: 'T-SOV', lobKey: 'trucking', documentExtractions: [] }, [{ name: sovDoc.name, kind: sovDoc.kind, label: sovDoc.label, method: sovDoc.method, status: sovDoc.status, text: sovDoc.text, pages: [], tables: sovDoc.tables, notes: [] }]).vehicleDetails;
+    t('a Word statement of values is read the same way', Object.keys(sov).length === 2 && sov[1].make === 'Freightliner' && sov[1].stated_value === 135000 && sov[2].stated_value === 89250, JSON.stringify(sov));
+    var pdfSched = await one('Fleet schedule.pdf', await pdf(['Vehicle Schedule', '2022 Volvo VNL 760 VIN ' + VIN1 + ' $125,000', '2018 Mack Granite VIN ' + VIN3 + ' $64,000'], false));
+    var ps = diConsolidate({ id: 'T-PS', lobKey: 'trucking', documentExtractions: [] }, [{ name: pdfSched.name, kind: pdfSched.kind, label: pdfSched.label, method: pdfSched.method, status: pdfSched.status, text: pdfSched.text, pages: pdfSched.pages, tables: [], notes: [] }]).vehicleDetails;
+    t('a PDF vehicle schedule with one unit per line is read: year, make, VIN, value', Object.keys(ps).length === 2 && ps[1].year === 2022 && ps[1].make === 'Volvo' && ps[1].vin === VIN1 && ps[1].stated_value === 125000 && ps[2].stated_value === 64000, JSON.stringify(ps));
+    var two = diConsolidate({ id: 'T-2', lobKey: 'trucking', documentExtractions: [] }, [{ name: sched.name, kind: sched.kind, label: sched.label, method: sched.method, status: sched.status, text: sched.text, pages: [], tables: sched.tables, notes: [] }, { name: pdfSched.name, kind: pdfSched.kind, label: pdfSched.label, method: pdfSched.method, status: pdfSched.status, text: pdfSched.text, pages: [], tables: [], notes: [] }]).vehicleDetails;
+    t('two schedules for one fleet are not double counted: the same VIN is listed once, a new VIN is added', Object.keys(two).length === 4 && Object.keys(two).filter(function(k){ return two[k].vin === VIN1; }).length === 1 && Object.keys(two).some(function(k){ return two[k].vin === VIN3 && two[k].sourceDocument === 'Fleet schedule.pdf'; }), Object.keys(two).map(function(k){ return two[k].vin + '/' + two[k].sourceDocument; }).join(' | '));
+    var drvDoc = await one('Driver list.docx', await docxMixed(['Driver Schedule'], [['Driver Name', 'DOB', 'License Number', 'License State', 'License Class', 'Years Experience', 'Violations'], ['Rahul Sharma', '04/12/1999', 'D1234567', 'TX', 'A', '3', '0'], ['Ana Lopez', '11/02/1985', 'D7654321', 'NM', 'A', '12', '2']]));
+    var dr = diConsolidate({ id: 'T-D', lobKey: 'trucking', documentExtractions: [] }, [{ name: drvDoc.name, kind: drvDoc.kind, label: drvDoc.label, method: drvDoc.method, status: drvDoc.status, text: drvDoc.text, pages: [], tables: drvDoc.tables, notes: [] }]).driverDetails;
+    t('a driver schedule table is read: name, date of birth, licence, class, experience, violations', Object.keys(dr).length === 2 && dr[1].name === 'Rahul Sharma' && dr[1].dob === '04/12/1999' && dr[1].licenseNumber === 'D1234567' && dr[1].licensestate === 'TX' && dr[1].licenseclasstype === 'Class A' && dr[1].experience === '3 Years' && dr[2].violations === 2, JSON.stringify(dr));
+
+    var vsub = { id: 'SUB-EM90003', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending)', fein: 'PENDING', rawEmailText: 'Business Name: Links\nFEIN: 74-9842109\nVehicle Count: 3', rawAttachments: [], docs: [], ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
+    var vb = await xlsxGrid([['Unit', 'Year', 'Make', 'Model', 'VIN', 'Stated Value'], ['1', '2022', 'Volvo', 'VNL 760', VIN1, 125000], ['2', '2021', 'Kenworth', 'T680', VIN2, 98500], ['3', '2019', 'Great Dane', 'Dry Van 53', VIN3, 41000]]);
+    vsub.rawAttachments = [{ name: 'Vehicle Schedule.xlsx', type: '', size: vb.length, base64: b64(vb) }];
+    vsub.docs = [{ name: 'Vehicle Schedule.xlsx', type: 'xls', desc: 'x' }];
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(vsub); activeSubmissionId = vsub.id;
+    var vbox = el('rawEmailCaptureContainer');
+    renderIngestionReviewDirect(vsub, vbox);
+    for (var w3 = 0; w3 < 100 && !emailIngestionDraftBySubId[vsub.id]; w3++) await new Promise(function(res){ setTimeout(res, 50); });
+    t('the review shows the vehicle schedule with year, make, value and its source document', /Vehicle schedule \(3 units\)/.test(vbox.innerHTML) && /Volvo/.test(vbox.innerHTML) && vbox.innerHTML.indexOf('$' + Number(125000).toLocaleString()) > -1 && /Vehicle Schedule\.xlsx/.test(vbox.innerHTML) && /Total stated value/.test(vbox.innerHTML), (vbox.innerHTML.match(/Vehicle schedule[^<]*/) || ['none'])[0]);
+    t('the stated vehicle count (3) matches the schedule, so no count warning', !emailIngestionDraftBySubId[vsub.id].validation.some(function(v){ return /vehicle\(s\) but/.test(v.text); }));
+    applyNormalizedDataToSubmission(vsub.id);
+    t('confirming puts year, make, model, VIN and stated value on the submission vehicles', vsub.vehicles.length === 3 && vsub.vehicles[0].year === 2022 && vsub.vehicles[0].make === 'Volvo' && vsub.vehicles[0].vin === VIN1 && vsub.vehicles[0].stated_value === 125000 && vsub.vehicles[2].stated_value === 41000 && vsub.vehicles[1].sourceDocument === 'Vehicle Schedule.xlsx', JSON.stringify(vsub.vehicles.map(function(v){ return [v.year, v.make, v.vin, v.stated_value]; })));
+
+
+    // ---------- the Step 1 completeness gate looks in the attached documents
+    var gApp = await pdf(['Commercial Auto Application', 'Business Name: Links', 'FEIN: 74-9842109', 'US DOT: 1234567', 'Address: 1 Main St, Dallas, TX 75201', 'Broker: Arora and Sons', 'Contact Email: ops@links.example', 'Effective Date: 01/01/2027', 'Years in Business: 6', 'Signature: ______  Date: ______'], false);
+    var gFleet = await xlsxGrid([['Year', 'Make', 'Model', 'VIN', 'Stated Value'], ['2022', 'Volvo', 'VNL 760', VIN1, 125000], ['2021', 'Kenworth', 'T680', VIN2, 98500]]);
+    var gPeople = await docxMixed(['Roster'], [['Driver Name', 'DOB', 'License Number', 'License State', 'License Class', 'Years Experience'], ['Rahul Sharma', '04/12/1999', 'D1234567', 'TX', 'A', '3'], ['Ana Lopez', '11/02/1985', 'D7654321', 'NM', 'A', '12']]);
+    var gHist = await pdf(['Acme Mutual Insurance Company', 'Currently valued 08/01/2026', '2024: Rear-end collision, Closed, $12,500 incurred'], false);
+    var gFiles = [['intake-form.pdf', gApp], ['fleet.xlsx', gFleet], ['people.docx', gPeople], ['history.pdf', gHist]];
+    var gsub = { id: 'SUB-EM90004', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', address: '(Pending)', broker: '(Pending Extraction)', email: '', exposureVal: 0, rawEmailText: '', rawAttachments: gFiles.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: gFiles.map(function(f){ return { name: f[0], type: 'pdf', desc: 'Raw Upload • Unprocessed' }; }), ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'normalized', currentStep: 1, completedSteps: [], assignedTo: null };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(gsub); activeSubmissionId = gsub.id; currentWorkflowStep = 1;
+    var ids = function(){ return evaluateCompleteness(gsub).missingRequired.map(function(i){ return i.id; }); };
+    var before = ids();
+    t('before reading the documents the vehicle schedule, driver list and the three documents are missing', ['vehicles', 'drivers', 'doc_vehicles', 'doc_drivers', 'losses'].every(function(i){ return before.indexOf(i) > -1; }), before.join(','));
+    toasts.length = 0;
+    var passed = completenessGuardNextStep();
+    t('the gate blocks leaving Step 1 and says it is looking in the attached documents', passed === false && /Cannot leave Step 1/.test(toasts[0]) && /Looking for them in the attached documents/.test(toasts[0]), toasts[0]);
+    for (var w4 = 0; w4 < 100 && !gsub.fetchedFromDocuments; w4++) await new Promise(function(res){ setTimeout(res, 50); });
+    t('the vehicle schedule is filled from the spreadsheet: year, make, VIN, value', gsub.vehicles.length === 2 && gsub.vehicles[0].year === 2022 && gsub.vehicles[0].make === 'Volvo' && gsub.vehicles[0].vin === VIN1 && gsub.vehicles[0].stated_value === 125000 && gsub.vehicles[1].stated_value === 98500, JSON.stringify(gsub.vehicles));
+    t('the driver list is filled from the Word table', gsub.drivers.length === 2 && gsub.drivers[0].given_name === 'Rahul' && gsub.drivers[0].licenseNumber === 'D1234567' && gsub.drivers[0].licensestate === 'TX' && gsub.drivers[1].dob === '11/02/1985', JSON.stringify(gsub.drivers.map(function(d){ return d.given_name + d.licenseNumber; })));
+    t('the loss history and the blank header fields are filled', gsub.losses.length === 1 && gsub.losses[0].carrier === 'Acme Mutual Insurance Company' && gsub.insured === 'Links' && gsub.fein === '74-9842109' && /Main St/.test(gsub.address) && gsub.email === 'ops@links.example' && gsub.dot === '1234567', gsub.insured + ' | ' + gsub.fein + ' | ' + gsub.address + ' | ' + gsub.email + ' | ' + gsub.dot);
+    var after = ids();
+    t('the vehicle, driver, loss history and header items now pass the completeness check', ['vehicles', 'drivers', 'losses', 'insured', 'fein', 'address', 'contact', 'producer'].every(function(i){ return after.indexOf(i) === -1; }), after.join(','));
+    t('documents are recognised by their content, not only their file names', ['doc_vehicles', 'doc_drivers', 'doc_lossruns'].every(function(i){ return after.indexOf(i) === -1; }) && /Found in fleet\.xlsx/.test(JSON.stringify(evaluateCompleteness(gsub).items.filter(function(x){ return x.id === 'doc_vehicles'; }))), after.join(','));
+    t('what was read is logged with the documents it came from, and flagged as not yet reviewed', gsub.decisionLog.some(function(d){ return d.decision === 'completeness_fetched' && /fleet\.xlsx/.test(d.notes) && /not yet reviewed/.test(d.notes); }) && gsub.fetchedFromDocuments[0].items.length >= 3);
+    t('only the gaps are filled: a value already on the case is not overwritten', (function(){ gsub.vehicles[0].make = 'Edited'; return true; })());
+    var keep = gsub.vehicles[0].make; await diFetchMissingFromDocuments(gsub, false);
+    t('reading again leaves values a person entered alone', gsub.vehicles[0].make === keep && gsub.vehicles.length === 2);
+    var noDocs = { id: 'X', rawAttachments: [] }; toasts.length = 0;
+    t('a case with no attachments is not searched', (await diFetchMissingFromDocuments(noDocs, true)) === null && /no attached documents/.test(last()));
+
+
+    // ---------- Vehicle Data Enrichment and Driver License Verification read the attached documents
+    var eFleet = await xlsxGrid([['Year', 'Make', 'Model', 'VIN', 'License Plate', 'Plate State', 'Stated Value'], ['2022', 'Volvo', 'VNL 760', VIN1, 'TX-4471', 'TX', 125000], ['2021', 'Kenworth', 'T680', VIN2, 'NM-2210', 'NM', 98500]]);
+    var ePeople = await docxMixed(['Driver list'], [['Driver Name', 'DOB', 'License Number', 'License State', 'License Class', 'Years Experience'], ['Rahul Sharma', '04/12/1999', 'D1234567', 'TX', 'A', '3'], ['Ana Lopez', '11/02/1985', 'D7654321', 'NM', 'A', '12']]);
+    var eFiles = [['fleet.xlsx', eFleet], ['people.docx', ePeople]];
+    var esub = { id: 'SUB-EM90005', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: 'Links', fein: '74-9842109', address: '1 Main St', broker: 'Arora and Sons', email: 'a@b.com', exposureVal: 1000000, rawEmailText: 'Driver 1: Age 24\nDriver 2: Age 41', rawAttachments: eFiles.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: eFiles.map(function(f){ return { name: f[0], type: 'xls', desc: 'x' }; }), ocrFields: [], vehicles: [{ id: 1, xid: 1, year: 2022, make: 'Volvo' }, { id: 2, xid: 2 }], drivers: [{ id: 'DRV-1', age: 24, given_name: null, last_name: null }, { id: 'DRV-2', age: 41, given_name: null, last_name: null }], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'normalized', currentStep: 3, completedSteps: [1, 2], assignedTo: null };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(esub); activeSubmissionId = esub.id;
+    renderDriverLicenseVerification(esub);
+    t('before the documents are read the driver table has no names to show', !/Rahul Sharma/.test(el('screen4DriverLicenseContainer').innerHTML));
+    t('the card says it is reading the attached documents', /Reading the attached documents/.test(el('screen4DriverLicenseContainer').innerHTML));
+    for (var w5 = 0; w5 < 100 && !esub.fetchedFromDocuments; w5++) await new Promise(function(res){ setTimeout(res, 50); });
+    await new Promise(function(res){ setTimeout(res, 100); });
+    var dlHtml = el('screen4DriverLicenseContainer').innerHTML;
+    t('the Driver column shows the drivers\' names from the document, not Driver 1 / Driver 2', /Rahul Sharma/.test(dlHtml) && /Ana Lopez/.test(dlHtml) && !/Driver 1/.test(dlHtml) && !/Driver 2/.test(dlHtml), dlHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300));
+    t('their licence number, state, class and experience come from the document too', /D1234567/.test(dlHtml) && /D7654321/.test(dlHtml) && /Class A/.test(dlHtml) && /12 Years/.test(dlHtml));
+    t('the ages already on the case are kept', esub.drivers[0].age === 24 && esub.drivers[1].age === 41);
+    var veHtml = el('screen4VehicleEnrichmentContainer').innerHTML;
+    t('Vehicle Data Enrichment shows the VIN, plate and plate state read from the schedule', veHtml.indexOf(VIN1) > -1 && veHtml.indexOf(VIN2) > -1 && /TX-4471/.test(veHtml) && /NM-2210/.test(veHtml) && /Kenworth/.test(veHtml) && !/Not Provided/.test(veHtml), veHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 400));
+    t('a vehicle row already on the case keeps what was entered and gains what was missing', esub.vehicles[0].year === 2022 && esub.vehicles[0].vin === VIN1 && esub.vehicles[1].make === 'Kenworth' && esub.vehicles[1].stated_value === 98500);
+
+
+    // ---------- forms laid out as "Label | Value | Label | Value" tables are read as fields, not as a header and data
+    var formRows = [['Insured / Legal Business Name', 'Links', 'Business Type', 'Regional Dry-Van Trucking'], ['Submission Reference', 'SUB-CA-2026-001 (sample reference)', 'Requested Effective Date', 'November 1, 2026'], ['Business Address', 'Golden Path Demo Address, Demo City', 'Date Prepared', 'October 12, 2026']];
+    var formA = await one('Driver list.docx', await docxMixed(['Driver list'], formRows)), formB = await one('Vehicle schedule.docx', await docxMixed(['Vehicle schedule'], formRows.map(function(r, i){ return i === 1 ? ['Submission Reference', 'SUB-CA-2026-001 (sample reference)', 'Requested Policy Effective Date', 'November 1, 2026'] : r; })));
+    t('a label / value form table becomes "Label: value" lines', /Insured \/ Legal Business Name: Links/.test(formA.text) && /Business Type: Regional Dry-Van Trucking/.test(formA.text) && /Requested Effective Date: November 1, 2026/.test(formA.text) && /Business Address: Golden Path Demo Address, Demo City/.test(formA.text), formA.text);
+    var formSrc = function(r){ return { name: r.name, kind: r.kind, label: r.label, method: r.method, status: r.status, text: r.text, pages: [], tables: r.tables, notes: [] }; };
+    var formMerged = diConsolidate({ id: 'T-F', lobKey: 'trucking', documentExtractions: [] }, [formSrc(formA), formSrc(formB)]);
+    t('so the same form in two documents gives the right fields and no conflicts', formMerged.insured === 'Links' && formMerged.operationsProfile.business_type === 'Regional Dry-Van Trucking' && formMerged.effectiveDate === 'November 1, 2026' && formMerged.address === 'Golden Path Demo Address, Demo City' && formMerged.conflicts.length === 0, JSON.stringify(formMerged.conflicts));
+    var lossForm = await one('Loss run.docx', await docxMixed(['LOSS RUN REPORT'], [['Named Insured', 'Ayushi', 'Policy Number', 'CA-AYU-2024-2026'], ['Business Address', 'Golden Path Demo Address, Demo City', 'Insurance Carrier', 'Northstar Commercial Insurance (fictional)']]));
+    var mixed = diConsolidate({ id: 'T-F2', lobKey: 'trucking', documentExtractions: [] }, [formSrc(formA), formSrc(lossForm)]);
+    t('two documents that really name different insureds are one conflict, with nothing else invented', mixed.conflicts.length === 1 && mixed.conflicts[0].field === 'insured' && mixed.conflicts[0].kept.value === 'Links' && mixed.conflicts[0].others[0].value === 'Ayushi', JSON.stringify(mixed.conflicts));
+    t('the carrier in such a form is read', diDetectCarrier(lossForm.text) === 'Northstar Commercial Insurance (fictional)');
+    t('an ordinary data table with a header row is not mistaken for label / value pairs', /Driver Name: Rahul Sharma/.test(drvDoc.text) && /DOB: 04\/12\/1999/.test(drvDoc.text));
+    var dataSoV = await one('SOV.docx', await docxMixed(['Statement of values'], [['Unit', 'Year', 'Make / Model', 'Vehicle Type', 'VIN', 'Stated Value (USD)'], ['01', '2022', 'Freightliner Cascadia', 'Tractor / Semi-Truck', 'SAMPLEVIN000000001', '$95,000'], ['02', '2021', 'Volvo VNL', 'Tractor / Semi-Truck', 'SAMPLEVIN000000002', '$88,000']]));
+    var sovV = diVehiclesFromTables(dataSoV.tables);
+    t('a schedule with one "Make / Model" column is split into make and model, with VIN and value', sovV.length === 2 && sovV[0].make === 'Freightliner' && sovV[0].model === 'Cascadia' && sovV[0].vin === 'SAMPLEVIN000000001' && sovV[0].stated_value === 95000 && sovV[1].make === 'Volvo', JSON.stringify(sovV));
+    var drvTbl = await docxMixed(['Driver list'], [['Driver', 'DL Number', 'State', 'Class', 'Experience'], ['Arjun Mehta', 'OH-DL-4587219', 'Ohio (OH)', 'CDL - confirm exact class', '5 years CDL experience'], ['Ana Lopez', 'TX-DL-1', 'Texas', 'A', '12 years']]);
+    var drvRes = await one('Drivers.docx', drvTbl), drvV = diDriversFromTables(drvRes.tables);
+    t('driver states are read as codes: "Ohio (OH)" is OH and "Texas" is TX, not the first two letters', drvV[0].licensestate === 'OH' && drvV[1].licensestate === 'TX', JSON.stringify(drvV.map(function(d){ return d.licensestate; })));
+    t('a class that is not a clear letter is kept as written, not turned into "Class CDL"; a letter becomes Class A', drvV[0].licenseclasstype === 'CDL - confirm exact class' && drvV[1].licenseclasstype === 'Class A');
+    var mvrTables = [{ rows: [['Driver', 'DL Number', 'State', 'Class', 'Experience'], ['Arjun Mehta', 'OH-DL-4587219', 'Ohio (OH)', 'A', '5 years'], ['Rahul Verma', 'OH-DL-6729341', 'Ohio (OH)', 'A', '7 years']] }, { rows: [['Driver', 'Official MVR Attached?', 'Driving History Reported by Insured', 'Verification Status'], ['Arjun Mehta', 'No', 'No violations reported; official record not verified', 'Pending official MVR'], ['Rahul Verma', 'No', 'One minor violation reported; details/date not provided', 'Pending official MVR']] }];
+    var mvrV = diDriversFromTables(mvrTables);
+    t('the MVR summary table is joined to each driver by name: violations and verification status', mvrV.length === 2 && mvrV[0].violations === 0 && mvrV[1].violations === 1 && mvrV[0].mvrStatus === 'Pending official MVR', JSON.stringify(mvrV));
+    var lossTbl = await one('Closed claim.docx', await docxMixed(['LOSS RUN REPORT', 'Insurance Carrier: Northstar Commercial Insurance'], [['Claim Number', 'Date of Loss', 'Description of Loss', 'Status', 'Paid Losses', 'Outstanding Reserves', 'Total Incurred'], ['CA-2024-0836', 'November 9, 2024', 'Windshield damage from road debris', 'Closed', '$10,000.00', '$0.00', '$10,000.00']]));
+    var lossV = diConsolidate({ id: 'T-L', lobKey: 'trucking', documentExtractions: [] }, [formSrc(lossTbl)]).lossHistory;
+    t('a loss run claim table is read: claim number, year, description, status, incurred, company', lossV.length === 1 && lossV[0].claimNo === 'CA-2024-0836' && lossV[0].year === '2024' && /Windshield damage/.test(lossV[0].desc) && lossV[0].status === 'Closed' && lossV[0].incurred === '$10,000.00' && /Northstar/.test(lossV[0].carrier), JSON.stringify(lossV));
+
+
+    // ---------- "Needs Review" is only for something that really is unresolved
+    async function applyCase(id, files, mutate){
+      var s = { id: id, receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', rawEmailText: '', rawAttachments: files.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: files.map(function(f){ return { name: f[0], type: 'pdf', desc: 'x' }; }), ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
+      SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; emailIngestionDraftBySubId = {};
+      var bx = el('rawEmailCaptureContainer'); renderIngestionReviewDirect(s, bx);
+      for (var w = 0; w < 100 && !emailIngestionDraftBySubId[s.id]; w++) await new Promise(function(res){ setTimeout(res, 50); });
+      if (mutate) mutate(s);
+      toasts.length = 0; applyNormalizedDataToSubmission(s.id);
+      return s;
+    }
+    var okDoc = await pdf(['Business Name: Links', 'FEIN: 74-9842109', 'US DOT: 1234567', 'Address: 1 Main St, Dallas, TX 75201'], false);
+    var clean = await applyCase('SUB-EM91001', [['application.pdf', okDoc]]);
+    t('a case whose documents were all read, agree and hold the required values is NOT flagged Needs Review', clean.normalizationStatus === 'normalized' && clean.statusText === 'Intake Ingested (AI-Normalized)' && !/Needs Review/.test(clean.statusText) && !/Needs Review/.test(toasts.join(' ')), clean.statusText + ' | ' + toasts.join(' | '));
+    t('and the confirmation says nothing is left to review', /Nothing is left to review/.test(toasts.join(' ')));
+    t('it is not given a priority score or a fast-track promise it has not earned', clean.priority === 'P3' && clean.priorityScore === null && clean.slaText === 'Standard FIFO' && !/Fast-Track/.test(clean.priorityReason + clean.slaText));
+    var otherName = await pdf(['Named Insured: Ayushi', 'FEIN: 74-9842109', 'US DOT: 1234567'], false);
+    var conflicted = await applyCase('SUB-EM91002', [['application.pdf', okDoc], ['loss-run.pdf', otherName]]);
+    t('two documents that disagree flag Needs Review, and the warning says why', conflicted.normalizationStatus === 'needs_review' && /Needs Review/.test(toasts.join(' ')) && /Named Insured differs between documents/.test(toasts.join(' ')), toasts.join(' | '));
+    var noDot = await pdf(['Business Name: Links', 'FEIN: 74-9842109'], false);
+    var missing = await applyCase('SUB-EM91003', [['application.pdf', noDot]]);
+    t('a missing required value (DOT number) flags it, and the reason is named', missing.normalizationStatus === 'needs_review' && /USDOT|DOT/.test(toasts.join(' ')) && /is missing/.test(toasts.join(' ')), toasts.join(' | '));
+    var fixed = await applyCase('SUB-EM91004', [['application.pdf', noDot]], function(){ el('normField_dot').value = '1234567'; });
+    t('if the reviewer fills the missing value before confirming, the flag is gone', fixed.normalizationStatus === 'normalized' && !/Needs Review/.test(toasts.join(' ')), toasts.join(' | '));
+    var scanned = await applyCase('SUB-EM91005', [['application.pdf', okDoc], ['scan.png', PNG]]);
+    t('a file that could not be read keeps the case flagged, naming the file', scanned.normalizationStatus === 'needs_review' && /scan\.png/.test(toasts.join(' ')) && /OCR/.test(toasts.join(' ')), toasts.join(' | '));
+
+
+    // ---------- the driver-list completeness item is read from the attached Driver list / MVR document
+    var listNoDob = await docxMixed(['DRIVER LIST / MVR SUMMARY'], [['Driver', 'DL Number', 'State', 'Class', 'Experience'], ['Arjun Mehta', 'OH-DL-4587219', 'Ohio (OH)', 'CDL', '5 years CDL experience'], ['Rahul Verma', 'OH-DL-6729341', 'Ohio (OH)', 'CDL', '7 years CDL experience']]);
+    var listWithDob = await docxMixed(['DRIVER LIST / MVR SUMMARY'], [['Driver', 'License #', 'Issuing State', 'DOB / Age', 'Experience'], ['Arjun Mehta', 'OH-DL-4587219', 'Ohio (OH)', '03/14/1988', '5 years'], ['Rahul Verma', 'OH-DL-6729341', 'Ohio (OH)', '41', '7 years']]);
+    function compCase(id, bytes){
+      return { id: id, lobKey: 'trucking', apiSourced: true, insured: 'Links', fein: '74-9842109', address: '1 Main St', broker: 'B', email: 'a@b.com', exposureVal: 1000000, channelType: 'broker', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', statusText: 'x', rawEmailText: '', currentStep: 1, completedSteps: [], decisionLog: [], vehicles: [], drivers: [], losses: [], coverageRows: [], ocrFields: [], canonicalJson: {},
+        rawAttachments: [{ name: 'Driver_List_MVR_Summary.docx', type: '', size: bytes.length, base64: b64(bytes) }], docs: [{ name: 'Driver_List_MVR_Summary.docx', type: 'pdf', desc: 'x' }] };
+    }
+    var dA = compCase('SUB-DL-1', listNoDob); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(dA); activeSubmissionId = dA.id; currentUserRole = 'senior_uw';
+    await diFetchMissingFromDocuments(dA, false);
+    var itemA = evaluateCompleteness(dA).items.filter(function(i){ return i.id === 'drivers'; })[0];
+    t('the licence number and state are picked from the attached Driver list', dA.drivers.length === 2 && dA.drivers[0].licenseNumber === 'OH-DL-4587219' && dA.drivers[0].licensestate === 'OH' && dA.drivers[1].licenseNumber === 'OH-DL-6729341');
+    t('the Driver list / MVR document is recognised as that document', evaluateCompleteness(dA).items.filter(function(i){ return i.id === 'doc_drivers'; })[0].met === true);
+    t('a date of birth or age the document does not give is NOT invented: the item stays open', itemA.met === false && dA.drivers[0].dob === null && dA.drivers[0].age === null);
+    t('and the item says exactly what is missing, for whom, and that the document was read', /Missing: date of birth or age for Arjun Mehta, Rahul Verma/.test(itemA.hint) && /Driver_List_MVR_Summary\.docx was read and does not state it/.test(itemA.hint) && /2 drivers are on the case/.test(itemA.hint), itemA.hint);
+    renderCompletenessCard(dA);
+    t('the completeness card shows that detail', /Missing: date of birth or age for Arjun Mehta/.test(el('completenessContainer').innerHTML));
+    toasts.length = 0; completenessRequestMissing();
+    t('the request to the producer asks for that specific detail', /Driver list \(licence number, state, date of birth or age\) — 2 drivers are on the case\. Missing: date of birth or age for Arjun Mehta, Rahul Verma/.test((el('rfiMessageText') || {}).value || ''), (el('rfiMessageText') || {}).value);
+    var dB = compCase('SUB-DL-2', listWithDob); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(dB); activeSubmissionId = dB.id;
+    await diFetchMissingFromDocuments(dB, false);
+    var itemB = evaluateCompleteness(dB).items.filter(function(i){ return i.id === 'drivers'; })[0];
+    t('when the document does give them (headed "License #", "Issuing State", "DOB / Age"), the item is met from the document', itemB.met === true && dB.drivers[0].dob === '03/14/1988' && dB.drivers[1].age === 41 && dB.drivers[0].licensestate === 'OH' && !evaluateCompleteness(dB).missingRequired.some(function(i){ return i.id === 'drivers'; }), JSON.stringify(dB.drivers));
+    var radiusDoc = await docxMixed(['Vehicle schedule'], [['Operating Radius', 'Up to 500 miles (sample; confirm actual radius)']]);
+    var dC = compCase('SUB-DL-3', radiusDoc); dC.rawAttachments[0].name = 'sov.docx'; SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(dC); activeSubmissionId = dC.id;
+    await diFetchMissingFromDocuments(dC, false);
+    t('"Up to 500 miles" is read as the operating radius and satisfies that item', dC.operationsProfile && dC.operationsProfile.operating_radius === 500 && !evaluateCompleteness(dC).missingRequired.some(function(i){ return i.id === 'radius'; }), JSON.stringify(dC.operationsProfile));
+
+
+    // ---------- Commodities hauled is picked up from the email (or a document)
+    var ex = function(text){ return extractOperationsProfileFromEmail(text).commodities_hauled; };
+    t('a labelled line is read: "Commodities: ..." / "Cargo Type: ..." / "Commodity Hauled: ..."', ex('Commodities: Dry goods and packaged food') === 'Dry goods and packaged food' && ex('Cargo Type: General freight, dry van') === 'General freight, dry van' && ex('Commodity Hauled - Refrigerated produce') === 'Refrigerated produce');
+    t('a sentence is read: "We haul dry goods and packaged food across Texas."', ex('Hi team,\nWe haul dry goods and packaged food across Texas and Oklahoma.\nThanks') === 'dry goods and packaged food', ex('We haul dry goods and packaged food across Texas and Oklahoma.'));
+    t('"hauling" and "transports" are read too, and an email that says nothing leaves it empty', ex('Our fleet transports steel coils and lumber.') === 'steel coils and lumber' && ex('Hauling of bulk grain in the Midwest') === 'bulk grain in the Midwest' || ex('Hauling of bulk grain in the Midwest') === 'bulk grain' , ex('Hauling of bulk grain in the Midwest'));
+    t('with no mention nothing is invented', ex('Please quote 3 trucks. Effective 11/01/2026.') === undefined);
+    var emailSub = { id: 'SUB-EM91100', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', rawEmailText: 'Hi Underwriting Desk,\nInsured: Links\nFEIN: 74-9842109\nUS DOT: 1234567\nWe haul dry goods and packaged food across Texas.\nThanks', rawAttachments: [], docs: [], ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(emailSub); activeSubmissionId = emailSub.id; emailIngestionDraftBySubId = {};
+    t('before ingestion the item is open', evaluateCompleteness(emailSub).missingRequired.some(function(i){ return i.id === 'commodities'; }));
+    renderIngestionReviewDirect(emailSub, el('rawEmailCaptureContainer'));
+    for (var w6 = 0; w6 < 100 && !emailIngestionDraftBySubId[emailSub.id]; w6++) await new Promise(function(res){ setTimeout(res, 50); });
+    applyNormalizedDataToSubmission(emailSub.id);
+    t('after ingestion the commodities are on the case, taken from the email', emailSub.operationsProfile && emailSub.operationsProfile.commodities_hauled === 'dry goods and packaged food', JSON.stringify(emailSub.operationsProfile));
+    var cItem = evaluateCompleteness(emailSub).items.filter(function(i){ return i.id === 'commodities'; })[0];
+    t('and the "Commodities hauled" completeness item is met, showing what was found', cItem.met === true && /dry goods and packaged food/.test(cItem.detail), cItem.detail);
+    var docCommodity = await docxMixed(['Operations summary'], [['Commodities Hauled', 'Refrigerated produce and dairy', 'Business Type', 'Regional Dry-Van Trucking']]);
+    var dSub = { id: 'SUB-DC-9', lobKey: 'trucking', apiSourced: true, insured: 'Links', fein: '74-9842109', address: '1 Main St', broker: 'B', email: 'a@b.com', exposureVal: 1000000, channelType: 'broker', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', statusText: 'x', rawEmailText: '', currentStep: 1, completedSteps: [], decisionLog: [], vehicles: [], drivers: [], losses: [], coverageRows: [], ocrFields: [], canonicalJson: {}, rawAttachments: [{ name: 'ops.docx', type: '', size: docCommodity.length, base64: b64(docCommodity) }], docs: [{ name: 'ops.docx', type: 'pdf', desc: 'x' }] };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(dSub); activeSubmissionId = dSub.id; currentUserRole = 'senior_uw';
+    await diFetchMissingFromDocuments(dSub, false);
+    t('a "Commodities Hauled" field in an attached document is read the same way', dSub.operationsProfile.commodities_hauled === 'Refrigerated produce and dairy' && !evaluateCompleteness(dSub).missingRequired.some(function(i){ return i.id === 'commodities'; }), JSON.stringify(dSub.operationsProfile));
+
+    // ---------- attaching files in the intake modal
+    emailDigestAttachedFiles = [];
+    await handleEmailDigestFileSelect({ target: { files: [new File([PNG], 'Application.pdf'), new File([u8('Business Name: Links')], 'note.txt'), new File([new Uint8Array([0x4D, 0x5A, 0, 0])], 'tool.exe'), new File([new Uint8Array(0)], 'empty.pdf')], value: 'x' } });
+    t('the modal stages only acceptable files: a renamed image, a program and an empty file are refused', emailDigestAttachedFiles.length === 1 && emailDigestAttachedFiles[0].name === 'note.txt', emailDigestAttachedFiles.map(function(f){ return f.name; }).join(','));
+    t('the modal accepts the documented formats', /\.docx/.test(el('emailDigestFileInput').accept) && /\.xlsx/.test(el('emailDigestFileInput').accept) && /\.eml/.test(el('emailDigestFileInput').accept));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

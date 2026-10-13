@@ -1,0 +1,101 @@
+<!-- Suite C11: the working state is saved and restored. A version key rejects a save from another version; a storage-size guard keeps the save
+     inside the browser's limit (attachment files go first, then large derived text; the cases are always kept); a failed save never breaks the app. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function clearApp(){ SUBMISSIONS_DATASET.length = 0; QUOTE_VERSIONS_DATASET.length = 0; DECLINE_LOG.length = 0; activeSubmissionId = null; }
+  function mkSub(id, extra){
+    var s = { id: id, lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: 'Links Freight LLC', fein: '74-9842109', channelType: 'broker', broker: 'Arora & Sons', currentStep: 3, completedSteps: [1, 2], decisionLog: [{ step: 1, decision: 'x', by: 'y', at: 'z', notes: 'n' }], vehicles: [{ id: 1, year: 2022, make: 'Volvo', dashcam: true }], drivers: [], losses: [], coverageRows: [], statusText: 'Clearance Check', priority: 'P3', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x',
+      quoteConditions: [{ id: 'QC-1', status: 'issued', coverage: { line: 'Own Damage' }, condition: 'Install a dashcam', premium: 4800, deadline: '2026-12-01', versions: [{ version: 1 }], messages: [], signature: null, outcome: null }],
+      ratingSnapshots: [{ version: 1, hash: 'h', content: { premium: { finalPremium: 1 }, engineRequest: { big: 'request' } }, changes: [] }], documentExtractions: [{ name: 'a.txt', status: 'extracted', textExcerpt: 'text' }] };
+    for (var k in (extra || {})) s[k] = extra[k];
+    return s;
+  }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    localStorage.removeItem(FUT_STORAGE_KEY);
+
+    t('restoring on page load is switched off for now (a refresh starts blank)', APP_STATE_RESTORE_ON_LOAD === false);
+    // ---------- save, then restore into an empty app
+    var a = mkSub('SUB-ST-1'), b2 = mkSub('SUB-ST-2');
+    clearApp(); SUBMISSIONS_DATASET.push(a, b2); activeSubmissionId = 'SUB-ST-2';
+    QUOTE_VERSIONS_DATASET.push({ versionId: 'QV-1', subId: 'SUB-ST-1' }); DECLINE_LOG.push({ id: 'D-1', reason: 'x' });
+    var snapshot = JSON.stringify(SUBMISSIONS_DATASET);
+    t('a save is written', persistAppState() === true && !!localStorage.getItem(FUT_STORAGE_KEY));
+    var saved = JSON.parse(localStorage.getItem(FUT_STORAGE_KEY));
+    t('it carries a version key and the time it was saved', saved.version === APP_STATE_VERSION && !!saved.savedAt && saved.SUBMISSIONS_DATASET.length === 2);
+    clearApp();
+    t('after a reload the app is empty until the save is restored', SUBMISSIONS_DATASET.length === 0);
+    t('restoring brings back every case, with its nested data, exactly', restoreAppState(true) === true && JSON.stringify(SUBMISSIONS_DATASET) === snapshot);
+    t('quote conditions, rating snapshots and extraction results come back with the case', SUBMISSIONS_DATASET[0].quoteConditions[0].id === 'QC-1' && SUBMISSIONS_DATASET[0].ratingSnapshots[0].version === 1 && SUBMISSIONS_DATASET[0].documentExtractions[0].name === 'a.txt');
+    t('the quote versions and the decline log come back', QUOTE_VERSIONS_DATASET.length === 1 && QUOTE_VERSIONS_DATASET[0].versionId === 'QV-1' && DECLINE_LOG.length === 1);
+    t('the case that was open is the one that opens', activeSubmissionId === 'SUB-ST-2');
+    t('the shared arrays are refilled in place, so everything that holds them still sees the data', (function(){ var ref = SUBMISSIONS_DATASET; clearApp(); restoreAppState(true); return ref === SUBMISSIONS_DATASET && ref.length === 2; })());
+
+    // ---------- the ingested product comes back too
+    loadSamplePrd021();
+    persistAppState();
+    var optionBefore = el('lobSelect').innerHTML;
+    window.ACTIVE_INSURANCE_PRODUCT = null; el('lobSelect').innerHTML = '<option value="all">x</option>'; var lobCountBefore = LOB_CATALOG.length;
+    restoreAppState(true);
+    t('the ingested product is restored with its rules', !!window.ACTIVE_INSURANCE_PRODUCT && window.ACTIVE_INSURANCE_PRODUCT.productId === 'PRD-021' && window.ACTIVE_INSURANCE_PRODUCT.studios.eligibility.some(function(r){ return r.name === 'Dashcam Required'; }));
+    t('and the product selector shows it', /PRD-021/.test(el('lobSelect').innerHTML) && LOB_CATALOG.length === lobCountBefore);
+
+    // ---------- the live session is not overwritten
+    var live = mkSub('SUB-LIVE'); clearApp(); SUBMISSIONS_DATASET.push(live);
+    t('with a case already open, a normal restore leaves it alone', restoreAppState() === false && SUBMISSIONS_DATASET.length === 1 && SUBMISSIONS_DATASET[0].id === 'SUB-LIVE');
+
+    // ---------- the version key
+    clearApp();
+    var good = JSON.parse(localStorage.getItem(FUT_STORAGE_KEY)); good.version = APP_STATE_VERSION + 1; localStorage.setItem(FUT_STORAGE_KEY, JSON.stringify(good));
+    t('a save made by another version of the app is not loaded', restoreAppState(true) === false && SUBMISSIONS_DATASET.length === 0);
+    t('and it is cleared, so it cannot come back', localStorage.getItem(FUT_STORAGE_KEY) === null);
+    var old = JSON.parse(JSON.stringify(good)); delete old.version; localStorage.setItem(FUT_STORAGE_KEY, JSON.stringify(old));
+    t('a save with no version (an older app) is not loaded either', restoreAppState(true) === false && localStorage.getItem(FUT_STORAGE_KEY) === null);
+    localStorage.setItem(FUT_STORAGE_KEY, '{not json');
+    t('damaged saved data does not break start-up', restoreAppState(true) === false && SUBMISSIONS_DATASET.length === 0);
+
+    // ---------- the storage-size guard
+    clearApp(); localStorage.removeItem(FUT_STORAGE_KEY); APP_STATE_STATUS.warned = {};
+    var big = 'A'.repeat(2400000);   // two attachments of this size do not fit together
+    var withFiles = mkSub('SUB-BIG', { rawAttachments: [{ name: 'a.pdf', type: 'application/pdf', size: 1800000, base64: big }, { name: 'b.pdf', type: 'application/pdf', size: 1800000, base64: big }] });
+    SUBMISSIONS_DATASET.push(withFiles, mkSub('SUB-SMALL')); activeSubmissionId = 'SUB-BIG'; toasts.length = 0;
+    t('when the save is too large the attachment files are left out and the save still succeeds', persistAppState() === true && APP_STATE_STATUS.trimmed.length === 1 && /attachment files/.test(APP_STATE_STATUS.trimmed[0]) && APP_STATE_STATUS.savedChars <= APP_STATE_MAX_CHARS, JSON.stringify(APP_STATE_STATUS.trimmed) + ' ' + APP_STATE_STATUS.savedChars);
+    t('the user is told, once', toasts.filter(function(m){ return /kept for this session only/.test(m); }).length === 1 && (persistAppState(), toasts.filter(function(m){ return /kept for this session only/.test(m); }).length === 1));
+    var keepSnap = JSON.stringify(SUBMISSIONS_DATASET[1]);
+    clearApp(); restoreAppState(true);
+    t('the cases are all there after a reload', SUBMISSIONS_DATASET.length === 2 && JSON.stringify(SUBMISSIONS_DATASET[1]) === keepSnap && SUBMISSIONS_DATASET[0].insured === 'Links Freight LLC');
+    t('an attachment whose file was left out is marked as no longer held', SUBMISSIONS_DATASET[0].rawAttachments[0].unavailable === true && SUBMISSIONS_DATASET[0].rawAttachments[0].base64 === null && SUBMISSIONS_DATASET[0].rawAttachments[0].name === 'a.pdf');
+    var draft = null; diRunForSubmission(SUBMISSIONS_DATASET[0]).then(function(d){ draft = d; });
+    // ---------- when even that does not fit
+    var huge = mkSub('SUB-HUGE', { notes: 'B'.repeat(APP_STATE_MAX_CHARS + 10) });
+    var before = localStorage.getItem(FUT_STORAGE_KEY); toasts.length = 0; APP_STATE_STATUS.warned = {};
+    SUBMISSIONS_DATASET.push(huge);
+    t('a state that cannot fit at all is not saved, the earlier save is left as it was, and the user is told', persistAppState() === false && localStorage.getItem(FUT_STORAGE_KEY) === before && toasts.some(function(m){ return /too large/.test(m); }));
+    SUBMISSIONS_DATASET.pop();
+
+    // ---------- a failed write never breaks the app
+    var realSet = Storage.prototype.setItem; toasts.length = 0; APP_STATE_STATUS.warned = {};
+    Storage.prototype.setItem = function(){ throw new DOMException('quota', 'QuotaExceededError'); };
+    var threw = false, result; try { result = persistAppState(); } catch (e) { threw = true; }
+    Storage.prototype.setItem = realSet;
+    t('if the browser refuses the write, nothing throws and the user is told', !threw && result === false && toasts.some(function(m){ return /could not be saved/.test(m); }));
+    t('after the browser accepts writes again, saving works', persistAppState() === true);
+
+    // ---------- clearing
+    t('the header has "Clear saved session"', !!document.querySelector('[aria-label="Clear saved session"]') && typeof resetPrototypeData === 'function');
+
+    setTimeout(function(){
+      t('a file that was left out is reported as unavailable when the documents are read again, not as an error', !!draft && (draft.sourceDocuments || []).some(function(d){ return d.name === 'a.pdf' && d.status === 'failed' && /no longer held/.test((d.notes || []).join(' ')); }), JSON.stringify(draft && draft.sourceDocuments));
+      t('no page errors', errs.length === 0, errs.join(' | '));
+      localStorage.removeItem(FUT_STORAGE_KEY);
+      var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+    }, 300);
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p); }
+})();
+</script>

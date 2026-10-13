@@ -1,0 +1,85 @@
+<!-- Suite C14: the document viewer shows the file that was attached. The earlier previews drew a made-up ACORD form, loss run, statement of values or
+     handwritten note from the case's fields; none of that exists any more. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var enc = new TextEncoder(); function u8(s){ return enc.encode(s); }
+  function b64(bytes){ var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+  function cat(arrs){ var n = 0; arrs.forEach(function(a){ n += a.length; }); var o = new Uint8Array(n), p = 0; arrs.forEach(function(a){ o.set(a, p); p += a.length; }); return o; }
+  function le16(n){ return new Uint8Array([n & 255, (n >> 8) & 255]); }
+  function le32(n){ return new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255]); }
+  function zip(entries){
+    var locals = [], central = [], offset = 0;
+    entries.forEach(function(e){ var name = u8(e.name), raw = e.data;
+      var local = cat([le32(0x04034b50), le16(20), le16(0), le16(0), le16(0), le16(0), le32(0), le32(raw.length), le32(raw.length), le16(name.length), le16(0), name, raw]);
+      central.push(cat([le32(0x02014b50), le16(20), le16(20), le16(0), le16(0), le16(0), le16(0), le32(0), le32(raw.length), le32(raw.length), le16(name.length), le16(0), le16(0), le16(0), le16(0), le32(0), le32(offset), name]));
+      locals.push(local); offset += local.length; });
+    var cd = cat(central); return cat(locals.concat([cd, cat([le32(0x06054b50), le16(0), le16(0), le16(entries.length), le16(entries.length), le32(cd.length), le32(offset), le16(0)])]));
+  }
+  function docx(rows){ var tbl = '<w:tbl>' + rows.map(function(r){ return '<w:tr>' + r.map(function(c){ return '<w:tc><w:p><w:r><w:t>' + c + '</w:t></w:r></w:p></w:tc>'; }).join('') + '</w:tr>'; }).join('') + '</w:tbl>'; return zip([{ name: 'word/document.xml', data: u8('<w:document xmlns:w="x"><w:body><w:p><w:r><w:t>DRIVER LIST</w:t></w:r></w:p>' + tbl + '</w:body></w:document>') }]); }
+  var PDF = u8('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF');
+  var PNG = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1]);
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    var files = [['broker note.txt', u8('Hi team, please quote Links. We haul dry goods.')], ['application.pdf', PDF], ['photo.png', PNG], ['drivers.docx', await docx([['Driver', 'DL Number'], ['Arjun Mehta', 'OH-DL-4587219']])], ['units.csv', u8('Unit,Year\n1,2022')], ['tool.exe', new Uint8Array([0x4D, 0x5A, 0, 0])]];
+    var sub = { id: 'SUB-DV-1', insured: 'Links Freight LLC', broker: 'Arora & Sons', email: 'a@b.com', fein: '74-9842109', address: '1 Main St', channelName: 'Email', lobName: 'Commercial Auto', receivedAt: 'Just Now', statusText: 'x', priority: 'P3', channelType: 'broker', currentStep: 1, authorityLimit: 2000000, exposure: '$1', exposureVal: 1, vehicles: [], drivers: [], losses: [], decisionLog: [], canonicalJson: {}, ocrFields: [],
+      rawAttachments: files.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }).concat([{ name: 'gone.pdf', type: 'application/pdf', size: 99, base64: null, unavailable: true }]),
+      docs: files.map(function(f){ return { name: f[0], type: /pdf/.test(f[0]) ? 'pdf' : 'xls', desc: 'Raw Upload' }; }).concat([{ name: 'gone.pdf', type: 'pdf', desc: 'Raw Upload' }, { name: 'no-file.pdf', type: 'pdf', desc: 'Entry only' }]),
+      documentExtractions: [{ name: 'broker note.txt', label: 'Plain text', status: 'extracted' }] };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
+    var box = document.createElement('div'); document.body.appendChild(box);
+    function show(name){ var d = sub.docs.filter(function(x){ return x.name === name; })[0]; dvRenderInto(box, sub, d); }
+
+    show('broker note.txt'); t('while a file opens the viewer says so', /Opening broker note\.txt/.test(box.innerHTML)); await wait(100);
+    t('a text file is shown as its text', /We haul dry goods/.test(box.innerHTML) && /<pre/.test(box.innerHTML));
+    show('application.pdf'); await wait(100);
+    t('a PDF is shown as the file itself', /<iframe/.test(box.innerHTML) && /blob:/.test(box.innerHTML) && /application\.pdf/.test(box.innerHTML));
+    show('photo.png'); await wait(100);
+    t('an image is shown as the image', /<img/.test(box.innerHTML) && /blob:/.test(box.innerHTML));
+    show('drivers.docx'); await wait(200);
+    t('a Word file is shown as its text and tables, and says that is what it is', /DRIVER LIST/.test(box.innerHTML) && /<table/.test(box.innerHTML) && /OH-DL-4587219/.test(box.innerHTML) && /not its page layout/.test(box.innerHTML), box.innerHTML.slice(0, 200));
+    show('units.csv'); await wait(200);
+    t('a CSV is shown as a table', /<table/.test(box.innerHTML) && /2022/.test(box.innerHTML));
+    show('tool.exe'); await wait(100);
+    t('a program is never shown', /not shown/.test(box.innerHTML));
+    show('gone.pdf'); await wait(100);
+    t('a file the saved session could not keep is reported as such, with nothing drawn in its place', /no longer held in the browser/.test(box.innerHTML) && !/<iframe/.test(box.innerHTML));
+    show('no-file.pdf'); await wait(100);
+    t('an entry with no file says there is nothing to show', /No file is stored with this entry/.test(box.innerHTML));
+    show('broker note.txt'); show('photo.png');
+    await wait(150);
+    t('choosing another document cancels the earlier one (no late overwrite)', /<img/.test(box.innerHTML) && !/We haul dry goods/.test(box.innerHTML));
+
+    // ---------- the screens that use it
+    openDocsManagerModal(sub.id, 0); await wait(150);
+    t('the case documents hub shows the real file, with its real status and no invented one', /We haul dry goods/.test(el('hubDocViewerContainer').innerHTML) && /Plain text • Read/.test(el('hubActiveDocMeta').textContent) && !/100% Normal/.test(el('hubActiveDocMeta').textContent));
+    switchHubDoc(1); await wait(150);
+    t('switching document in the hub switches the file', /<iframe/.test(el('hubDocViewerContainer').innerHTML) && /application\.pdf/.test(el('hubActiveDocTitle').textContent));
+    previewDocModal(0, sub.id); await wait(150);
+    t('the preview window shows the real file too, and does not claim it is "OCR-Ready"', /We haul dry goods/.test(el('docModalBody').innerHTML) && !/OCR-Ready/.test(el('docModalMeta').textContent));
+
+    // ---------- download
+    toasts.length = 0; currentHubSubId = sub.id; currentHubDocIdx = 0; var clicks = 0, realClick = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function(){ clicks++; };
+    downloadCurrentPreviewDoc();
+    t('Download really downloads the file', clicks === 1 && /Downloaded "broker note\.txt"/.test(toasts.join(' ')));
+    currentHubDocIdx = 6; toasts.length = 0; clicks = 0; downloadCurrentPreviewDoc();
+    t('a file that is not held is refused honestly, not announced as downloading', clicks === 0 && /not held in the browser/.test(toasts.join(' ')));
+    HTMLAnchorElement.prototype.click = realClick;
+
+    // ---------- the made-up previews are gone
+    var all = document.querySelector('.app-layout').innerHTML + String(renderHubDocumentPreview) + String(previewDocModal);
+    t('nothing of the old made-up previews is left', !/HANDWRITTEN BROKER COVER NOTE|Certified Carrier Loss Audit|18\.4% \(Highly Favorable\)|CLM-2026-|OFFICIAL CARRIER SIGNED LOSS RUN|Valuation as of 2026-08-01|Carrier Signed Official/.test(all));
+    t('the demo-case module is gone', typeof GOLDEN_PATH_MODE === 'undefined' && typeof applyGoldenPathMode === 'undefined' && typeof trimLobSelectorsToGoldenPath === 'undefined' && typeof mapAppetiteRulesFromProduct === 'undefined' && typeof mapDocumentsFromProduct === 'undefined');
+    t('the one live part of it (the product questionnaire) still works', typeof mapQuestionnaireFromProduct === 'function');
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

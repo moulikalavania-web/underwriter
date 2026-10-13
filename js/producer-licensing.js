@@ -275,7 +275,8 @@ function renderProducerCard(sub) {
   if (!box || !sub) return;
   const result = producerCurrent(sub);
   const state = result ? result.status : "not_checked";
-  const ui = PRODUCER_STATE_UI[state];
+  const noRegistry = state === "not_found" && PRODUCER_REGISTRY.length === 0;   // nothing to look the producer up in: not a failure
+  const ui = noRegistry ? { badge: "badge-warning", icon: "ph-database", label: "No Registry Loaded" } : PRODUCER_STATE_UI[state];
   const canEdit = hasPermission("producerLicensing", "edit");
   const canApprove = hasPermission("producerLicensing", "approve");
 
@@ -283,7 +284,7 @@ function renderProducerCard(sub) {
   if (!result) banner = `<div class="alert alert-warning text-xs"><i class="ph ph-hourglass"></i> The producer has not been checked yet. The check also runs again at bind.</div>`;
   else if (state === "verified") banner = `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> Producer is licensed and appointed. The check is repeated at bind.</div>`;
   else if (state === "not_applicable") banner = `<div class="alert alert-success text-xs"><i class="ph ph-minus-circle"></i> Direct submission — no producer to check.</div>`;
-  else banner = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>Bind is blocked.</strong> Business cannot be accepted through a producer who is not licensed in the risk state and appointed by the carrier. Correct the record, or have an authorized user record a verified lookup.</div>`;
+  else banner = `<div class="alert ${noRegistry ? "alert-warning" : "alert-danger"} text-xs"><i class="ph ph-prohibit"></i> <strong>Bind is blocked.</strong> Business cannot be accepted through a producer who is not licensed in the risk state and appointed by the carrier. Correct the record, or have an authorized user record a verified lookup.</div>`;
 
   const rows = result ? result.checks.map(c => {
     const badge = c.pass === true ? `<span class="badge badge-success text-xs">Pass</span>` : (c.pass === false ? `<span class="badge badge-danger text-xs">Fail</span>` : `<span class="badge badge-light text-xs">n/a</span>`);
@@ -404,27 +405,9 @@ function producerGuardBind(source, subId) {
       return r;
     };
   }
-  const origESig = window.openESignatureModal;
-  if (typeof origESig === "function") {
-    window.openESignatureModal = function () {
-      if (!producerGuardBind("e-signature")) return;
-      return origESig.apply(this, arguments);
-    };
-  }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      if (!producerGuardBind("issue quote")) return;
-      return origIssue.apply(this, arguments);
-    };
-  }
-  const origPasBind = window.simulatePASBindSync;
-  if (typeof origPasBind === "function") {
-    window.simulatePASBindSync = function (subId) {
-      if (!producerGuardBind("PAS bind", subId)) return;
-      return origPasBind.apply(this, arguments);
-    };
-  }
+  registerGuard("eSign", "producer licence", function () { return producerGuardBind("e-signature"); });
+  registerGuard("issueQuote", "producer licence", function () { return producerGuardBind("issue quote"); });
+  registerGuard("bind", "producer licence", function (a) { return producerGuardBind("PAS bind", a[0]); });
 })();
 
 window.producerRecheckClicked = producerRecheckClicked;

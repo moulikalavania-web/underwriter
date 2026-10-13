@@ -1,0 +1,70 @@
+<!-- Suite C12: no invented premium, rating-request or SLA values. A premium is never estimated from the exposure, coverage rows from a product carry no
+     price, the rating request states only what the case states (null otherwise), and the SLA wording and countdown come from the target table and the
+     case's own receipt time. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+
+    // ---------- premium
+    var bare = { id: 'SUB-ND-1', exposureVal: 3000000 };
+    t('a case with no rating has no premium: it is not estimated from the exposure', getSubmissionPremium(bare) === 0 && getSubmissionPremiumLabel(bare) === 'Not rated');
+    t('a rated case shows its premium', getSubmissionPremium({ currentPremium: 12345 }) === 12345 && getSubmissionPremiumLabel({ currentPremium: 12345 }) === '$12,345');
+    t('a premium of zero from the rating is still shown as rated', getSubmissionPremiumLabel({ currentPremium: 0 }) === '$0');
+
+    // ---------- coverage rows from a product
+    loadSamplePrd021();
+    var rows = buildProductCoverageRows(window.ACTIVE_INSURANCE_PRODUCT, 1000000, 0);
+    t('the product defines the covers but not their price: every row says "Not rated"', rows.length === 6 && rows.every(function(r){ return r.premVal === null && r.prem === 'Not rated'; }), JSON.stringify(rows.map(function(r){ return r.prem; })));
+    t('their limits and deductibles still come from the product', rows[0].line === 'Own Damage' && rows[0].limit.replace(/[^0-9]/g, '') === '1000000' && /300/.test(rows[0].ded), rows[0].line + ' | ' + rows[0].limit + ' | ' + rows[0].ded);
+    var cur = parseFloat(String(rows[0].prem).replace(/[^0-9.]/g, '')); t('so no coverage can add an invented premium to a sum', isNaN(cur) || cur === 0);
+    var norm = normalizeRatingEngineJson(JSON.parse(JSON.stringify(window.ACTIVE_INSURANCE_PRODUCT)), { id: 'X', coverageRows: rows, exposureVal: 1000000 });
+    t('a product definition imported as if it were rating output is refused when nothing is rated', !!norm.error && /holds no premiums/.test(norm.error), JSON.stringify(norm).slice(0, 160));
+
+    // ---------- the rating request
+    var empty = getSubmissionRatingPayload({ id: 'SUB-ND-2', lobKey: 'trucking', channelType: 'direct', coverageRows: [], vehicles: [], drivers: [] });
+    t('a case with nothing stated gets no made-up dates, years, radius, vehicles or driver', empty.genInfo.effective_date === null && empty.genInfo.expiration_date === null && empty.genInfo.lock_rate_effective_date === null && empty.genInfo.business_yrs_exp === null && empty.insuredInfo.years_of_experience === null && empty.radiusOfOperationsInfo.radius === null && empty.vehicles.length === 0 && empty.drivers.length === 0);
+    t('no made-up identifiers, class codes or insured details either', empty.insured_id === null && empty.quote_id === null && empty.coveragesInfo.naics_code === null && empty.coveragesInfo.rating_class === null && empty.insuredInfo.entity_type === null && empty.insuredInfo.insured_garaging_state === null && empty.insuredInfo.icc_filings_yes_no === null);
+    t('no made-up broker fee on a direct case', empty.broker_fee.amount === 0 && empty.uwReviewInfo.broker_fee_amount === 0);
+    var JSONs = JSON.stringify(empty);
+    t('none of the old defaults survive anywhere in it', !/09\/01\/2026|08\/25\/2026|01\/01\/1990|2574|484110|"liab_baserate":837|450/.test(JSONs), JSONs.slice(0, 200));
+
+    var real = { id: 'SUB-ND-3', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', channelType: 'broker', broker: 'Arora & Sons', insured: 'Links', fein: '74-9842109', dot: '1234567', address: '1 Main St, Dallas, TX 75201', effectiveDate: 'November 1, 2026', exposureVal: 1000000, currentStep: 6,
+      operationsProfile: { years_in_business: 6, operating_radius: 500, business_type: 'Regional Dry-Van Trucking', commodities_hauled: 'Dry goods' }, coverageRows: [{ line: 'Auto Liability', limit: '$1,000,000', ded: '$0', prem: '$10,000' }, { line: 'Physical Damage', limit: 'x', ded: 'y', prem: '$1,000' }],
+      vehicles: [{ id: 1, year: 2022, make: 'Volvo', model: 'VNL', vin: 'V1', stated_value: 125000, dashcam: true, miles_driven: 85000 }, { id: 2, year: 2021, make: 'Kenworth', model: 'T680', stated_value: 90000 }],
+      drivers: [{ id: 'D1', given_name: 'Arjun', last_name: 'Mehta', licensestate: 'OH', licenseclasstype: 'CDL', experience: '5 Years', violations: 0 }] };
+    var pl = getSubmissionRatingPayload(real);
+    t('what the case states comes through: dates (expiry a year after the effective date), years, radius, class description', pl.genInfo.effective_date === '11/01/2026' && pl.genInfo.expiration_date === '11/01/2027' && pl.genInfo.business_yrs_exp === '6' && pl.insuredInfo.years_of_experience === 6 && pl.radiusOfOperationsInfo.radius === 500 && pl.insuredInfo.description_of_operation === 'Regional Dry-Van Trucking' && pl.commoditiesInfo.secondary_class === 'Dry goods');
+    t('the vehicles are the case\'s vehicles (not one per coverage row), with their own values and dashcam answer', pl.vehicles.length === 2 && pl.vehicles[0].year === 2022 && pl.vehicles[0].vin === 'V1' && pl.vehicles[0].stated_value === 125000 && pl.vehicles[0].miles_driven === 85000 && pl.vehicles[0].dashcam === 'Yes' && pl.vehicles[1].dashcam === null && pl.vehicles[1].vin === null && pl.vehicles[1].miles_driven === null);
+    t('rating factors the case does not carry stay empty for the engine to apply', pl.vehicles[0].liab_baserate === null && pl.vehicles[0].vehicle_age_factor === null && pl.vehicles[0].liability_premium === null);
+    t('the drivers are the case\'s drivers, not a stand-in built from the insured\'s name', pl.drivers.length === 1 && pl.drivers[0].given_name === 'Arjun' && pl.drivers[0].licensestate === 'OH' && pl.drivers[0].dob === null);
+    t('coverage flags follow the coverages on the quote', pl.coveragesInfo.pd === 'Yes' && pl.coveragesInfo.cargo === 'No' && pl.genInfo.al_check === true);
+    t('a broker case takes its fee from the fee configuration, not a fixed number', pl.broker_fee.amount === cfgValueFor(real, 'broker_fee_invoice_default'));
+    t('a vehicle-level factor from the ingested JSON is passed through', getSubmissionRatingPayload({ id: 'S', coverageRows: [], vehicles: [{ id: 1, liab_baserate: 912, liability_premium: '$7,000' }], drivers: [] }).vehicles[0].liab_baserate === 912);
+    t('the base premium still comes from the coverage rows when the vehicles carry none', getBasePremiumFromRatingPayload(real) === 11000);
+
+    // ---------- SLA
+    var rcv = { id: 'SUB-ND-4', insured: 'Links', broker: 'B', fein: '74-9842109', channelType: 'broker', lobKey: 'trucking', lobName: 'x', exposure: '$1', exposureVal: 1, receivedAt: 'Just Now', underwriter: null, vehicles: [], drivers: [], currentStep: 1, completedSteps: [], priority: 'P3', receivedTimestamp: Date.now() - 3600000, assignedTo: null, decisionLog: [], statusText: 'x' };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(rcv); activeSubmissionId = rcv.id;
+    t('the SLA targets come from the one table', slaHoursFor('P1') === PERF_SLA_HOURS.P1 && slaTextFor('P1') === PERF_SLA_HOURS.P1 + 'h Fast-Track SLA' && slaTextFor('P3') === PERF_SLA_HOURS.P3 + 'h FIFO SLA');
+    escalateSubmissionPriority('P1');
+    t('escalating sets no invented score and no typed-in countdown', rcv.priorityScore === null && rcv.slaHours === PERF_SLA_HOURS.P1 && rcv.slaText === slaTextFor('P1') && !/3h 50m|18h 30m|36h remaining/.test(rcv.slaCountdown), rcv.slaCountdown);
+    t('the countdown is the target less the time since the case was received', /^3h 0\dm remaining$/.test(slaCountdownFor(rcv)), slaCountdownFor(rcv));
+    rcv.receivedTimestamp = Date.now() - 6 * 3600000;
+    t('past the target it says how overdue the case is', /^Overdue by 2h \d\dm$/.test(slaCountdownFor(rcv)), slaCountdownFor(rcv));
+    t('a case with no target keeps its stored wording', slaCountdownFor({ slaCountdown: 'Awaiting triage' }) === 'Awaiting triage');
+    t('a missing score reads "no score set", not "null/100"', priorityScoreText({ priorityScore: null }) === '(no score set)' && priorityScoreText({ priorityScore: 70 }) === '(Score: 70/100)');
+    escalateSubmissionPriority('P3');
+    t('a different level takes that level\'s target', rcv.slaHours === PERF_SLA_HOURS.P3 && rcv.priorityScore === null);
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

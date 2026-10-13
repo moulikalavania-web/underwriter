@@ -23,11 +23,9 @@ run<!--
   <title id="pageTitleTag">Submission Intake &amp; Ingestion Queue — Underwriting Workflow | FUT</title>
   <meta name="description" content="FUT Underwriting Engine — commercial insurance submission-to-quote lifecycle: intake, clearance, enrichment, underwriting workbench, authority review, rating, and quote &amp; bind.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='48' fill='%231A1D23'/%3E%3Cpath fill='%232563eb' d='M128 32l72 28v56c0 56-31 92-72 108-41-16-72-52-72-108V60z'/%3E%3Cpath fill='%23fff' d='M111 158l-30-30 15-15 15 15 45-45 15 15z'/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <link rel="stylesheet" href="vendor/fonts/fonts.css">
+  <link rel="stylesheet" href="vendor/phosphor/style.css">
+  <script src="vendor/jspdf/jspdf.umd.min.js"></script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body class="pre-login">
@@ -542,32 +540,32 @@ run<!--
              capture (they're already normalized on ingest). -->
         <div class="card ocr-pipeline-card-full" id="ocrPipelineCard">
           <div class="card-header">
-            <h3><i class="ph ph-brain"></i> AI / OCR Extraction Pipeline <span class="ocr-header-scope">(S3 / OCI)</span></h3>
-            <span class="badge badge-info"><i class="ph ph-circle-notch fa-spin"></i> Extraction 100% Normalized</span>
+            <h3><i class="ph ph-brain"></i> Document Extraction Pipeline</h3>
+            <span class="badge badge-light"></span>
           </div>
           <div class="card-body">
             <div class="ocr-stepper ocr-stepper-full">
-              <div class="ocr-step done">
+              <div class="ocr-step">
                 <div class="ocr-step-node"><i class="ph ph-cloud-arrow-up"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
                 <div class="ocr-step-text">
-                  <div class="ocr-step-label">S3 Cloud Ingestion</div>
-                  <div class="ocr-step-status">Complete</div>
+                  <div class="ocr-step-label">File intake and validation</div>
+                  <div class="ocr-step-status"></div>
                 </div>
               </div>
-              <div class="ocr-step-connector done"></div>
-              <div class="ocr-step done">
+              <div class="ocr-step-connector"></div>
+              <div class="ocr-step">
                 <div class="ocr-step-node"><i class="ph ph-cpu"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
                 <div class="ocr-step-text">
-                  <div class="ocr-step-label">OCR Document Parser</div>
-                  <div class="ocr-step-status">99.4% Confidence</div>
+                  <div class="ocr-step-label">Content extraction</div>
+                  <div class="ocr-step-status"></div>
                 </div>
               </div>
-              <div class="ocr-step-connector done"></div>
-              <div class="ocr-step done">
+              <div class="ocr-step-connector"></div>
+              <div class="ocr-step">
                 <div class="ocr-step-node"><i class="ph ph-magic-wand"></i><span class="ocr-step-check"><i class="ph ph-check"></i></span></div>
                 <div class="ocr-step-text">
-                  <div class="ocr-step-label">Schema Normalization</div>
-                  <div class="ocr-step-status">Canonical Mapped</div>
+                  <div class="ocr-step-label">Canonical record</div>
+                  <div class="ocr-step-status"></div>
                 </div>
               </div>
             </div>
@@ -674,6 +672,9 @@ run<!--
 
         <!-- Sanctions / watchlist screening (js/sanctions-screening.js) -->
         <div id="sanctionsScreeningContainer" class="mt-3"></div>
+
+        <!-- Quote conditions: a coverage added later if the insured meets a stated condition by a deadline (js/quote-conditions.js) -->
+        <div id="quoteConditionContainer" class="mt-3"></div>
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -1114,6 +1115,9 @@ run<!--
 
         <!-- Underwriting Discretionary Pricing (Post-Rating) -->
         <div id="discretionaryPricingContainer"><!-- rendered dynamically by renderStep7View() --></div>
+
+        <!-- Rating snapshot: the risk details sent to the rating engine, the risk score and the premium, versioned (js/rating-snapshot.js) -->
+        <div id="ratingSnapshotContainer"></div>
 
         <!-- TRIA offer & election record (js/tria-offer.js) -->
         <div id="triaOfferContainer"></div>
@@ -2499,9 +2503,9 @@ run<!--
           <div class="form-group mt-2">
             <label>Raw Documents from the Email (optional — attached exactly as received)</label>
             <div class="email-digest-dropzone" onclick="document.getElementById('emailDigestFileInput').click()">
-              <i class="ph ph-upload-simple"></i> Click to attach PDF or image files exactly as they came in the email
+              <i class="ph ph-upload-simple"></i> Click to attach the documents exactly as they came (PDF, Word, Excel, PowerPoint, CSV, text, email, images; up to 15 MB each)
             </div>
-            <input type="file" id="emailDigestFileInput" accept="application/pdf,image/*" multiple style="display:none" onchange="handleEmailDigestFileSelect(event)">
+            <input type="file" id="emailDigestFileInput" accept=".pdf,.docx,.xlsx,.pptx,.csv,.tsv,.txt,.json,.eml,.jpg,.jpeg,.png,.tif,.tiff" multiple style="display:none" onchange="handleEmailDigestFileSelect(event)">
             <div class="email-digest-file-list" id="emailDigestFileList"></div>
           </div>
 
@@ -2890,6 +2894,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <div class="toast-container" id="toastContainer"></div>
   <script src="js/data-config.js"></script>
   <script src="js/shell-navigation.js"></script>
+  <script src="js/guard-registry.js"></script>
   <script src="js/archive-decline-team.js"></script>
   <script src="js/audit-intelligence-admin.js"></script>
   <script src="js/intake-dashboard-assignment.js"></script>
@@ -2919,7 +2924,12 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/bordereaux.js"></script>
   <script src="js/performance-reporting.js"></script>
   <script src="js/external-access.js"></script>
+  <script src="js/rating-snapshot.js"></script>
+  <script src="js/quote-conditions.js"></script>
+  <script src="js/document-ingestion.js"></script>
+  <script src="js/document-viewer.js"></script>
   <script src="js/access-policy.js"></script>
-  <script src="js/golden-path-data.js"></script>
+  <script src="js/reference-data.js"></script>
+  <script src="js/product-questionnaire.js"></script>
 </body>
 </html>

@@ -1,0 +1,122 @@
+<!-- Suite C09: the sample product PRD-021 carries a "Dashcam Required" rule (Own Damage is provided only if the vehicle has a dashcam).
+     A unit without a dashcam fails the rule and the Quote Condition card offers a condition to install one by a date.
+     Installed in time: Own Damage is included and the premium is updated. Not installed in time: Own Damage stays out and the premium is unchanged. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var enc = new TextEncoder(); function u8(s){ return enc.encode(s); }
+  function cat(arrs){ var n = 0; arrs.forEach(function(a){ n += a.length; }); var o = new Uint8Array(n), p = 0; arrs.forEach(function(a){ o.set(a, p); p += a.length; }); return o; }
+  function le16(n){ return new Uint8Array([n & 255, (n >> 8) & 255]); }
+  function le32(n){ return new Uint8Array([n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255]); }
+  function zip(entries){
+    var locals = [], central = [], offset = 0;
+    entries.forEach(function(e){
+      var name = u8(e.name), raw = e.data;
+      var local = cat([le32(0x04034b50), le16(20), le16(0), le16(0), le16(0), le16(0), le32(0), le32(raw.length), le32(raw.length), le16(name.length), le16(0), name, raw]);
+      central.push(cat([le32(0x02014b50), le16(20), le16(20), le16(0), le16(0), le16(0), le16(0), le32(0), le32(raw.length), le32(raw.length), le16(name.length), le16(0), le16(0), le16(0), le16(0), le32(0), le32(offset), name]));
+      locals.push(local); offset += local.length;
+    });
+    var cd = cat(central);
+    return cat(locals.concat([cd, cat([le32(0x06054b50), le16(0), le16(0), le16(entries.length), le16(entries.length), le32(cd.length), le32(offset), le16(0)])]));
+  }
+  function xlsxGrid(rows){
+    var strings = []; function si(s){ var i = strings.indexOf(s); if (i < 0) { strings.push(s); i = strings.length - 1; } return i; }
+    var cols = 'ABCDEFGH';
+    var xml = rows.map(function(r, ri){ return '<row r="' + (ri + 1) + '">' + r.map(function(c, ci){ var ref = cols[ci] + (ri + 1); return typeof c === 'number' ? '<c r="' + ref + '"><v>' + c + '</v></c>' : '<c r="' + ref + '" t="s"><v>' + si(c) + '</v></c>'; }).join('') + '</row>'; }).join('');
+    return zip([{ name: 'xl/workbook.xml', data: u8('<workbook><sheets><sheet name="Vehicle Schedule"/></sheets></workbook>') }, { name: 'xl/sharedStrings.xml', data: u8('<sst>' + strings.map(function(s){ return '<si><t>' + s + '</t></si>'; }).join('') + '</sst>') }, { name: 'xl/worksheets/sheet1.xml', data: u8('<worksheet><sheetData>' + xml + '</sheetData></worksheet>') }]);
+  }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  function setv(id, v){ var e = el(id); if (!e) throw new Error('missing field ' + id); e.value = v; }
+  var today = qcToday(), in30 = qcAddDays(today, 30), in10 = qcAddDays(today, 10), yesterday = qcAddDays(today, -1);
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+
+    // ---------- the sample file carries the rule
+    loadSamplePrd021();
+    var prd = window.ACTIVE_INSURANCE_PRODUCT;
+    var rule = prd.studios.eligibility.filter(function(r){ return r.name === 'Dashcam Required'; })[0];
+    t('Load Sample PRD-021 brings in a "Dashcam Required" eligibility rule', !!rule && rule.cover === 'Own Damage' && /only if the vehicle has a dashcam/.test(rule.description) && rule.conditions[0] === 'Dashcam_Installed == true');
+    t('the rule says a Quote Condition may be offered when it is not met', rule.onFail.offer === 'quoteCondition' && rule.onFail.defaultDays === 30 && /Install a dashcam/.test(rule.onFail.condition));
+    t('the existing eligibility rules are still there', prd.studios.eligibility.length === 7 && prd.studios.eligibility.some(function(r){ return r.name === 'Min Driver Age'; }));
+
+    // ---------- where a unit's dashcam answer comes from
+    t('a vehicle line in an email says it: "with dashcam" / "no dashcam" / nothing', parseVehicleLineDetails('2022 Volvo VNL 760 - Stated Value $120,000 with dashcam').dashcam === true && parseVehicleLineDetails('2021 Kenworth T680 - no dashcam').dashcam === false && parseVehicleLineDetails('2019 Mack Granite').dashcam === undefined);
+    var sched = await diProcessFile('Vehicle Schedule.xlsx', '', xlsxGrid([['Year', 'Make', 'Model', 'VIN', 'Stated Value', 'Dashcam'], ['2022', 'Volvo', 'VNL 760', '4V4NC9EH5NN123456', 125000, 'Yes'], ['2021', 'Kenworth', 'T680', '1XKYD49X0NJ654321', 98500, 'No'], ['2019', 'Mack', 'Granite', '1M2AX07C0KM000111', 64000, '']]), null, 0);
+    var vs = diVehiclesFromTables(sched[0].tables);
+    t('a vehicle schedule\'s Dashcam column is read: yes, no, and blank = not stated', vs.length === 3 && vs[0].dashcam === true && vs[1].dashcam === false && vs[2].dashcam === null);
+
+    // ---------- the rule is judged unit by unit
+    function mkSub(id, dashcams){
+      return { id: id, lobKey: 'trucking', lobName: 'Commercial Auto', apiSourced: true, assignedTo: 'senior_uw', currentStep: 2, channelType: 'broker', broker: 'Arora & Sons', insured: 'Links Freight LLC', statusText: 'Clearance Check', statusBadge: 'badge-info', priority: 'P3', priorityScore: null, receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', fein: '74-9842109', address: '1 Main St', email: 'a@b.com', exposureVal: 1000000, decisionLog: [], losses: [], drivers: [],
+        vehicles: dashcams.map(function(d, i){ var v = { id: i + 1, xid: i + 1, year: 2022 - i, make: ['Volvo', 'Kenworth', 'Mack'][i], model: ['VNL 760', 'T680', 'Granite'][i], stated_value: 100000 }; if (d !== undefined) v.dashcam = d; return v; }),
+        coverageRows: [{ line: 'Own Damage', limit: '$1,000,000', ded: '$300', prem: '$14,850.00', premVal: 14850 }, { line: 'Third Party Liability', limit: '$300,000', ded: 'None / NIL', prem: '$6,200.00', premVal: 6200 }],
+        discretionaryPricing: { basePremium: 21050, adjustmentType: null, adjustmentPercent: 0, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 21050 }, currentPremium: 21050 };
+    }
+    var sub = mkSub('SUB-DC-1', [true, false, undefined]);
+    sub.appetiteRules = buildProductAppetiteRules(null, sub);
+    var dc = sub.appetiteRules.filter(function(r){ return /Dashcam Required/.test(r.name); });
+    t('there is one Dashcam row per vehicle', dc.length === 3 && dc[0].name === 'Dashcam Required — Unit 1 (2022 Volvo VNL 760)');
+    t('a unit with a dashcam passes; one without fails; one not stated also fails', dc[0].pass === true && dc[0].val === 'Dashcam installed' && dc[1].pass === false && dc[1].val === 'No dashcam' && dc[2].pass === false && dc[2].val === 'Not stated' && /does not say/.test(dc[2].note));
+    t('the other eligibility rules are untouched', sub.appetiteRules.some(function(r){ return r.name === 'Max Vehicle Age'; }) && sub.appetiteRules.some(function(r){ return r.name === 'Jurisdiction Check'; }));
+    var none = mkSub('SUB-DC-0', []); none.appetiteRules = buildProductAppetiteRules(null, none);
+    t('with no vehicles yet the rule waits for fleet data instead of failing', none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); }).length === 1 && none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); })[0].pass === true && /Pending/.test(none.appetiteRules.filter(function(r){ return /Dashcam/.test(r.name); })[0].val));
+    var allOk = mkSub('SUB-DC-9', [true, true]); allOk.appetiteRules = buildProductAppetiteRules(null, allOk);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(allOk); activeSubmissionId = allOk.id; qcRender(allOk);
+    t('when every unit has a dashcam no Quote Condition is suggested', !/Appetite rule not met/.test(el('quoteConditionContainer').innerHTML));
+
+    // ---------- a unit without a dashcam: the Quote Condition is suggested and created
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; renderAppetiteRules(sub.appetiteRules); qcRender(sub);
+    var html = el('quoteConditionContainer').innerHTML;
+    t('the Quote Condition card suggests a condition and names the units without a dashcam', /Appetite rule not met: Dashcam Required/.test(html) && /Unit 2/.test(html) && /Unit 3/.test(html) && /No dashcam/.test(html) && /Not stated/.test(html) && !/Unit 1 \(2022 Volvo VNL 760\) \(Dashcam installed\)/.test(html));
+    t('the appetite table shows the failing rows', /Dashcam Required — Unit 2/.test(el('appetiteRulesTable').innerHTML) && /FAIL/.test(el('appetiteRulesTable').innerHTML));
+    qcPrefill('ELG-mtgsfrji7d1');
+    t('the form is prefilled: Own Damage, its limit and deductible, the premium, 30 days, and the install wording', el('qc_cov_line').value === 'Own Damage' && el('qc_cov_limit').value === '$1,000,000' && el('qc_cov_ded').value === '$300' && el('qc_premium').value === '14850' && el('qc_deadline').value === in30 && /Install a dashcam/.test(el('qc_condition').value) && /Unit 2/.test(el('qc_condition').value) && /Unit 3/.test(el('qc_condition').value) && !/Unit 1/.test(el('qc_condition').value), el('qc_condition').value);
+    qcCreate();
+    var c1 = sub.quoteConditions[0];
+    t('creating it links the condition to the rule and the units', !!c1 && c1.rule.family === 'ELG-mtgsfrji7d1' && c1.rule.vehicleIndexes.join() === '1,2' && c1.deadline === in30);
+    t('Own Damage is withheld from the quote while the condition is open; the premium does not change', !sub.coverageRows.some(function(r){ return r.line === 'Own Damage'; }) && sub.coverageRows.length === 1 && !!c1.withheldRow && sub.discretionaryPricing.finalPremium === 21050);
+    t('the card says what is withheld and no second suggestion appears', /Withheld from the quote/.test(el('quoteConditionContainer').innerHTML) && !/Appetite rule not met/.test(el('quoteConditionContainer').innerHTML));
+    qcIssue('QC-1'); qcRender(sub);
+    setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email, signed PDF'); qcRecordSignature('QC-1');
+    var doc = qcDocumentHtml(sub, c1, 1);
+    t('the document to sign states the dashcam condition, the units and the deadline', /Install a dashcam/.test(doc) && /Unit 2/.test(doc) && doc.indexOf(in30) > -1 && /Own Damage/.test(doc) && /\$14,850/.test(doc));
+
+    // ---------- installed before the deadline: coverage back in, premium updated
+    var keep = JSON.stringify(sub);              // for the second scenario
+    qcRender(sub); setv('qc_met_ref_QC-1', 'Installer certificate DC-5521 for units 2 and 3'); qcConfirmMet('QC-1');
+    var od = sub.coverageRows.filter(function(r){ return r.line === 'Own Damage'; })[0];
+    t('installed in time: Own Damage is included again', c1.status === 'met' && !!od && od.viaQuoteCondition === 'QC-1' && od.prem === '$14,850' && sub.coverageRows.length === 2);
+    t('the premium is updated: 21,050 + 14,850 = 35,900', sub.discretionaryPricing.basePremium === 35900 && sub.discretionaryPricing.finalPremium === 35900 && sub.currentPremium === 35900 && c1.outcome.premiumBefore === 21050 && c1.outcome.premiumAfter === 35900);
+    t('the units now show a dashcam and the rule rows pass', sub.vehicles[1].dashcam === true && sub.vehicles[2].dashcam === true && sub.vehicles[1].dashcamVia === 'QC-1' && sub.appetiteRules.filter(function(r){ return /Dashcam Required/.test(r.name); }).every(function(r){ return r.pass; }));
+    t('after a rebuild of the rules the units still pass', buildProductAppetiteRules(null, sub).filter(function(r){ return /Dashcam Required/.test(r.name); }).every(function(r){ return r.pass; }));
+    t('the appetite table shows the dashcam rows as satisfied', (el('appetiteRulesTable').innerHTML.match(/Dashcam Required — Unit/g) || []).length === 3 && /QC-1/.test(el('appetiteRulesTable').innerHTML));
+
+    // ---------- not installed by the deadline: coverage stays out, premium unchanged
+    var sub2 = mkSub('SUB-DC-2', [true, false, undefined]); sub2.appetiteRules = buildProductAppetiteRules(null, sub2);
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub2); activeSubmissionId = sub2.id; renderAppetiteRules(sub2.appetiteRules); qcRender(sub2);
+    qcPrefill('ELG-mtgsfrji7d1'); setv('qc_deadline', in10); qcCreate();
+    var d1 = sub2.quoteConditions[0]; qcIssue('QC-1'); qcRender(sub2);
+    setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email'); qcRecordSignature('QC-1');
+    var snap = JSON.stringify([sub2.coverageRows, sub2.discretionaryPricing, sub2.currentPremium]);
+    d1.deadline = yesterday; d1.versions[0].deadline = yesterday;      // the deadline passes with no dashcam
+    qcRender(sub2);
+    t('not installed by the deadline: the condition lapses', d1.status === 'lapsed' && d1.outcome.coverageAdded === false);
+    t('Own Damage is not included and the premium is unchanged', !sub2.coverageRows.some(function(r){ return r.line === 'Own Damage'; }) && JSON.stringify([sub2.coverageRows, sub2.discretionaryPricing, sub2.currentPremium]) === snap && sub2.discretionaryPricing.finalPremium === 21050);
+    t('the units still have no dashcam and the rule still fails', sub2.vehicles[1].dashcam === false && sub2.vehicles[2].dashcam === undefined && sub2.appetiteRules.filter(function(r){ return /Dashcam Required/.test(r.name) && !r.pass; }).length === 2);
+    toasts.length = 0; qcConfirmMet('QC-1');
+    t('it cannot be confirmed after the deadline', d1.status === 'lapsed' && /lapsed/.test(last()) && !sub2.coverageRows.some(function(r){ return r.line === 'Own Damage'; }));
+    t('the card says Own Damage is still not provided, and offers a fresh condition', /Lapsed, not added/.test(el('quoteConditionContainer').innerHTML) && /Appetite rule not met: Dashcam Required/.test(el('quoteConditionContainer').innerHTML));
+    t('the log records both outcomes of the dashcam rule', sub2.decisionLog.some(function(d){ return d.decision === 'qc_lapsed' && /premium unchanged/.test(d.notes); }) && sub.decisionLog.some(function(d){ return d.decision === 'qc_met' && /Own Damage added/.test(d.notes); }));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

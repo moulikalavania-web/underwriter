@@ -472,12 +472,8 @@ function issueQuoteAction() {
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   showToast(`🚀 Commercial Quote Issued Successfully to ${targetVal === 'broker' ? 'Producing Broker' : (targetVal === 'customer' ? 'Direct Insured' : 'Broker & Customer')}!`, "success");
 
-  // Auto-download the official Quote Proposal + Invoice PDF the moment the
-  // quote is issued (js/issue-quote-email.js — Output-Quote-derived figures,
-  // never re-invented here).
-  if (sub && typeof generateIssuedQuotePdf === "function") {
-    generateIssuedQuotePdf(sub);
-  }
+  // Nothing is downloaded when the quote is issued. Issuing produces the quotation only: it is sent and downloaded from the
+  // popup below (Download Quotation, once sent). The invoice is not made here; it follows customer acceptance and bind.
 
   // Issue Quote Actions popup (Add-On) — Quotation -> Customer Approval ->
   // Invoice. Sending, approval, and invoice/download are all explicit,

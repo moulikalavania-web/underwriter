@@ -532,18 +532,9 @@ function slGuardBind(source, subId) {
       return r;
     };
   }
-  const origESig = window.openESignatureModal;
-  if (typeof origESig === "function") {
-    window.openESignatureModal = function () { if (!slGuardQuote("e-signature")) return; return origESig.apply(this, arguments); };
-  }
-  const origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () { if (!slGuardQuote("issue quote")) return; return origIssue.apply(this, arguments); };
-  }
-  const origPas = window.simulatePASBindSync;
-  if (typeof origPas === "function") {
-    window.simulatePASBindSync = function (subId) { if (!slGuardBind("PAS bind", subId)) return; return origPas.apply(this, arguments); };
-  }
+  registerGuard("eSign", "surplus lines", function () { return slGuardQuote("e-signature"); });
+  registerGuard("issueQuote", "surplus lines", function () { return slGuardQuote("issue quote"); });
+  registerGuard("bind", "surplus lines", function (a) { return slGuardBind("PAS bind", a[0]); });
   const origRecord = window.recordQuoteVersion;
   if (typeof origRecord === "function") {
     window.recordQuoteVersion = function (sub, isBound) {

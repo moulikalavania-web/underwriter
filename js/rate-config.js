@@ -258,14 +258,11 @@ function renderRateConfig() {
   if (typeof origRecord === "function") {
     window.recordQuoteVersion = function (sub) { if (sub) cfgPin(sub); return origRecord.apply(this, arguments); };
   }
-  var origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") {
-    window.issueQuoteAction = function () {
-      var r = origIssue.apply(this, arguments);
-      try { var s = SUBMISSIONS_DATASET.filter(function (x) { return x.id === activeSubmissionId; })[0]; if (s && s.quoteIssued) { cfgPin(s); if (typeof persistAppState === "function") persistAppState(); } } catch (e) { /* ignore */ }
-      return r;
-    };
-  }
+  // After a quote is issued, pin the pricing terms it was issued on.
+  registerAfter("issueQuote", "pin pricing terms", function () {
+    var s = SUBMISSIONS_DATASET.filter(function (x) { return x.id === activeSubmissionId; })[0];
+    if (s && s.quoteIssued) { cfgPin(s); if (typeof persistAppState === "function") persistAppState(); }
+  });
 })();
 
 window.cfgPropose = cfgPropose; window.cfgDecide = cfgDecide; window.cfgWithdraw = cfgWithdraw; window.renderRateConfig = renderRateConfig;

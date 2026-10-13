@@ -374,7 +374,7 @@ function renderUnifiedAccountView() {
       <td><strong>${s.insured}</strong>${s.accountName ? `<br><span class="text-xs text-muted">Account: ${s.accountName}</span>` : ''}</td>
       <td><span class="badge badge-primary">${s.lobName}</span></td>
       <td>${s.underwriter || "Unassigned"}</td>
-      <td class="font-mono">$${getSubmissionPremium(s).toLocaleString()}</td>
+      <td class="font-mono">${getSubmissionPremiumLabel(s)}</td>
       <td><span class="badge ${s.statusBadge || 'badge-primary'}">${s.statusText || ''}</span></td>
       <td>${s.receivedAt || ''}</td>
       <td><button class="btn btn-xs btn-outline" onclick="openCaseAtCurrentStep('${s.id}')"><i class="ph ph-eye"></i> View</button></td>
@@ -1041,7 +1041,7 @@ function renderQuoteCompareSelector() {
     <label style="display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--color-border); font-size:12.5px;">
       <input type="checkbox" value="${s.id}" onchange="toggleCompareSelection('${s.id}', this.checked)" ${selectedCompareIds.includes(s.id) ? "checked" : ""} style="width:16px; height:16px;">
       <span style="flex:1;"><code class="font-mono">${s.id}</code> — ${s.insured} <span class="text-muted">(${s.underwriter || 'Unassigned'})</span></span>
-      <strong class="font-mono">$${getSubmissionPremium(s).toLocaleString()}</strong>
+      <strong class="font-mono">${getSubmissionPremiumLabel(s)}</strong>
     </label>`).join("");
 
   container.innerHTML = `<div style="max-height:280px; overflow-y:auto;">${rows}</div>`;
@@ -1083,7 +1083,7 @@ function renderQuoteComparisonTable() {
     { label: "Underwriter", get: s => s.underwriter || "Unassigned" },
     { label: "Line of Business", get: s => s.lobName },
     { label: "Quote Number", get: s => s.quoteNo || "—" },
-    { label: "Quoted Premium", get: s => `$${getSubmissionPremium(s).toLocaleString()}` },
+    { label: "Quoted Premium", get: s => getSubmissionPremiumLabel(s) },
     { label: "Exposure Value", get: s => `$${(s.exposureVal || 0).toLocaleString()}` },
     { label: "Risk Score (higher = riskier)", get: s => getEffectiveRiskScore(s) },
     { label: "Priority", get: s => s.priority },

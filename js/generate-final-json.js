@@ -26,6 +26,8 @@
  *   Underwriting Workbench Data -> matching fields in the attached reference
  *   JSON -> Authority Desk JSON.
  *   No extra fields. No new fields. No dummy data.
+ *   Two additions, both read from the case and never typed in: "ratingSnapshot" (which saved rating the premium rests on) and
+ *   "quoteConditions" (coverage still pending, added, or not added under a Quote Condition).
  *
  * Output shape matches the attached reference file EXACTLY:
  *   {
@@ -86,6 +88,9 @@ function buildFinalUnderwritingJSON(sub) {
 
   return {
     quote: {},
+    // Which rating the premium rests on, and the conditions behind any coverage that is not yet (or was later) added.
+    ratingSnapshot: typeof rsBasis === "function" ? rsBasis(sub) : null,
+    quoteConditions: typeof qcDocSummary === "function" ? qcDocSummary(sub) : { pending: [], added: [], notAdded: [] },
     ratingInputs: {
       coveragesInfo: pickFields(sub.coveragesInfo, [
         "rating_type", "liability", "cargo_limit", "pd_high_deductible",

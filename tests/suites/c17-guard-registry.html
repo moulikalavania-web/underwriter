@@ -1,0 +1,47 @@
+<!-- Suite C17: the gates of a quote (open e-signature, issue quote, bind to the PAS) are wrapped once, with every module's rule registered as a guard in a
+     visible order. The order is the one the earlier nested wrappers ran in, so every message and outcome is unchanged. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  try {
+    // ---------- one wrapper per action, and the guards in the order they run
+    t('the three gated actions are registered', ['eSign', 'issueQuote', 'bind'].every(function(a){ return !!GUARD_REGISTRY[a] && GUARD_REGISTRY[a].installed === true; }));
+    var quote = 'underwriting authority,surplus lines,adverse-action notices,TRIA offer,producer licence,sanctions screening';
+    t('opening the e-signature step runs: ' + quote, listGuards('eSign').join(',') === quote, listGuards('eSign').join(','));
+    t('issuing the quote runs the same guards in the same order', listGuards('issueQuote').join(',') === quote, listGuards('issueQuote').join(','));
+    t('the bind runs them, plus subjectivities and broker of record, in the order the nested wrappers ran', listGuards('bind').join(',') === 'underwriting authority,surplus lines,broker of record,subjectivities,TRIA offer,producer licence,sanctions screening', listGuards('bind').join(','));
+    t('the pricing pin after issuing is an after-hook, not another layer round the function', GUARD_REGISTRY.issueQuote.after.map(function(a){ return a.name; }).join() === 'pin pricing terms');
+
+    // ---------- nothing else wraps those functions
+    var src = ''; try { src = String(window.issueQuoteAction) + String(window.openESignatureModal) + String(window.simulatePASBindSync); } catch (e) {}
+    t('each gated function is the registry\'s single wrapper', /GUARD|guards/i.test(String(installGuardedAction)) && /entry\.guards/.test(String(window.issueQuoteAction)) && /entry\.guards/.test(String(window.openESignatureModal)) && /entry\.guards/.test(String(window.simulatePASBindSync)));
+
+    // ---------- how the registry behaves (on a function of its own, so nothing real is touched)
+    GUARD_REGISTRY.testAction = { fn: '__gatedTest', guards: [], after: [], installed: false };
+    var calls = [], realRan = 0;
+    window.__gatedTest = function(a, b){ realRan++; calls.push('real(' + a + ',' + b + ')'); return 'result'; };
+    registerGuard('testAction', 'first registered', function(args){ calls.push('first-registered sees ' + args[0]); return true; });
+    registerGuard('testAction', 'second registered', function(args){ calls.push('second-registered sees ' + args[0]); return true; });
+    t('guards run newest first, as the nested wrappers did', listGuards('testAction').join() === 'second registered,first registered');
+    var r = window.__gatedTest(1, 2);
+    t('every guard sees the arguments, then the real function runs with them and its result comes back', calls.join(' | ') === 'second-registered sees 1 | first-registered sees 1 | real(1,2)' && r === 'result', calls.join(' | '));
+    registerAfter('testAction', 'after', function(args, res){ calls.push('after ' + res); });
+    calls.length = 0; window.__gatedTest(3, 4);
+    t('an after-hook runs once the action has completed, and sees its result', calls[calls.length - 1] === 'after result');
+    registerGuard('testAction', 'refuses', function(){ calls.push('refuses'); return false; });
+    calls.length = 0; realRan = 0; var r2 = window.__gatedTest(5, 6);
+    t('a refusing guard stops everything: the guards behind it, the real function and the after-hooks', realRan === 0 && r2 === undefined && calls.join() === 'refuses', calls.join());
+    GUARD_REGISTRY.testAction.guards.pop();
+    t('a guard that returns nothing at all lets the action through only if it says true: undefined is not a refusal', (function(){ registerGuard('testAction', 'silent', function(){}); realRan = 0; window.__gatedTest(7, 8); GUARD_REGISTRY.testAction.guards.pop(); return realRan === 1; })());
+    t('an unknown action is refused loudly, not ignored', (function(){ try { registerGuard('nope', 'x', function(){ return true; }); return false; } catch (e) { return /Unknown guarded action/.test(e.message); } })());
+    t('registering again does not wrap again', (function(){ var f = window.__gatedTest; registerGuard('testAction', 'another', function(){ return true; }); var same = f === window.__gatedTest; GUARD_REGISTRY.testAction.guards.pop(); return same; })());
+    delete GUARD_REGISTRY.testAction; delete window.__gatedTest;
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

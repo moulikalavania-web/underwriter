@@ -99,200 +99,12 @@ function renderHubDocumentPreview(sub, docIdx) {
   const meta = document.getElementById("hubActiveDocMeta");
   const viewer = document.getElementById("hubDocViewerContainer");
 
-  if (badge) badge.textContent = doc.name.toLowerCase().includes("handwritten") ? "HANDWRITTEN NOTE" : (doc.name.toLowerCase().includes("acord") ? "ACORD APPLICATION" : (doc.type === "xls" ? "SOV SCHEDULE" : "LOSS RUN REPORT"));
+  if (badge) badge.textContent = `${String(doc.type || "file").toUpperCase()} FILE`;
   if (title) title.textContent = doc.name;
-  if (meta) meta.textContent = doc.name.toLowerCase().includes("handwritten") ? `${doc.desc} • Status: Pending Manual OCR Review` : `${doc.desc} • Status: 100% Normalized`;
+  if (meta) meta.textContent = `${doc.desc || ""} • ${dvStatusText(sub, doc)}`;
 
-  if (!viewer) return;
-
-  // Render authentic document preview HTML
-  if (doc.name.toLowerCase().includes("handwritten")) {
-    viewer.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-pdf text-danger"></i> HANDWRITTEN BROKER COVER NOTE (SCANNED)</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Attached by ${sub.broker || 'Submitting Party'}</span>
-          </div>
-          <span class="badge badge-warning">Requires Manual OCR Review</span>
-        </div>
-
-        <div class="handwritten-note-paper">
-          <div class="handwritten-note-text">
-            <p>To Underwriting Desk,</p>
-            <p>Please find attached the submission for <strong>${sub.insured}</strong>
-            (${sub.id}) — ${sub.lobName}. Insured is a solid, long-standing account of ours,
-            good payment history, no major concerns from our side.</p>
-            <p>Effective date requested 09/01. Kindly fast-track if possible, client is
-            eager to bind before renewal lapses. Loss runs &amp; SOV attached separately.</p>
-            <p>Call me if anything's missing.</p>
-            <p class="handwritten-note-signoff">— ${(sub.broker || 'Broker').split(' ')[0]} Desk</p>
-          </div>
-        </div>
-
-        <div style="margin-top: 16px; padding: 12px; background: #fffbeb; border-radius: 6px; border: 1px solid #fde68a; display: flex; justify-content: space-between; align-items: center;">
-          <div class="text-sm">
-            <i class="ph ph-warning text-warning"></i> Handwritten source document — not machine-OCR'd. Route to Clearance for manual data verification.
-          </div>
-          <div class="text-sm font-mono text-muted">Scanned ${sub.receivedAt}</div>
-        </div>
-      </div>
-    `;
-  } else if (doc.name.toLowerCase().includes("acord") || doc.name.toLowerCase().includes("app")) {
-    viewer.innerHTML = `
-      <div class="doc-preview-sheet acord-pdf-sheet">
-        <div class="acord-top-header">
-          <div class="acord-logo-badge">
-            <i class="ph ph-shield-check"></i> ACORD <strong>FORM</strong>
-          </div>
-          <div class="acord-form-title">
-            <h4>Commercial Insurance Application</h4>
-            <span>Standard ISO Certified Format • ${sub.lobName}</span>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 1: Producer & Agency Information</span><span>Submission ID: ${sub.id}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Broker / Agency:</span><span class="val">${sub.broker}</span></div>
-            <div class="acord-field"><span class="lbl">Producer Email:</span><span class="val font-mono">${sub.email}</span></div>
-            <div class="acord-field"><span class="lbl">Channel Origin:</span><span class="val">${sub.channelName}</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 2: Named Insured & Risk Profile</span><span>LOB: ${sub.lobName}</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Legal Named Insured:</span><strong class="val">${sub.insured}</strong></div>
-            <div class="acord-field"><span class="lbl">FEIN / Tax ID:</span><span class="val font-mono">${sub.fein}</span></div>
-            <div class="acord-field"><span class="lbl">USDOT / Registration:</span><span class="val font-mono">${sub.dot || 'N/A'}</span></div>
-            <div class="acord-field" style="grid-column: span 2;"><span class="lbl">Mailing Address:</span><span class="val">${sub.address}</span></div>
-            <div class="acord-field"><span class="lbl">Target Effective Date:</span><span class="val">2026-09-01 (12 Months)</span></div>
-          </div>
-        </div>
-
-        <div class="acord-section-box">
-          <div class="acord-sec-title"><span>Section 3: Scheduled Coverages & Limits Requested</span><span>Binding Authority Limit: $${(sub.authorityLimit/1000000).toFixed(1)}M</span></div>
-          ${renderCoverageRowsHtml(sub.coverageRows)}
-        </div>
-
-        <div class="acord-section-box" style="margin-bottom: 0;">
-          <div class="acord-sec-title"><span>Section 4: Electronic Signatures & Compliance Verification</span><span>ISO Verified</span></div>
-          <div class="acord-sec-grid">
-            <div class="acord-field"><span class="lbl">Applicant Signature:</span><span class="val">/s/ Authorized Officer (${sub.insured})</span></div>
-            <div class="acord-field"><span class="lbl">Broker Stamp:</span><span class="val font-mono">BROKER-VERIFIED-CERT</span></div>
-            <div class="acord-field"><span class="lbl">Timestamp:</span><span class="val">${sub.receivedAt}</span></div>
-          </div>
-        </div>
-      </div>
-    `;
-  } else if (doc.type === "xls" || doc.name.toLowerCase().includes("sov") || doc.name.toLowerCase().includes("schedule")) {
-    viewer.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-xls text-success"></i> STATEMENT OF VALUES (SOV) & ASSET SCHEDULE</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Line of Business: ${sub.lobName}</span>
-          </div>
-          <span class="badge badge-success">Schedule Normalized</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Item #</th>
-              <th>Asset / Vehicle / Location Description</th>
-              <th>Identifier / VIN / Class</th>
-              <th>Territory / Location</th>
-              <th>Stated Value / Exposure</th>
-              <th>Safety Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>001</strong></td>
-              <td>Primary Scheduled Unit / Facility A</td>
-              <td class="font-mono">1FTNE31L8HDA89210</td>
-              <td>Texas Core Operations Hub</td>
-              <td class="font-mono font-bold">${sub.exposure}</td>
-              <td><span class="badge badge-success">Verified Clear</span></td>
-            </tr>
-            <tr>
-              <td><strong>002</strong></td>
-              <td>Secondary Operational Support Asset</td>
-              <td class="font-mono">1FTNE31L9HDA89211</td>
-              <td>Regional Service Facility</td>
-              <td class="font-mono font-bold">Included in Fleet Pool</td>
-              <td><span class="badge badge-success">Verified Clear</span></td>
-            </tr>
-            <tr>
-              <td><strong>003</strong></td>
-              <td>Auxiliary Equipment & Contents</td>
-              <td class="font-mono">EQUIP-SCHED-044</td>
-              <td>Scheduled Terminals</td>
-              <td class="font-mono font-bold">Full Replacement Cost</td>
-              <td><span class="badge badge-info">Inspected</span></td>
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colspan="4"><strong>TOTAL SCHEDULED EXPOSURE VALUATION:</strong></td>
-              <td class="font-mono" style="color: var(--primary); font-size: 14px;"><strong>${sub.exposure}</strong></td>
-              <td><span class="badge badge-primary">Within Appetite</span></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
-  } else {
-    // Loss Run Preview
-    viewer.innerHTML = `
-      <div class="doc-preview-sheet">
-        <div class="u-section-header">
-          <div>
-            <h4 class="u-title-16-dark"><i class="ph ph-file-pdf text-danger"></i> OFFICIAL CARRIER SIGNED LOSS RUN REPORT</h4>
-            <span class="text-secondary text-sm">Insured: ${sub.insured} • Prior 3-Year Valuation as of 2026-08-01</span>
-          </div>
-          <span class="badge badge-primary">Carrier Signed Official</span>
-        </div>
-
-        <table class="excel-sheet-table">
-          <thead>
-            <tr>
-              <th>Policy Year</th>
-              <th>Claim Number</th>
-              <th>Loss Description</th>
-              <th>Status</th>
-              <th>Paid Losses</th>
-              <th>Total Incurred</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${sub.losses.map((l, i) => `
-              <tr>
-                <td><strong>${l.year}</strong></td>
-                <td class="font-mono">CLM-2026-${1000 + i * 42}</td>
-                <td>${l.desc}</td>
-                <td><span class="badge ${l.status === 'Clean' ? 'badge-success' : 'badge-info'}">${l.status}</span></td>
-                <td class="font-mono">${l.incurred}</td>
-                <td class="font-mono font-bold">${l.incurred}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-
-        <div style="margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <span class="lbl" style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">3-Year Cumulative Loss Ratio:</span>
-            <strong style="color: #15803d; font-size: 15px; margin-left: 8px;">18.4% (Highly Favorable)</strong>
-          </div>
-          <div class="text-sm font-mono text-muted">
-            <i class="ph ph-stamp text-primary"></i> Certified Carrier Loss Audit
-          </div>
-        </div>
-      </div>
-    `;
-  }
+  // The file that was attached, not a stand-in drawn from the case's fields (js/document-viewer.js).
+  dvRenderInto(viewer, sub, doc);
 }
 
 function closeCaseDocsModal() {
@@ -429,11 +241,11 @@ function renderAllDownstreamScreens(sub) {
   if (slaTarget) slaTarget.textContent = sub.slaText;
   if (tBadge) {
     tBadge.className = `badge ${sub.priority === 'P1' ? 'badge-danger' : (sub.priority === 'P2' ? 'badge-warning' : 'badge-info')}`;
-    tBadge.textContent = `Priority: ${sub.priority} - ${sub.priority === 'P1' ? 'Highest' : (sub.priority === 'P2' ? 'High' : 'Standard FIFO')} (Score: ${sub.priorityScore}/100)`;
+    tBadge.textContent = `Priority: ${sub.priority} - ${sub.priority === 'P1' ? 'Highest' : (sub.priority === 'P2' ? 'High' : 'Standard FIFO')} ${priorityScoreText(sub)}`;
   }
   if (tFifo) tFifo.textContent = `${sub.receivedAt.split(' ')[1]} ${sub.receivedAt.split(' ')[2]} (Received Ingestion Queue)`;
   if (tProducer) tProducer.textContent = sub.channelType === 'broker' ? "Tier-1 Commercial Broker" : "Direct Customer Self-Service";
-  if (tSlaCount) tSlaCount.textContent = sub.slaCountdown;
+  if (tSlaCount) tSlaCount.textContent = slaCountdownFor(sub);
 
   // Screen 5: Underwriting Workbench
   renderSubjectivities(sub.subjectivities);
@@ -1716,16 +1528,23 @@ function renderWbLossRunsUwp(sub) {
   const losses = sub.losses || [];
   const totalIncurred = losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0);
 
+  // One table for every company's loss run; this line only adds up each company's share.
+  const companyTotals = {};
+  losses.forEach(l => { const k = l.carrier || "Company not stated"; const c = companyTotals[k] || (companyTotals[k] = { n: 0, amt: 0 }); c.n++; c.amt += parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0; });
+  const byCompanyRow = Object.keys(companyTotals).length > 1
+    ? `<tr><td colspan="7" class="text-xs">By company: ${Object.keys(companyTotals).map(k => `${k}: ${companyTotals[k].n} claim${companyTotals[k].n === 1 ? "" : "s"}, $${companyTotals[k].amt.toLocaleString()}`).join(" • ")}</td></tr>` : "";
   const bodyHtml = losses.length ? losses.map(l => {
     const statusCls = l.status === "Clean" ? "uwp-status-clean" : (l.status === "Closed" ? "uwp-status-closed" : "uwp-status-open");
     return `<tr>
+      <td>${l.carrier || '<span class="uwp-empty-inline">Not stated</span>'}</td>
+      <td class="text-xs">${l.sourceDocument || '<span class="uwp-empty-inline">—</span>'}</td>
       <td>${l.year}</td>
       <td>${l.desc}</td>
       <td class="font-mono">${l.incurred}</td>
       <td class="font-mono ${l.paid === undefined ? 'uwp-empty-inline' : ''}">${l.paid !== undefined ? (typeof l.paid === 'number' ? `$${l.paid.toLocaleString()}` : l.paid) : '—'}</td>
       <td><span class="uwp-status-pill ${statusCls}">${l.status}</span></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="5"><div class="empty-state"><i class="ph ph-file-text empty-state-icon"></i><div class="empty-state-body">No loss history was provided with this submission.</div></div></td></tr>`;
+  }).join('') : `<tr><td colspan="7"><div class="empty-state"><i class="ph ph-file-text empty-state-icon"></i><div class="empty-state-body">No loss history was provided with this submission.</div></div></td></tr>`;
 
   // Loss Ratio = Incurred Losses ÷ Earned Premium × 100. Incurred Losses is
   // the real sum of sub.losses above — never hardcoded. Earned Premium
@@ -1763,9 +1582,9 @@ function renderWbLossRunsUwp(sub) {
       <div class="uwp-card-title"><i class="ph ph-file-text"></i> Loss Runs (${losses.length} Claim${losses.length === 1 ? '' : 's'})</div>
       <div class="table-responsive">
         <table class="uwp-table">
-          <thead><tr><th>Claim Date</th><th>Claim Type</th><th>Incurred Amount</th><th>Paid Amount</th><th>Status</th></tr></thead>
+          <thead><tr><th>Insurance Company</th><th>Source Document</th><th>Claim Date</th><th>Claim Type</th><th>Incurred Amount</th><th>Paid Amount</th><th>Status</th></tr></thead>
           <tbody>${bodyHtml}</tbody>
-          ${losses.length ? `<tfoot><tr><td>Total Claims: ${losses.length}</td><td></td><td class="font-mono">Total Incurred: $${totalIncurred.toLocaleString()}</td><td></td><td></td></tr></tfoot>` : ''}
+          ${losses.length ? `<tfoot><tr><td colspan="4">Total Claims: ${losses.length}</td><td class="font-mono">Total Incurred: $${totalIncurred.toLocaleString()}</td><td></td><td></td></tr>${byCompanyRow}</tfoot>` : ''}
         </table>
       </div>
       ${lossRatioHtml}
@@ -1965,180 +1784,144 @@ function getSubmissionRatingPayload(sub) {
     }
   }
 
-  // Parse vehicle make/model/year from OCR or default
-  let vehicleMake = "";
-  let vehicleModel = "";
-  let vehicleYear = 2024;
-  if (sub.ocrFields) {
-    const mmField = sub.ocrFields.find(f => f.key.includes("Make") || f.key.includes("Model") || f.key.includes("Vehicle"));
-    if (mmField) {
-      const parts = mmField.val.split(" ");
-      vehicleMake = parts[0] || "";
-      vehicleModel = parts.slice(1).join(" ") || "";
-    }
-    const yField = sub.ocrFields.find(f => f.key.includes("Year"));
-    if (yField) {
-      vehicleYear = parseInt(yField.val, 10) || 2024;
-    }
-  }
+  // Everything below comes from what the case states. A value the case does not give is null, never a made-up default.
+  const ops = sub.operationsProfile || {};
+  const pad2 = n => (n < 10 ? "0" : "") + n;
+  const ratingDate = (s) => { const t = Date.parse(s); if (isNaN(t)) return null; const d = new Date(t); return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${d.getFullYear()}`; };
+  const effective = ratingDate(sub.effectiveDate);
+  const expiration = ratingDate(sub.expirationDate) || (effective ? (() => { const d = new Date(Date.parse(sub.effectiveDate)); d.setFullYear(d.getFullYear() + 1); return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${d.getFullYear()}`; })() : null);
+  const garagingState = state || (sub.insuredInfo && sub.insuredInfo.insured_garaging_state) || null;
+  const orNull = v => (v === undefined || v === "" ? null : v);
+  const yesNo = v => (v === true ? "Yes" : (v === false ? "No" : null));
+  const covRows = sub.coverageRows || [];
+  const hasCover = rx => covRows.some(r => rx.test(String(r.line || "")));
+  const brokerFeeAmount = sub.channelType === "broker"
+    ? ((sub.broker_fee && sub.broker_fee.amount) || (typeof cfgValueFor === "function" ? cfgValueFor(sub, "broker_fee_invoice_default") : 0) || 0)
+    : 0;
+  const years = ops.years_in_business !== undefined ? ops.years_in_business : null;
+  const ci = sub.coveragesInfo || {}, fi = sub.filingInfo || {}, ri = sub.radiusOfOperationsInfo || {}, si = sub.serviceInspectionInfo || {}, ui = sub.uwReviewInfo || {};
+  const dp = sub.discretionaryPricing || null;
+  const allDashcam = (sub.vehicles || []).length > 0 && (sub.vehicles || []).every(v => typeof vehicleDashcamState === "function" && vehicleDashcamState(v) === true);
+  const thisYear = new Date().getFullYear();
+  const FACTOR_KEYS = ["primary_code", "secondary_code", "rating_class", "liab_baserate", "liab_ilf_factor", "liab_ded_factor", "liab_lcm_factor", "liab_primary_factor", "liab_secondary_factor", "liab_fleet_factor", "vehicle_age_factor", "liab_ocn_factor", "radius_factor", "naics_factor", "tort_limitation_factor", "miles_driven_factor", "rating_class_factor", "dashcam_factor", "cdl_exp_disc_factor", "driver_class_factor", "liab_acc_level_factor", "vehicle_owned_factor", "driver_criteria_factor", "payment_plan_factor", "heavy_farm_factor", "heavy_dumping_factor", "uw_credit_debit_factor", "al_premium_wo_mod_factor", "liability_premium", "pd_premium", "pd_base_rate", "pd_deductible_factor", "naics_code"];
+
+  const vehicleRows = (sub.vehicles || []).map((v, idx) => {
+    const row = {
+      "id": v.id !== undefined ? v.id : idx + 1,
+      "xid": v.xid || idx + 1,
+      "year": orNull(v.year), "make": orNull(v.make), "model": orNull(v.model), "vin": orNull(v.vin),
+      "state_code": garagingState, "zip": orNull(zip),
+      "weight": orNull(v.weight), "ownership": orNull(v.ownership),
+      "stated_value": orNull(v.stated_value), "al_value": orNull(v.al_value),
+      "miles_driven": orNull(v.miles_driven), "no_of_units": 1, "no_of_ppt_units": orNull(v.no_of_ppt_units),
+      "vehicle_age": v.year ? thisYear - v.year : null,
+      "Liability": hasCover(/liab/i) ? "Yes" : null, "pd_opted": hasCover(/physical|own damage|collision|comprehensive/i) ? "Yes" : null,
+      "dashcam": yesNo(typeof vehicleDashcamState === "function" ? vehicleDashcamState(v) : null)
+    };
+    FACTOR_KEYS.forEach(k => { row[k] = v[k] !== undefined ? v[k] : null; });
+    return row;
+  });
 
   return {
-    "insured_id": sub.fein ? (parseInt(sub.fein.replace(/\D/g, ""), 10) || 1150142) : 1150142,
+    "insured_id": sub.fein ? (parseInt(String(sub.fein).replace(/\D/g, ""), 10) || null) : null,
     "submission_id": sub.id,
-    "quote_id": sub.quoteNo || `QT-${(sub.lobKey || "GEN").toUpperCase()}-2026-8801`,
+    "quote_id": sub.quoteNo || null,
     "endorsement_number": 0,
     "endorsement_type": null,
     "broker_fee": {
-      "amount": sub.channelType === 'broker' ? 2574 : 0,
+      "amount": brokerFeeAmount,
       "default": sub.channelType === 'broker' ? 1 : 0
     },
     "genInfo": {
-      "quotetype": sub.lobName || "Commercial Insurance",
+      "quotetype": sub.lobName || null,
       "application_type_id": 483,
       "company": 210,
-      "lob": sub.lobKey || "trucking",
+      "lob": sub.lobKey || null,
       "policytype": "New Business",
       "billtype": sub.channelType === 'broker' ? "Agency Bill" : "Direct Bill",
-      "effective_date": "09/01/2026",
-      "expiration_date": "09/01/2027",
-      "lock_rate_effective_date": "08/25/2026",
-      "business_yrs_exp": "5",
+      "effective_date": effective,
+      "expiration_date": expiration,
+      "lock_rate_effective_date": null,
+      "business_yrs_exp": years === null ? null : String(years),
       "binding": sub.currentStep >= 7 ? "yes" : "pending",
-      "al_check": true,
-      "cargo_check": sub.lobKey === "trucking",
-      "pd_check": true
+      "al_check": hasCover(/liab/i) || null,
+      "cargo_check": sub.lobKey === "trucking" ? hasCover(/cargo/i) : null,
+      "pd_check": hasCover(/physical|own damage|collision|comprehensive/i) || null
     },
     "insuredInfo": {
-      "entity_type": sub.channelType === 'broker' ? "Corporation / LLC" : "Individual / Direct",
-      "insured_name": sub.insured || "",
-      "fein": sub.fein || "",
-      "dot_number": sub.dot || "",
-      "address": sub.address || "",
-      "insured_garaging_zip": zip || "",
-      "insured_garaging_city": city || "",
-      "insured_garaging_state": state || (sub.id.split('-').pop() || "TX"),
-      "insured_garaging_county": city ? `${city} County` : "",
-      "years_of_experience": 5,
-      "dot_yes_no": (sub.dot && sub.dot !== "N/A") ? "Yes" : "No",
-      "icc_filings_yes_no": "No",
-      "description_of_operation": sub.priorityReason || ""
+      "entity_type": orNull(sub.entityType),
+      "insured_name": sub.insured || null,
+      "fein": sub.fein || null,
+      "dot_number": sub.dot || null,
+      "address": sub.address || null,
+      "insured_garaging_zip": orNull(zip),
+      "insured_garaging_city": orNull(city),
+      "insured_garaging_state": garagingState,
+      "insured_garaging_county": city ? `${city} County` : null,
+      "years_of_experience": years,
+      "dot_yes_no": sub.dot ? "Yes" : "No",
+      "icc_filings_yes_no": orNull(fi.icc_filings_yes_no),
+      "description_of_operation": orNull(ops.business_type)
     },
     "coveragesInfo": {
       "rating_type": "Composite Rating Engine",
-      "liability": sub.exposureVal || 1000000,
-      "al_deductions": 0,
-      "pd": "Yes",
-      "cargo": sub.lobKey === "trucking" ? "Yes" : "No",
-      "cargo_limit": 250000,
-      "pd_high_deductible": "5000",
-      "pd_deductible_amount": 2500,
-      "naics_code": 484110,
-      "rating_class": 5,
-      "dashcam": "No",
-      "al_check": true,
-      "pd_check": true,
-      "cargo_check": sub.lobKey === "trucking",
-      "towing": "10000"
+      "liability": orNull(sub.exposureVal) || null,
+      "al_deductions": orNull(ci.al_deductions),
+      "pd": hasCover(/physical|own damage|collision|comprehensive/i) ? "Yes" : "No",
+      "cargo": hasCover(/cargo/i) ? "Yes" : "No",
+      "cargo_limit": orNull(ci.cargo_limit),
+      "pd_high_deductible": orNull(ci.pd_high_deductible),
+      "pd_deductible_amount": orNull(ci.pd_deductible_amount),
+      "naics_code": orNull(ci.naics_code),
+      "rating_class": orNull(ci.rating_class),
+      "dashcam": allDashcam ? "Yes" : "No",
+      "al_check": hasCover(/liab/i) || null,
+      "pd_check": hasCover(/physical|own damage|collision|comprehensive/i) || null,
+      "cargo_check": sub.lobKey === "trucking" ? hasCover(/cargo/i) : null,
+      "towing": orNull(ci.towing)
     },
     "filingInfo": {
-      "safer_factor": "1.0",
-      "FMCSA_alert": "0",
-      "uw_credit_debit_factor": sub.priority === 'P1' ? "0.95" : "1.0"
+      "safer_factor": orNull(fi.safer_factor),
+      "FMCSA_alert": orNull(fi.FMCSA_alert),
+      "uw_credit_debit_factor": dp && dp.adjustmentType ? Number((1 + (dp.adjustmentType === "credit" ? -1 : 1) * (dp.adjustmentPercent || 0) / 100).toFixed(4)) : null
     },
     "radiusOfOperationsInfo": {
-      "radius": 450,
-      "Intrastate_interstate": "Interstate"
+      "radius": ri.radius !== undefined ? ri.radius : (ops.operating_radius !== undefined ? ops.operating_radius : null),
+      "Intrastate_interstate": orNull(ri.Intrastate_interstate) || orNull(ops.interstate_intrastate)
     },
     "serviceInspectionInfo": {
-      "number_of_inspection_si": 0,
-      "oos_violation_si": 0,
-      "account_percent_si": "-",
-      "account_percent_driver": "-"
+      "number_of_inspection_si": orNull(si.number_of_inspection_si),
+      "oos_violation_si": orNull(si.oos_violation_si),
+      "account_percent_si": orNull(si.account_percent_si),
+      "account_percent_driver": orNull(si.account_percent_driver)
     },
-    "commoditiesSelected": [1, 2],
+    "commoditiesSelected": sub.commoditiesSelected || [],
     "commoditiesInfo": {
-      "secondary_class": sub.lobName || "Commercial Lines"
+      "secondary_class": orNull((sub.commoditiesInfo || {}).secondary_class) || orNull(ops.commodities_hauled)
     },
     "uwReviewInfo": {
-      "driver_factor": 1.0,
-      "og_driver_count": (sub.ocrFields && sub.ocrFields.find(f => f.key.includes("Units"))) ? parseInt(sub.ocrFields.find(f => f.key.includes("Units")).val, 10) || 5 : 5,
-      "cr_driver_count": 5,
-      "al_pollution": "Low",
-      "al_pollution_factor": "1.00",
-      "uw_credit_debit_factor": "1.0",
-      "loss_experience_factor": "1.0",
-      "min_earn_factor": 25,
-      "broker_fee_amount": sub.channelType === 'broker' ? 2574 : 0,
-      "original_driver_exclude_count": 0
+      "driver_factor": orNull(ui.driver_factor),
+      "og_driver_count": (sub.drivers || []).length || null,
+      "cr_driver_count": orNull(ui.cr_driver_count),
+      "al_pollution": orNull(ui.al_pollution),
+      "al_pollution_factor": orNull(ui.al_pollution_factor),
+      "uw_credit_debit_factor": orNull(ui.uw_credit_debit_factor),
+      "loss_experience_factor": orNull(ui.loss_experience_factor),
+      "min_earn_factor": orNull(ui.min_earn_factor),
+      "broker_fee_amount": brokerFeeAmount,
+      "original_driver_exclude_count": orNull(ui.original_driver_exclude_count)
     },
-    "vehicles": (sub.coverageRows || [{ line: "Coverage Limit", limit: "$1,000,000", ded: "$2,500", prem: "$12,000.00" }]).map((row, idx) => ({
-      "id": 903100 + idx,
-      "xid": idx + 1,
-      "year": vehicleYear,
-      "make": vehicleMake || sub.insured.split(" ")[0] || "Unit",
-      "model": vehicleModel || "Commercial Vehicle",
-      "state_code": state || "TX",
-      "zip": zip || "",
-      "weight": "Commercial",
-      "ownership": "Owned",
-      "primary_code": 332,
-      "secondary_code": null,
-      "rating_class": 5,
-      "stated_value": sub.exposureVal || 500000,
-      "al_value": Math.round((sub.exposureVal || 500000) * 0.2),
-      "miles_driven": 450,
-      "no_of_units": 1,
-      "no_of_ppt_units": 0,
-      "vehicle_age": 2026 - vehicleYear,
-      "Liability": "Yes",
-      "pd_opted": "Yes",
-      "naics_code": 484110,
-      "liab_baserate": 837,
-      "liab_ilf_factor": 2.06,
-      "liab_ded_factor": 0,
-      "liab_lcm_factor": 1.67,
-      "liab_primary_factor": 1.8,
-      "liab_secondary_factor": 1.98,
-      "liab_fleet_factor": 0.97,
-      "vehicle_age_factor": 1.12,
-      "liab_ocn_factor": 1.14,
-      "radius_factor": 0.95,
-      "naics_factor": 1.1,
-      "tort_limitation_factor": 1,
-      "miles_driven_factor": 1.03,
-      "rating_class_factor": 1,
-      "dashcam_factor": 1,
-      "cdl_exp_disc_factor": 1,
-      "driver_class_factor": 1.0,
-      "liab_acc_level_factor": 1,
-      "vehicle_owned_factor": 0.95,
-      "driver_criteria_factor": 1,
-      "payment_plan_factor": 1,
-      "heavy_farm_factor": 1,
-      "heavy_dumping_factor": 1,
-      "uw_credit_debit_factor": 1,
-      "al_premium_wo_mod_factor": row.prem || "$10,000",
-      "liability_premium": row.prem || "$10,000",
-      "pd_premium": row.prem || "$10,000",
-      "pd_base_rate": 4.75,
-      "pd_deductible_factor": 0.875
-    })),
-    "drivers": [
-      {
-        "id": 942561,
-        "given_name": (sub.insured || "Primary").split(" ")[0],
-        "last_name": (sub.insured || "Insured").split(" ").slice(1).join(" ") || "Insured",
-        "dob": "01/01/1990",
-        "licensestate": state || "TX",
-        "licenseclasstype": "Class A",
-        "experience": "5 Years",
-        "tenure": 3,
-        "exclude": 0,
-        "status": "Active Verified",
-        "driver_factor": 1.0,
-        "violations": []
-      }
-    ]
+    "vehicles": vehicleRows,
+    "drivers": (sub.drivers || []).map((d, idx) => ({
+      "id": d.id !== undefined ? d.id : idx + 1,
+      "given_name": orNull(d.given_name), "last_name": orNull(d.last_name),
+      "dob": orNull(d.dob), "age": orNull(d.age),
+      "licensestate": orNull(d.licensestate), "licenseclasstype": orNull(d.licenseclasstype),
+      "experience": orNull(d.experience), "tenure": orNull(d.tenure),
+      "exclude": orNull(d.exclude), "status": orNull(d.status),
+      "driver_factor": orNull(d.driver_factor),
+      "violations": orNull(d.violations)
+    }))
   };
 }
 
@@ -2318,7 +2101,7 @@ function downloadRatingJSON() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.setAttribute("href", url);
-  link.setAttribute("download", `Rating_Payload_${data.submission_id}_${data.quote_id}.json`);
+  link.setAttribute("download", `Rating_Payload_${data.submission_id}_${data.quote_id || "unquoted"}.json`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -2450,7 +2233,7 @@ function renderAllStepsSummaryModal(sub) {
             <div class="summary-step-desc">Document ingestion pipeline, file validation, OCR parsing, and canonical entity schema creation.</div>
           </div>
         </div>
-        <span class="badge badge-success"><i class="ph ph-check-circle"></i> 99.4% OCR Confidence</span>
+        <span class="badge badge-light">${(sub.documentExtractions || []).filter(d => d.status === "extracted").length} of ${(sub.documentExtractions || []).length} file(s) read</span>
       </div>
       <div class="summary-step-grid">
         <div class="summary-field-box">
@@ -2459,7 +2242,7 @@ function renderAllStepsSummaryModal(sub) {
         </div>
         <div class="summary-field-box">
           <div class="summary-field-label">Entity Type & Structure</div>
-          <div class="summary-field-val">${sub.entityType || 'Commercial LLC'} • DOT: 3948102</div>
+          <div class="summary-field-val">${sub.entityType || 'Entity type not provided'} • DOT: ${sub.dot || 'not provided'}</div>
         </div>
         <div class="summary-field-box">
           <div class="summary-field-label">Operating Address</div>

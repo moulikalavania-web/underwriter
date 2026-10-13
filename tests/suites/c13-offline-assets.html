@@ -1,0 +1,30 @@
+<!-- Suite C13: the app needs no network for its fonts, icons or PDF library. They are loaded from vendor/ and are usable. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  var links = Array.prototype.map.call(document.querySelectorAll('link[rel="stylesheet"]'), function(l){ return l.getAttribute('href'); });
+  var scripts = Array.prototype.map.call(document.querySelectorAll('script[src]'), function(s){ return s.getAttribute('src'); });
+  t('every stylesheet and script is a local file', links.concat(scripts).every(function(u){ return !/^(https?:)?\/\//.test(u); }), links.concat(scripts).filter(function(u){ return /^(https?:)?\/\//.test(u); }).join(', '));
+  t('the fonts, the icon font and the PDF library come from vendor/', links.indexOf('vendor/fonts/fonts.css') > -1 && links.indexOf('vendor/phosphor/style.css') > -1 && scripts.indexOf('vendor/jspdf/jspdf.umd.min.js') > -1);
+  t('the PDF library is loaded and can make a document', !!(window.jspdf && window.jspdf.jsPDF) && (function(){ var d = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' }); d.text('x', 10, 10); return d.getNumberOfPages() === 1; })());
+  var sheets = Array.prototype.filter.call(document.styleSheets, function(s){ return /vendor\//.test(s.href || ''); });
+  var rules = []; sheets.forEach(function(s){ try { Array.prototype.forEach.call(s.cssRules, function(r){ rules.push(r.cssText); }); } catch (e) {} });
+  t('the icon stylesheet defines the icons the app uses', rules.some(function(r){ return /\.ph-x::before/.test(r); }) && rules.some(function(r){ return /\.ph-shield-check::before/.test(r); }) && rules.some(function(r){ return /\.ph-lightbulb::before/.test(r); }));
+  var ff = rules.filter(function(r){ return /@font-face/.test(r); }).join('\n');
+  t('the font-face rules name only local files', /Phosphor\.woff2/.test(ff) && /inter-latin-400-normal\.woff2/.test(ff) && /jetbrains-mono-latin-700-normal\.woff2/.test(ff) && !/https?:/.test(ff));
+  function done(){
+    var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  }
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load('16px Phosphor'), document.fonts.load('600 14px Inter'), document.fonts.load('500 14px "JetBrains Mono"')]).then(function(r){
+      t('the icon font loads from the local file', r[0].length > 0 && document.fonts.check('16px Phosphor'));
+      t('Inter loads from the local file', r[1].length > 0);
+      t('JetBrains Mono loads from the local file', r[2].length > 0);
+      t('no page errors', errs.length === 0, errs.join(' | '));
+      done();
+    }).catch(function(e){ t('the fonts load', false, String(e)); done(); });
+  } else { t('font loading is supported', false); done(); }
+})();
+</script>

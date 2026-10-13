@@ -567,13 +567,7 @@ function comBorGuardBind(source, subId) {
     };
   }
   // The real bind
-  const origPas = window.simulatePASBindSync;
-  if (typeof origPas === "function") {
-    window.simulatePASBindSync = function (subId) {
-      if (!comBorGuardBind("PAS bind", subId)) return;
-      return origPas.apply(this, arguments);
-    };
-  }
+  registerGuard("bind", "broker of record", function (a) { return comBorGuardBind("PAS bind", a[0]); });
   // Commission locks when the bound quote version is recorded
   const origRecord = window.recordQuoteVersion;
   if (typeof origRecord === "function") {

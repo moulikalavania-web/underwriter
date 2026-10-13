@@ -238,12 +238,13 @@ function rnCreateRenewalSubmission(sub, today) {
   copy.docs = (copy.docs || []).filter(d => !/loss.?run|acord|application/i.test(`${d.name} ${d.desc || ""}`));
   const days = rnDays(t, f.expiration);
   copy.priority = days <= 30 ? "P1" : "P2";
-  copy.priorityScore = days <= 30 ? 92 : 78;
+  copy.priorityScore = null;
   copy.priorityReason = `Renewal of ${f.policyNumber} • expires ${f.expiration} (${days} days)`;
-  copy.slaText = days <= 30 ? "4h Fast-Track SLA" : "24h Standard SLA";
-  copy.slaCountdown = days <= 30 ? "4h 00m remaining" : "24h 00m remaining";
-  copy.channelName = `Renewal of ${f.policyNumber}`;
   copy.receivedAt = "Just Now"; copy.receivedTimestamp = Date.now();
+  copy.slaHours = slaHoursFor(copy.priority);
+  copy.slaText = slaTextFor(copy.priority);
+  copy.slaCountdown = slaCountdownFor(copy);
+  copy.channelName = `Renewal of ${f.policyNumber}`;
   copy.statusText = "Renewal Intake"; copy.statusBadge = "badge-primary";
   copy.currentStep = 1; copy.completedSteps = [];
   copy.missingItems = { documents: [], dataFields: [] };

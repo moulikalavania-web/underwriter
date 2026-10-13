@@ -1,0 +1,76 @@
+<!-- Suite C15: Quote Conditions and the Rating Snapshot are wired into the quote document, the binder and the final underwriting JSON. A coverage still
+     pending a condition is shown as NOT included and NOT bound; a coverage added by a met condition is shown as included. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker';
+    ['quoteConditions', 'ratingSnapshots', 'pasSync', 'authorityRef', 'importedRatingData', 'binders', 'certificates', 'riskScore'].forEach(function(k){ delete s[k]; });
+    s.exposureVal = 1000000; s.address = '1 Main St, Dallas, TX 75201'; s.effectiveDate = '2026-11-01';
+    s.vehicles = [{ id: 1, year: 2022, make: 'Volvo', model: 'VNL', stated_value: 125000, dashcam: true }];
+    s.coverageRows = [{ line: 'Auto Liability', limit: '$1,000,000', ded: '$0', prem: '$10,000', premVal: 10000 }];
+    s.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 10000 };
+    s.currentPremium = 10000; return s;
+  }
+  var today = qcToday(), in30 = qcAddDays(today, 30);
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+    var sub = mk('SUB-WR-1'); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentWorkflowStep = 7;
+    renderRatingEnginePayload(sub);   // a rating snapshot exists once the case is at the rating step
+
+    // a pending condition, then a met one
+    sub.quoteConditions = [
+      { id: 'QC-1', status: 'signed', coverage: { line: 'Own Damage', limit: '$1,000,000', ded: '$300' }, condition: 'Install a dashcam on each unit listed.', premium: 4800, deadline: in30, versions: [{ version: 1, kind: 'created', condition: 'x', coverage: {}, premium: 4800, deadline: in30, changes: [], reason: '', by: 'x', at: 'x' }], messages: [], signature: { version: 1, signedBy: 'Dana Whitfield', signedOn: today, reference: 'r' }, outcome: null }
+    ];
+
+    // ---------- the quote document
+    var lines = buildQuoteProposalLines(sub).join('\n');
+    t('the quote lists the pending condition: coverage, limit, premium if met, deadline and the condition', /QUOTE CONDITIONS — COVERAGE NOT INCLUDED IN THE PREMIUM ABOVE/.test(lines) && /Own Damage \(QC-1\)/.test(lines) && /limit \$1,000,000, deductible \$300/.test(lines) && /\$4,800\.00 additional annual premium only if this is met by /.test(lines) && lines.indexOf(in30) > -1 && /Install a dashcam on each unit listed/.test(lines));
+    t('it says the coverage is not in the premium and what happens if the condition is not met', /the coverage is not added and the premium above is unchanged/.test(lines) && /Not in force until added/.test(lines));
+    t('the pending coverage is NOT among the scheduled coverages or in the premium', !/Own Damage/.test(lines.split('QUOTE CONDITIONS')[0]) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$10,000\.00/.test(lines), lines.split('\n').filter(function(l){ return /TOTAL ESTIMATED/.test(l); }).join());
+    t('the quote names the rating it rests on', /Rating basis: snapshot v1 \(/.test(lines) && new RegExp('risk score ' + getEffectiveRiskScore(sub)).test(lines), lines.split('\n').filter(function(l){ return /Rating basis/.test(l); }).join());
+    var html = renderQuoteDocumentHtml(sub);
+    t('the on-screen quote shows the same: the condition, the deadline and the rating basis', /Quote Conditions: coverage not included in the premium above/.test(html) && /Own Damage/.test(html) && html.indexOf(in30) > -1 && /Rating basis: snapshot v1/.test(html));
+    t('the quote email data carries them too', buildIssueQuoteEmailPayload(sub).quoteConditions.pending.length === 1 && buildIssueQuoteEmailPayload(sub).ratingBasis.version === 1);
+
+    // ---------- the binder
+    var f = bndFacts(sub);
+    t('the binder facts list the coverage that is pending, not bound', f.pendingCoverages.length === 1 && f.pendingCoverages[0].line === 'Own Damage' && f.coverages.every(function(c){ return c.line !== 'Own Damage'; }) && f.ratingBasis.version === 1);
+    var bhtml = bndBinderHtml(sub, f, { id: 'BND-1', issuedAt: 'now', effective: '2026-11-01', expires: '2026-12-01', coverages: f.coverages, pendingCoverages: f.pendingCoverages, ratingBasis: f.ratingBasis, conditions: [], issuedBy: 'x' });
+    t('the binder says that coverage is not bound and not in force, with the deadline', /Coverage NOT bound: pending a Quote Condition/.test(bhtml) && /Own Damage/.test(bhtml) && /is not in force/.test(bhtml) && bhtml.indexOf(in30) > -1);
+    t('and names the rating basis', /Rating basis: snapshot v1/.test(bhtml));
+    t('a binder with no pending condition carries no such section', !/NOT bound/.test(bndBinderHtml(mk('SUB-WR-0'), bndFacts(mk('SUB-WR-0')), { id: 'B', issuedAt: 'x', effective: 'x', expires: 'y', coverages: [], pendingCoverages: [], ratingBasis: null, conditions: [], issuedBy: 'x' })));
+
+    // ---------- the final underwriting JSON
+    var fj = buildFinalUnderwritingJSON(sub);
+    t('the final JSON carries the rating snapshot reference and the quote conditions', fj.ratingSnapshot.version === 1 && typeof fj.ratingSnapshot.hash === 'string' && fj.quoteConditions.pending.length === 1 && fj.quoteConditions.pending[0].coverage === 'Own Damage' && fj.quoteConditions.pending[0].premium === 4800 && fj.quoteConditions.pending[0].signedBy === 'Dana Whitfield');
+    t('and everything it already carried is unchanged', Object.keys(fj).sort().join() === 'quote,quoteConditions,ratingInputs,ratingSnapshot' && !!fj.ratingInputs.vehicles && !!fj.ratingInputs.drivers && !!fj.ratingInputs.coveragesInfo);
+
+    // ---------- when the condition is met: the coverage is included
+    qcRender(sub); el('qc_met_ref_QC-1').value = 'Installer certificate DC-5521'; qcConfirmMet('QC-1');
+    var lines2 = buildQuoteProposalLines(sub).join('\n');
+    t('a met condition moves the coverage into the quote and the premium', /Own Damage/.test(lines2.split('COVERAGE ADDED')[0]) && /COVERAGE ADDED UNDER A QUOTE CONDITION/.test(lines2) && /\(QC-1\): condition met /.test(lines2) && !/COVERAGE NOT INCLUDED/.test(lines2) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$14,800\.00/.test(lines2), lines2.split('\n').filter(function(l){ return /TOTAL ESTIMATED/.test(l); }).join());
+    t('the rating basis moves to the new snapshot, because the premium changed', /Rating basis: snapshot v2 \(/.test(lines2));
+    var f2 = bndFacts(sub);
+    t('the binder now lists it as bound coverage and nothing pending', f2.coverages.some(function(c){ return c.line === 'Own Damage'; }) && f2.pendingCoverages.length === 0 && f2.ratingBasis.version === 2);
+    var fj2 = buildFinalUnderwritingJSON(sub);
+    t('the final JSON shows the condition as met, with when and the evidence', fj2.quoteConditions.pending.length === 0 && fj2.quoteConditions.added[0].id === 'QC-1' && fj2.quoteConditions.added[0].evidence === 'Installer certificate DC-5521' && fj2.ratingSnapshot.version === 2 && fj2.ratingSnapshot.finalPremium === 14800);
+
+    // ---------- a lapsed condition leaves no trace in the premium or the schedule
+    var sub3 = mk('SUB-WR-3'); SUBMISSIONS_DATASET.push(sub3); activeSubmissionId = sub3.id; currentWorkflowStep = 7; renderRatingEnginePayload(sub3);
+    sub3.quoteConditions = [{ id: 'QC-1', status: 'lapsed', coverage: { line: 'Own Damage', limit: 'x', ded: 'y' }, condition: 'Install a dashcam', premium: 4800, deadline: qcAddDays(today, -2), versions: [{ version: 1 }], messages: [], signature: null, outcome: { kind: 'lapsed', coverageAdded: false } }];
+    var l3 = buildQuoteProposalLines(sub3).join('\n');
+    t('a lapsed condition is not on the quote at all, and the premium is unchanged', !/Own Damage/.test(l3) && !/QUOTE CONDITIONS/.test(l3) && /TOTAL ESTIMATED TERM PREMIUM:\s+\$10,000\.00/.test(l3) && buildFinalUnderwritingJSON(sub3).quoteConditions.notAdded[0].outcome === 'lapsed');
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

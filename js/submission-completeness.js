@@ -10,7 +10,7 @@
  * on the Document Ingestion screen.
  *
  *   - Common items for every line (insured, FEIN, address, effective date,
- *     producer, contact, requested limit, loss history, signed application,
+ *     producer, contact, requested limit, loss history,
  *     currently valued loss runs) plus line-specific items for Commercial
  *     Auto / Trucking, Commercial Property, Professional Liability, GL CPC and
  *     GL CAS. Checklists are plain data in COMPLETENESS_CHECKLISTS.
@@ -24,7 +24,7 @@
  *
  * The checks read what is actually on the submission (fields, schedules,
  * extracted data and attached documents); they do not read the contents of a
- * PDF. "Currently valued" loss runs and a signed application are therefore
+ * PDF. "Currently valued" loss runs are therefore
  * confirmed by the underwriter, and the checklist says so.
  * ============================================================================
  */
@@ -52,7 +52,7 @@ function completenessFlat(sub) {
     });
   };
   ["insured", "fein", "address", "broker", "email", "dot", "mcNumber", "effectiveDate", "expirationDate"].forEach(k => add(k, sub[k]));
-  ["genInfo", "insuredInfo", "coveragesInfo", "radiusOfOperationsInfo"].forEach(k => walk(sub[k], k, 0));
+  ["genInfo", "insuredInfo", "coveragesInfo", "radiusOfOperationsInfo", "operationsProfile", "commoditiesInfo"].forEach(k => walk(sub[k], k, 0));
   walk(sub.canonicalJson, "canonicalJson", 0);
   (sub.ocrFields || []).forEach(f => add("ocr." + f.key, f.val));
   return flat;
@@ -65,6 +65,24 @@ function completenessPick(flat, patterns) {
     if (patterns.some(p => p.test(keys[i]))) return flat[keys[i]];
   }
   return null;
+}
+
+/**
+ * Says what is missing from a schedule and where it was looked for, instead of a bare "Missing":
+ * "2 drivers are on the case. Missing: date of birth or age for Arjun Mehta, Rahul Verma. The Driver list (file.docx) was read
+ * and does not state it."
+ */
+function completenessScheduleGap(sub, listKey, noun, fields, nameOf, docId) {
+  const list = sub[listKey] || [];
+  const doc = typeof diDocumentEvidence === "function" ? diDocumentEvidence(sub, docId) : null;
+  if (!list.length) return doc ? `No ${noun}s are on the case yet. ${doc} looks like the ${noun} schedule: use "Fetch missing items from attached documents".` : `No ${noun}s are on the case and no ${noun} schedule was found among the attached documents.`;
+  const parts = [];
+  fields.forEach(([label, has]) => {
+    const who = list.filter(x => !has(x)).map(nameOf);
+    if (who.length) parts.push(`${label} for ${who.join(", ")}`);
+  });
+  if (!parts.length) return "";
+  return `${list.length} ${noun}${list.length === 1 ? " is" : "s are"} on the case. Missing: ${parts.join("; ")}.` + (doc ? ` ${doc} was read and does not state ${parts.length === 1 ? "it" : "them"}; ask the producer for the missing detail.` : "");
 }
 
 function completenessDocText(sub) {
@@ -82,10 +100,15 @@ function completenessResolvedByCommunication(sub, label) {
 //    data(): test(sub, flat) returns a short "found" string, or a falsy value.
 //    doc():  looks for a matching attached document.
 // ----------------------------------------------------------------------------
-function cData(id, label, required, test, ask) { return { id, kind: "data", label, required, test, ask: ask || "Broker / Agency" }; }
+function cData(id, label, required, test, ask, gap) { return { id, kind: "data", label, required, test, ask: ask || "Broker / Agency", gap }; }
 function cDoc(id, label, required, regex, hint) {
   return { id, kind: "document", label, required, ask: "Broker / Agency", hint,
-    test: (sub) => { const m = completenessDocText(sub).match(regex); return m ? "Attached" : false; } };
+    test: (sub) => {
+      if (completenessDocText(sub).match(regex)) return "Attached";
+      // The file name may say nothing; the content of the extracted document can (document-ingestion.js).
+      const found = typeof diDocumentEvidence === "function" ? diDocumentEvidence(sub, id) : null;
+      return found ? `Found in ${found}` : false;
+    } };
 }
 
 var COMPLETENESS_CHECKLISTS = {
@@ -98,7 +121,6 @@ var COMPLETENESS_CHECKLISTS = {
     cData("contact", "Contact email", true, (s, f) => f.email),
     cData("limit", "Requested limit / exposure", true, (s) => (Number(s.exposureVal) > 0) && ("$" + Number(s.exposureVal).toLocaleString("en-US"))),
     cData("losses", "Loss history stated", true, (s) => Array.isArray(s.losses) && s.losses.length > 0 && (s.losses.length + " period(s) listed")),
-    cDoc("doc_application", "Signed application (ACORD or equivalent)", true, /acord|application|submission/i, "Signature cannot be read from the file name; confirm it is signed and dated."),
     cDoc("doc_lossruns", "Currently valued loss runs", true, /loss.?run/i, "Obtain from each prior carrier for the look-back period; confirm valuation is within 90 days.")
   ],
   trucking: [
@@ -107,12 +129,12 @@ var COMPLETENESS_CHECKLISTS = {
     cData("vehicles", "Vehicle schedule (year, make, value)", true, (s) => {
       const v = s.vehicles || [];
       return v.length > 0 && v.every(x => x.year && (x.make || x.model) && (x.stated_value || x.al_value)) && (v.length + " unit(s)");
-    }),
+    }, undefined, (s) => completenessScheduleGap(s, "vehicles", "vehicle", [["year", x => x.year], ["make or model", x => x.make || x.model], ["stated value", x => x.stated_value || x.al_value]], x => [x.year, x.make, x.model].filter(Boolean).join(" ") || "a unit", "doc_vehicles")),
     cData("vins", "VIN for every unit", false, (s) => { const v = s.vehicles || []; return v.length > 0 && v.every(x => x.vin || x.VIN) && "All units have a VIN"; }),
     cData("drivers", "Driver list (licence number, state, date of birth or age)", true, (s) => {
       const d = s.drivers || [];
       return d.length > 0 && d.every(x => x.licenseNumber && x.licensestate && (x.dob || x.age)) && (d.length + " driver(s)");
-    }),
+    }, undefined, (s) => completenessScheduleGap(s, "drivers", "driver", [["licence number", x => x.licenseNumber], ["licence state", x => x.licensestate], ["date of birth or age", x => x.dob || x.age]], x => [x.given_name, x.last_name].filter(Boolean).join(" ") || x.name || "a driver", "doc_drivers")),
     cData("radius", "Operating radius", true, (s, f) => completenessPick(f, [/radius/])),
     cData("commodities", "Commodities hauled", true, (s, f) => ((s.commoditiesSelected || []).length > 0 && "Commodities selected") || completenessPick(f, [/cargo|commodit/])),
     cData("years", "Years in business", true, (s, f) => completenessPick(f, [/business_yrs|years_of_experience|years.?in.?business/])),
@@ -204,7 +226,9 @@ function evaluateCompleteness(sub) {
     const viaComm = !found && completenessResolvedByCommunication(sub, it.label);
     const waiver = store.waivers.find(w => w.id === it.id) || null;
     const met = !!found || viaComm;
-    return { id: it.id, kind: it.kind, label: it.label, required: it.required, ask: it.ask, hint: it.hint || "",
+    let gapText = "";
+    if (!found && !viaComm && typeof it.gap === "function") { try { gapText = it.gap(sub) || ""; } catch (e) { gapText = ""; } }
+    return { id: it.id, kind: it.kind, label: it.label, required: it.required, ask: it.ask, hint: gapText || it.hint || "",
       met, detail: found ? (typeof found === "string" ? found : "Present") : (viaComm ? "Received (logged in customer communication)" : ""),
       waived: !met && !!waiver, waiver };
   });
@@ -377,10 +401,11 @@ function renderCompletenessCard(sub) {
         <div class="rules-table-container" style="max-height:none; overflow:visible;"><table class="data-table"><thead><tr><th>Item</th><th>Status</th><th>Detail</th><th></th></tr></thead><tbody>${docRows}</tbody></table></div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; align-items:center;">
           ${canEdit ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="completenessRecheckClicked()"><i class="ph ph-arrows-clockwise"></i> Re-check</button>` : ""}
+          ${canEdit && !ok && (sub.rawAttachments || []).length ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="completenessFetchFromDocuments()"><i class="ph ph-file-search"></i> Fetch missing items from attached documents</button>` : ""}
           ${canEdit && !ok ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="completenessRequestMissing()"><i class="ph ph-envelope-open"></i> Request missing items from ${completenessEsc(sub.channelType === "direct" ? "customer" : (sub.broker || "broker"))}</button>` : ""}
           ${store.lastCheckedAt ? `<span class="text-xs text-muted">Last checked ${completenessEsc(store.lastCheckedAt)}</span>` : ""}
         </div>
-        <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> The check reads the submission's data fields, schedules, extracted values and the names of attached documents. It cannot read inside a PDF, so a signed application and currently valued loss runs must be confirmed by the underwriter. Checklists are configuration (COMPLETENESS_CHECKLISTS) and can also be extended by the product JSON.</p>
+        <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> The check reads the submission's data fields, schedules, extracted values and the names of attached documents. It cannot read inside a PDF, so currently valued loss runs must be confirmed by the underwriter. Checklists are configuration (COMPLETENESS_CHECKLISTS) and can also be extended by the product JSON.</p>
       </div>
     </div>`;
 }
@@ -397,7 +422,8 @@ function completenessGuardNextStep() {
   completenessLog(sub, "completeness_gate_blocked", `Step 1 exit blocked: ${r.missingRequired.length} required item(s) missing — ${r.missingRequired.map(i => i.label).join("; ")}.`);
   completenessPersist();
   const first = r.missingRequired.slice(0, 3).map(i => i.label).join("; ");
-  showToast(`⛔ Cannot leave Step 1: ${r.missingRequired.length} required item(s) missing (${first}${r.missingRequired.length > 3 ? "…" : ""}). Request them from the broker or have an approver waive them.`, "danger");
+  const searching = typeof diAutoFetchForCompleteness === "function" && diAutoFetchForCompleteness(sub);
+  showToast(`⛔ Cannot leave Step 1: ${r.missingRequired.length} required item(s) missing (${first}${r.missingRequired.length > 3 ? "…" : ""}). ${searching ? "Looking for them in the attached documents… " : ""}Request them from the broker or have an approver waive them.`, "danger");
   renderCompletenessCard(sub);
   return false;
 }
@@ -409,6 +435,7 @@ function completenessGuardNextStep() {
     AUDIT_ACTION_META.completeness_waived = { label: "Required Item Waived", icon: "ph-seal-check", badge: "badge-info", outcome: "outcome-approve" };
     AUDIT_ACTION_META.completeness_waiver_removed = { label: "Waiver Removed", icon: "ph-arrow-counter-clockwise", badge: "badge-light", outcome: "outcome-comm" };
     AUDIT_ACTION_META.completeness_rfi_requested = { label: "Missing Items Requested", icon: "ph-envelope-open", badge: "badge-light", outcome: "outcome-comm" };
+    AUDIT_ACTION_META.completeness_fetched = { label: "Items Read From Documents", icon: "ph-file-search", badge: "badge-info", outcome: "outcome-comm" };
     AUDIT_ACTION_META.completeness_gate_blocked = { label: "Step 1 Exit Blocked — Incomplete", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
   }
 
@@ -437,6 +464,12 @@ function completenessGuardNextStep() {
 
 window.renderCompletenessCard = renderCompletenessCard;
 window.completenessRecheckClicked = completenessRecheckClicked;
+window.completenessFetchFromDocuments = function () {
+  const sub = completenessActiveSub();
+  if (!sub) return;
+  if (!hasPermission("completeness", "edit")) { denyPermission("completeness", "edit"); return; }
+  if (typeof diFetchMissingFromDocuments === "function") diFetchMissingFromDocuments(sub, true);
+};
 window.completenessRequestMissing = completenessRequestMissing;
 window.completenessWaive = completenessWaive;
 window.completenessUnwaive = completenessUnwaive;

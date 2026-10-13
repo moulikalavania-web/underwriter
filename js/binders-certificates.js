@@ -92,6 +92,9 @@ function bndFacts(sub) {
     policyNumber: sub.pasSync ? sub.pasSync.policyNumber : "",
     effective, expiration, premium,
     coverages: (sub.coverageRows || []).map(r => ({ line: r.line, limit: r.limit, ded: r.ded })),
+    // Coverage the insured is still working towards under a Quote Condition: not bound, and not in force.
+    pendingCoverages: typeof qcDocSummary === "function" ? qcDocSummary(sub).pending.map(c => ({ line: c.coverage, limit: c.limit, ded: c.deductible, id: c.id, deadline: c.deadline, condition: c.condition })) : [],
+    ratingBasis: typeof rsBasis === "function" ? rsBasis(sub) : null,
     lobKey: sub.lobKey, lobName: sub.lobName || "",
     kind: sub.lobKey === "property" ? "property" : "liability"
   };
@@ -142,6 +145,8 @@ function bndBinderHtml(sub, f, b) {
       ${f.premium ? bndRow("Estimated premium", bndMoney(f.premium) + " (subject to audit and policy terms)") : ""}
     </table>
     <h3 style="font-size:13px;margin:10px 0 2px;">Coverage bound</h3>${bndCoverageTable(b.coverages)}
+    ${(b.pendingCoverages || []).length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Coverage NOT bound: pending a Quote Condition</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${b.pendingCoverages.map(c => `<li><strong>${bndEsc(c.line)}</strong> (${bndEsc(c.id)}; limit ${bndEsc(c.limit)}, deductible ${bndEsc(c.ded)}) is not in force. It is added only if this is met by ${bndEsc(c.deadline)}: ${bndEsc(c.condition)}</li>`).join("")}</ul>` : ""}
+    ${b.ratingBasis ? `<p style="font-size:12px;color:#475569;">Rating basis: snapshot v${bndEsc(b.ratingBasis.version)} saved ${bndEsc(b.ratingBasis.savedAt)} (risk score ${bndEsc(b.ratingBasis.riskScore === null ? "n/a" : b.ratingBasis.riskScore)}).</p>` : ""}
     ${conds.length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Conditions still outstanding</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${conds.map(c => `<li>${bndEsc(c.text)} <em>(${bndEsc(c.due)})</em></li>`).join("")}</ul>` : ""}
     <p style="font-size:12px;">This binder is a temporary contract of insurance. It is subject to the terms, conditions, limits and exclusions of the policy to be issued, and it is replaced by that policy. It ends on the date above unless extended in writing. The insurer may cancel it in accordance with applicable law.</p>
     <p style="font-size:12px;margin-top:14px;">Issued by ${bndEsc(b.issuedBy)}.</p>`;
@@ -223,6 +228,7 @@ function bndIssueBinder() {
     id: `BND-${sub.id}-${list.length + 1}`, status: "active", issuedBy: bndActor(), issuedAt: bndNow(),
     effective: f.effective, expires: (() => { const e = bndAddDays(today, BINDER_VALID_DAYS); return f.expiration && f.expiration < e ? f.expiration : e; })(),
     coverages: JSON.parse(JSON.stringify(f.coverages)), premium: f.premium, policyNumber: f.policyNumber,
+    pendingCoverages: JSON.parse(JSON.stringify(f.pendingCoverages || [])), ratingBasis: f.ratingBasis ? JSON.parse(JSON.stringify(f.ratingBasis)) : null,
     conditions: bndOpenConditions(sub), templateVersion: BINDER_TEMPLATE_META.version, templateApproved: BINDER_TEMPLATE_META.approved
   };
   b.html = bndBinderHtml(sub, f, b);

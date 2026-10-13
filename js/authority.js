@@ -376,12 +376,9 @@ function authGuardBind(source, subId) { return authGuard(source, subId ? authSub
       return r;
     };
   }
-  var origESig = window.openESignatureModal;
-  if (typeof origESig === "function") window.openESignatureModal = function () { if (!authGuardQuote("e-signature")) return; return origESig.apply(this, arguments); };
-  var origIssue = window.issueQuoteAction;
-  if (typeof origIssue === "function") window.issueQuoteAction = function () { if (!authGuardQuote("issue quote")) return; return origIssue.apply(this, arguments); };
-  var origPas = window.simulatePASBindSync;
-  if (typeof origPas === "function") window.simulatePASBindSync = function (subId) { if (!authGuardBind("PAS bind", subId)) return; return origPas.apply(this, arguments); };
+  registerGuard("eSign", "underwriting authority", function () { return authGuardQuote("e-signature"); });
+  registerGuard("issueQuote", "underwriting authority", function () { return authGuardQuote("issue quote"); });
+  registerGuard("bind", "underwriting authority", function (a) { return authGuardBind("PAS bind", a[0]); });
 
   // The existing "Refer to Senior" button now creates a tracked referral.
   var origEsc = window.submitJuniorEscalation;

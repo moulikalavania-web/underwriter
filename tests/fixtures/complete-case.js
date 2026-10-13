@@ -19,7 +19,6 @@ function fxSlug(sub) { return String(sub.insured || sub.id).replace(/[^A-Za-z0-9
 
 var FIXTURE_FILLERS = {
   effective: function (s) { s.effectiveDate = FIXTURE_EFFECTIVE; s.expirationDate = FIXTURE_EXPIRATION; },
-  doc_application: function (s) { fxDoc(s, "Signed_Application_" + fxSlug(s) + "_SAMPLE.pdf", "Signed and dated application"); },
   doc_lossruns: function (s) { fxDoc(s, "Currently_Valued_Loss_Runs_" + fxSlug(s) + "_SAMPLE.pdf", "Loss runs valued within 90 days"); },
   doc_vehicles: function (s) { fxDoc(s, "Vehicle_Schedule_SOV_" + fxSlug(s) + "_SAMPLE.xlsx", "Vehicle schedule / SOV"); },
   doc_drivers: function (s) { fxDoc(s, "Driver_List_MVRs_" + fxSlug(s) + "_SAMPLE.pdf", "Driver list with licence details"); },
