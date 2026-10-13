@@ -501,18 +501,43 @@ function ensureDiscretionaryPricingSeed(sub) {
       appliedAt: null,
       finalPremium: baseFromPayload
     };
+    recomputeFinalQuotedPremium(sub);
+  } else if (sub.discretionaryPricing.commissionRate !== commissionLoadPct(sub) && !(typeof comIsBound === "function" && comIsBound(sub))) {
+    // The broker's commission rate changed (override, new producer, new line): the premium follows it until the policy is bound.
+    recomputeFinalQuotedPremium(sub);
   }
   return sub.discretionaryPricing;
 }
 
 /**
- * Final Quoted Premium = the base premium with the underwriter's credit or debit. It carries no broker load and no tax:
- * broker compensation is the commission agreement (broker-commission.js) and tax is the state surplus lines basis
- * (surplus-lines.js), each shown once, on its own card.
+ * The broker commission rate (percent) that is loaded onto the premium: the rate in force on the Broker & Commission card
+ * (agreement, or a senior override), frozen once the policy is bound. A direct submission has no broker, so no load.
  */
-function computeFinalQuotedPremium(basePremium, adjustmentType, adjustmentPercent) {
+function commissionLoadPct(sub) {
+  if (!sub || sub.channelType === "direct" || typeof comLockedOrCurrent !== "function") return 0;
+  return Number(comLockedOrCurrent(sub).rate) || 0;
+}
+
+/**
+ * Final Quoted Premium = the base premium with the underwriter credit or debit, then the broker commission loaded on top
+ * (pass the submission to include it). Tax is not in it: that is the state surplus lines basis (surplus-lines.js), shown on its own card.
+ */
+function computeFinalQuotedPremium(basePremium, adjustmentType, adjustmentPercent, sub) {
   const signedPct = adjustmentType === "credit" ? -Math.abs(adjustmentPercent) : Math.abs(adjustmentPercent);
-  return Math.round(basePremium * (1 + signedPct / 100));
+  const adjusted = Math.round(basePremium * (1 + signedPct / 100));
+  const load = commissionLoadPct(sub);
+  return load ? Math.round(adjusted * (1 + load / 100)) : adjusted;
+}
+
+/** Re-prices the submission from its base premium, credit/debit and current commission rate. Keeps the premium before commission, which is what commission is paid on. */
+function recomputeFinalQuotedPremium(sub) {
+  const dp = sub && sub.discretionaryPricing;
+  if (!dp) return null;
+  dp.premiumBeforeCommission = computeFinalQuotedPremium(dp.basePremium, dp.adjustmentType, dp.adjustmentPercent || 0);
+  dp.commissionRate = commissionLoadPct(sub);
+  dp.finalPremium = computeFinalQuotedPremium(dp.basePremium, dp.adjustmentType, dp.adjustmentPercent || 0, sub);
+  if (typeof sub.currentPremium === "number") sub.currentPremium = dp.finalPremium;
+  return dp.finalPremium;
 }
 
 function renderDiscretionaryPricingCard(sub) {
@@ -522,7 +547,7 @@ function renderDiscretionaryPricingCard(sub) {
 
   const previewFinal = hasApplied
     ? dp.finalPremium
-    : computeFinalQuotedPremium(basePremium, null, 0);
+    : computeFinalQuotedPremium(basePremium, null, 0, sub);
 
   return `
     <div class="card mb-3" id="discretionaryPricingCard">
@@ -547,6 +572,10 @@ function renderDiscretionaryPricingCard(sub) {
                   : `<span class="text-muted">—</span>`}
               </td>
             </tr>
+            ${dp.commissionRate ? `<tr>
+              <td><strong>3. Broker Commission</strong><br><span class="text-xs text-muted">Loaded on top of the premium; follows the Broker &amp; Commission card</span></td>
+              <td class="font-mono text-right"><strong>+${dp.commissionRate}%</strong></td>
+            </tr>` : ""}
             <tr style="background:var(--color-surface); font-weight:700;">
               <td style="text-align:right;">Final Quoted Premium</td>
               <td class="font-mono text-right" style="font-size:15px; color:var(--color-brand-dark);">$${previewFinal.toLocaleString()}</td>
@@ -638,10 +667,11 @@ function updateDiscretionaryPricingPreview() {
   if (pct > maxAllowed) { pct = maxAllowed; percentInput.value = maxAllowed; }
   if (pct < 0) { pct = 0; percentInput.value = 0; }
 
-  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct);
+  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct, sub);
+  const loadPct = commissionLoadPct(sub);
   previewArea.innerHTML = `
     <div class="alert ${type === 'credit' ? 'alert-success' : 'alert-warning'} u-fs-12-5">
-      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type} = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
+      <i class="ph ph-calculator"></i> Base $${dp.basePremium.toLocaleString()} ${type === 'credit' ? '−' : '+'} ${pct}% ${type}${loadPct ? ` + ${loadPct}% broker commission` : ""} = <strong>Final Quoted Premium: $${finalPremium.toLocaleString()}</strong>
     </div>`;
 }
 
@@ -678,14 +708,12 @@ function saveDiscretionaryPricing() {
 
   const dp = ensureDiscretionaryPricingSeed(sub);
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const finalPremium = computeFinalQuotedPremium(dp.basePremium, type, pct);
-
   dp.adjustmentType = type;
   dp.adjustmentPercent = pct;
   dp.reason = reason;
   dp.appliedBy = `${roleConfig.name} (${roleConfig.title})`;
   dp.appliedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
-  dp.finalPremium = finalPremium;
+  const finalPremium = recomputeFinalQuotedPremium(sub);
 
   sub.currentPremium = finalPremium;
 

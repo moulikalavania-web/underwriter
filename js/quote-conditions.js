@@ -309,7 +309,7 @@ function qcConfirmMet(id) {
   if (dp) {
     before = dp.finalPremium;
     dp.basePremium = (Number(dp.basePremium) || 0) + c.premium;
-    dp.finalPremium = computeFinalQuotedPremium(dp.basePremium, dp.adjustmentType, dp.adjustmentPercent || 0);
+    recomputeFinalQuotedPremium(sub);
     sub.currentPremium = dp.finalPremium;
     after = dp.finalPremium;
   }

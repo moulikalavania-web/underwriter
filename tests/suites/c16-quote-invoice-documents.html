@@ -9,7 +9,7 @@
   var toasts = []; window.showToast = function(m){ toasts.push(m); };
   var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
   function mk(id, over){
-    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.channelType = 'broker';
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.channelType = 'broker'; s.commissionOverride = { rate: 0, reason: 'this suite tests something other than commission, so none is loaded', by: 't', at: 't', agreementRate: 0 };
     ['quoteConditions', 'ratingSnapshots', 'pasSync', 'invoice', 'authorityRef', 'importedRatingData', 'producerCheck', 'quoteNo', 'quote_id', 'subjectivities', 'carrier', 'broker_fee', 'insuredInfo', 'genInfo'].forEach(function(k){ delete s[k]; });
     s.insured = 'Apex Freight LLC'; s.broker = 'Marsh & McLennan Commercial Brokerage'; s.dot = '3194022'; s.mcNumber = 'MC-881924';
     s.address = '10440 Highway 290 West, Suite 400, Houston, TX 77040'; s.exposureVal = 1850000; s.exposure = '$1,850,000';

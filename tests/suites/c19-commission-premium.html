@@ -1,0 +1,85 @@
+<!-- Suite C19: the broker commission rate (Broker & Commission card) is loaded onto the Final Quoted Premium, so a rate change
+     moves the Final Quoted Premium and TOTAL BINDABLE POLICY PREMIUM. Direct business carries none; a bound policy keeps its premium. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.channelType = 'broker'; s.decisionLog = []; s.broker = 'Marsh & McLennan Commercial Brokerage';
+    ['pasSync', 'discretionaryPricing', 'importedRatingData', 'commission', 'commissionOverride', 'quoteConditions'].forEach(function(k){ delete s[k]; });
+    s.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: null, appliedBy: null, appliedAt: null, finalPremium: 10000 };
+    for (var k in (over || {})) s[k] = over[k];
+    return s;
+  }
+  function bindable(sub){
+    var h = getGeneratedQuoteHtml({ quote: { finalPremium: 1, coveragePremium: 1, tax: 0, countyTax: 0, fees: [], discounts: [], coverages: [], creditsNotApplied: [] }, eligibility: { declines: [], refers: [] }, adapter: {} }, sub);
+    var m = h.match(/TOTAL BINDABLE POLICY PREMIUM<\/div>\s*<div[^>]*>\s*\$([\d,\.]+)/);
+    return m ? m[1] : (h.match(/TOTAL BINDABLE[\s\S]{0,200}/) || ['not found'])[0];
+  }
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+    var S = mk('CP-1');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id;
+
+    // agreement rate (Marsh, trucking, new business = 12%)
+    ensureDiscretionaryPricingSeed(S);
+    t('the agreement rate is loaded onto the premium: 10,000 x 1.12 = 11,200', commissionLoadPct(S) === 12 && S.discretionaryPricing.finalPremium === 11200 && S.discretionaryPricing.premiumBeforeCommission === 10000);
+    t('TOTAL BINDABLE POLICY PREMIUM shows it', bindable(S) === '11,200', bindable(S));
+    t('the pricing card shows the commission row', /3\. Broker Commission/.test(renderDiscretionaryPricingCard(S)) && /\+12%/.test(renderDiscretionaryPricingCard(S)));
+    t('commission is paid on the premium before the load: 12% of 10,000 = 1,200', comCurrent(S).commissionable === 10000 && comCurrent(S).amount === 1200);
+
+    // override raises it
+    renderCommissionCard(S);
+    var box = el('commissionContainer'); if (!box) { box = document.createElement('div'); box.id = 'commissionContainer'; document.body.appendChild(box); renderCommissionCard(S); }
+    el('com_ovrRate').value = '15'; el('com_ovrReason').value = 'Competitive placement, agreed with the producer';
+    comSetOverride(S.id);
+    t('an override to 15% is accepted', !!S.commissionOverride && S.commissionOverride.rate === 15, toasts.join(' | '));
+    t('Final Quoted Premium follows: 10,000 x 1.15 = 11,500', S.discretionaryPricing.finalPremium === 11500 && S.discretionaryPricing.commissionRate === 15);
+    t('TOTAL BINDABLE POLICY PREMIUM follows', bindable(S) === '11,500', bindable(S));
+    t('commission is now 15% of 10,000 = 1,500', comCurrent(S).amount === 1500);
+
+    // the underwriter credit/debit still applies before the load
+    S.discretionaryPricing.adjustmentType = 'credit'; S.discretionaryPricing.adjustmentPercent = 10; recomputeFinalQuotedPremium(S);
+    t('credit then commission: 10,000 x 0.90 x 1.15 = 10,350', S.discretionaryPricing.finalPremium === 10350 && S.discretionaryPricing.premiumBeforeCommission === 9000);
+    S.discretionaryPricing.adjustmentType = null; S.discretionaryPricing.adjustmentPercent = 0; recomputeFinalQuotedPremium(S);
+
+    // removing the override takes it back
+    comClearOverride(S.id);
+    t('removing the override returns to 11,200', S.discretionaryPricing.finalPremium === 11200 && bindable(S) === '11,200', bindable(S));
+
+    // a rate change with no explicit re-price is picked up when the quote is next shown
+    S.commissionOverride = { rate: 14, reason: 'set directly', by: 't', at: 't', agreementRate: 12 };
+    ensureDiscretionaryPricingSeed(S);
+    t('the premium follows a rate change the next time it is shown (14%: 11,400)', S.discretionaryPricing.finalPremium === 11400);
+    S.commissionOverride = null; ensureDiscretionaryPricingSeed(S);
+
+    // direct business: no broker, no load
+    var D = mk('CP-2', { channelType: 'direct', broker: 'Direct Customer Portal' });
+    SUBMISSIONS_DATASET.push(D); ensureDiscretionaryPricingSeed(D);
+    t('a direct submission carries no commission load', commissionLoadPct(D) === 0 && D.discretionaryPricing.finalPremium === 10000);
+
+    // the added coverage from a met quote condition keeps the load
+    // bound: the premium is frozen with the commission
+    var B = mk('CP-3'); SUBMISSIONS_DATASET.push(B); ensureDiscretionaryPricingSeed(B);
+    B.pasSync = { status: 'success', policyNumber: 'TRK-1', pasRecordId: 'P', effectiveDate: '2026-11-01', syncedBy: 'x', syncedAt: 'x' };
+    comLockAtBind(B);
+    t('commission is locked at bind at 12%', B.commission.locked && B.commission.rate === 12);
+    B.commissionOverride = { rate: 15, reason: 'late change', by: 't', at: 't', agreementRate: 12 };
+    ensureDiscretionaryPricingSeed(B);
+    t('a bound policy keeps its premium (11,200) even if an override is recorded later', B.discretionaryPricing.finalPremium === 11200);
+    toasts.length = 0; B.commissionOverride = null; renderCommissionCard(B);
+    el('com_ovrRate') && (el('com_ovrRate').value = '15');
+    comSetOverride(B.id);
+    t('and a new override on a bound policy is refused', !B.commissionOverride && toasts.some(function(m){ return /locked at bind/.test(m); }), toasts.join(' | '));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n') + (errs.length ? '\nPAGE ERRORS: ' + errs.join(' | ') : ''); document.body.appendChild(pre);
+})();
+</script>

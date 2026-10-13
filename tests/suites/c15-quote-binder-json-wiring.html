@@ -10,7 +10,7 @@
   var toasts = []; window.showToast = function(m){ toasts.push(m); };
   var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
   function mk(id){
-    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker';
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 7; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker'; s.commissionOverride = { rate: 0, reason: 'this suite tests something other than commission, so none is loaded', by: 't', at: 't', agreementRate: 0 };
     ['quoteConditions', 'ratingSnapshots', 'pasSync', 'authorityRef', 'importedRatingData', 'binders', 'certificates', 'riskScore'].forEach(function(k){ delete s[k]; });
     s.exposureVal = 1000000; s.address = '1 Main St, Dallas, TX 75201'; s.effectiveDate = '2026-11-01';
     s.vehicles = [{ id: 1, year: 2022, make: 'Volvo', model: 'VNL', stated_value: 125000, dashcam: true }];

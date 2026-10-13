@@ -149,6 +149,7 @@ function applyImportedRatingDataToSubmission(parsed, sub) {
           finalPremium: baseFromQuote
         };
         sub.currentPremium = baseFromQuote;
+        recomputeFinalQuotedPremium(sub);
       }
     }
   }

@@ -138,7 +138,7 @@
     t('and the bottom bar does not claim completion', !/Finish/.test(el('btnNextStep').innerHTML) && /not bound yet/.test(el('btnNextStep').textContent));
     applyImportedRatingDataToSubmission(clone(SAMPLE_RATING_JSON), A); renderStep7View(A);
     t('an imported rating file produces the quote', !!A.importedRatingData && A.isQuoteImported === true && !!A.discretionaryPricing);
-    t('the base premium is the premium before tax and fees', A.discretionaryPricing.basePremium === A.importedRatingData.quote.coveragePremium && A.discretionaryPricing.finalPremium === A.discretionaryPricing.basePremium);
+    t('the base premium is the premium before tax and fees', A.discretionaryPricing.basePremium === A.importedRatingData.quote.coveragePremium && A.discretionaryPricing.finalPremium === Math.round(A.discretionaryPricing.basePremium * (1 + commissionLoadPct(A) / 100)));
     t('the pricing card has just base, credit/debit and final', !/Broker Fee/.test(el('discretionaryPricingContainer').innerHTML) && !/Taxes &/.test(el('discretionaryPricingContainer').innerHTML));
     t('"Issue Quote & Bind" is on the Step 7 page', !!el('pasSyncCard') && /Issue Quote &amp; Bind/.test(el('pasSyncCard').innerHTML) && !!el('issueQuoteBtn') && !el('pasSyncBindBtn'));
     toasts.length = 0; el('issueQuoteBtn').click();

@@ -40,6 +40,7 @@ persistence, rendering), not source text:
 | c15 | Quote Conditions and the Rating Snapshot wired into the quote, the binder and the final JSON |
 | c16 | Quote and invoice documents: nothing cut off or invented, schedule agrees with the premium, invoice made at bind |
 | c17 | Guard registry for e-signature, issue quote and bind |
+| c19 | Broker commission loaded onto the premium: the agreement rate or a senior override moves the Final Quoted Premium and TOTAL BINDABLE POLICY PREMIUM; credit/debit applies first; commission is paid on the premium before the load; direct business carries none; a bound policy keeps its premium |
 | c18 | Licensing registry and sanctions watchlist loaded from a file in the cards (OFAC SDN.CSV, CSV, JSON): parsing, pass/flag from real data, amber when nothing is loaded, kept across reloads |
 | c04 | A tester's path with no demonstration data in the app: fresh start, Create New Submission, no-watchlist / no-registry / no-producer-record gates, fixture cases through Steps 1-7, imported rating file, issue, accept, bind |
 | c02 | One home for each overlapping page: audit history, declines, quote history, choosing a user |

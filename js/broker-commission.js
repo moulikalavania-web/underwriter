@@ -127,13 +127,14 @@ function comResolveRate(sub, today, producerOverride) {
 }
 
 /**
- * Premium on which commission is paid. The Final Quoted Premium from discretionary pricing is already the policy premium
- * before tax and fees, so it is commissionable as it stands. If only the rating engine's figure exists, that figure includes
+ * Premium on which commission is paid: the discretionary-pricing premium before the commission load (the Final Quoted Premium
+ * is that premium plus the load, and is before tax and fees). If only the rating engine's figure exists, that figure includes
  * the quote's taxes and fees, which are taken out.
  */
 function comCommissionable(sub) {
   const dp = sub.discretionaryPricing, q = sub.importedRatingData && sub.importedRatingData.quote;
-  if (dp && dp.finalPremium) return { final: dp.finalPremium, commissionable: dp.finalPremium, deducted: 0 };
+  // The commission is loaded onto the Final Quoted Premium, so it is paid on the premium before that load.
+  if (dp && dp.finalPremium) return { final: dp.finalPremium, commissionable: dp.premiumBeforeCommission || dp.finalPremium, deducted: 0 };
   const final = (q && q.finalPremium) || 0;
   if (!q) return { final, commissionable: final, deducted: 0 };
   const fees = (q.fees || []).reduce((s, f) => s + (Number(f.amt) || 0), 0);
@@ -368,8 +369,17 @@ function comSetOverride(subId) {
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
   sub.commissionOverride = { rate, reason: why, by: comActor(), at: comNow(), agreementRate: cur.agreementRate };
   comLog(sub, "commission_override", `Commission overridden from ${cur.agreementRate}% to ${rate}% for ${sub.broker}: ${why}`);
+  comReprice(sub);
   comPersist(); renderCommissionCard(sub);
   showToast("Commission override recorded.", "success");
+}
+
+/** A new commission rate changes the Final Quoted Premium and the bindable total: re-price and redraw the quote screens. */
+function comReprice(sub) {
+  if (!sub.discretionaryPricing || typeof recomputeFinalQuotedPremium !== "function") return;
+  recomputeFinalQuotedPremium(sub);
+  if (typeof renderStep7View === "function") renderStep7View(sub);
+  if (typeof renderSubmissionsTable === "function") renderSubmissionsTable();
 }
 
 function comClearOverride(subId) {
@@ -378,6 +388,7 @@ function comClearOverride(subId) {
   if (sub.commission && sub.commission.locked) { showToast("⛔ Commission is locked at bind.", "danger"); return; }
   comLog(sub, "commission_override", `Commission override of ${sub.commissionOverride.rate}% removed; the agreement rate applies.`);
   sub.commissionOverride = null;
+  comReprice(sub);
   comPersist(); renderCommissionCard(sub);
 }
 
@@ -482,7 +493,7 @@ function renderCommissionCard(sub) {
         <div class="clean-meta-row"><span class="meta-label">Broker</span><span class="meta-value">${comEsc(sub.broker || "Direct")}</span></div>
         <div class="clean-meta-row"><span class="meta-label">Agreement</span><span class="meta-value">${c.contractId ? comEsc(c.contractId) : "No agreement on file — default rate"} · ${comEsc(c.businessType)} business</span></div>
         <div class="clean-meta-row"><span class="meta-label">Rate</span><span class="meta-value"><strong>${c.rate}%</strong> <span class="text-muted">(${comEsc(c.source)}${c.source === "override" ? `, agreement ${c.agreementRate}%` : ""}; ceiling ${c.band ? c.band.max : COMMISSION_DEFAULT.max}%)</span></span></div>
-        <div class="clean-meta-row"><span class="meta-label">Commissionable premium</span><span class="meta-value">${comMoney(c.commissionable)} <span class="text-muted">(final ${comMoney(c.final)} less ${comMoney(c.deducted)} taxes and fees)</span></span></div>
+        <div class="clean-meta-row"><span class="meta-label">Commissionable premium</span><span class="meta-value">${comMoney(c.commissionable)} <span class="text-muted">(${c.deducted ? `final ${comMoney(c.final)} less ${comMoney(c.deducted)} taxes and fees` : `final ${comMoney(c.final)} includes this commission, loaded on top`})</span></span></div>
         <div class="clean-meta-row"><span class="meta-label">Commission</span><span class="meta-value"><strong>${comMoney(net.net)}</strong>${net.adjustments ? ` <span class="text-muted">(${comMoney(net.base)} at bind ${net.adjustments >= 0 ? "+" : "−"} ${comMoney(Math.abs(net.adjustments))} adjustments)</span>` : ""}</span></div>
       </div>
       ${ovr ? `<div class="alert alert-warning text-xs"><i class="ph ph-pencil-simple"></i> Override ${ovr.rate}% (agreement ${ovr.agreementRate}%) by ${comEsc(ovr.by)}: ${comEsc(ovr.reason)}</div>` : ""}

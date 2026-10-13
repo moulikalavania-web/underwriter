@@ -13,7 +13,7 @@
   function setv(id, v){ var e = el(id); if (!e) throw new Error('missing field ' + id); e.value = v; }
   var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
   function mk(id){
-    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 2; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker';
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.assignedTo = 'senior_uw'; s.currentStep = 2; s.decisionLog = []; s.insured = 'Links Freight LLC'; s.broker = 'Arora & Sons'; s.channelType = 'broker'; s.commissionOverride = { rate: 0, reason: 'this suite tests something other than commission, so none is loaded', by: 't', at: 't', agreementRate: 0 };
     ['quoteConditions', 'pasSync', 'authorityRef', 'importedRatingData'].forEach(function(k){ delete s[k]; });
     s.coverageRows = [{ line: 'Auto Liability', limit: '$1,000,000', ded: '$0', prem: '$10,000', premVal: 10000 }];
     s.discretionaryPricing = { basePremium: 10000, adjustmentType: 'debit', adjustmentPercent: 10, reason: 'x', appliedBy: 'x', appliedAt: 'x', finalPremium: 11000 };
