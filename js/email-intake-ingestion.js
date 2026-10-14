@@ -1000,8 +1000,12 @@ function renderNormalizationReview(subId, draft) {
     const isRequired = REQUIRED_KEYS.has(key);
     return `
       <div class="email-digest-field-row ${isBlank ? 'email-digest-field-row--blank' : ''}">
-        <label>${label}${isRequired ? ' <span class="email-digest-required-mark">*</span>' : ''} <span id="confBadge_${key}">${confBadge(conf)}</span></label>
+        <div class="email-digest-field-head">
+          <label for="normField_${key}">${label}${isRequired ? ' <span class="email-digest-required-mark" title="Required">*</span>' : ''}</label>
+          <span id="confBadge_${key}" class="email-digest-field-badge">${confBadge(conf)}</span>
+        </div>
         <input type="text" class="form-control form-control-sm ${isBlank ? 'is-invalid' : ''}" id="normField_${key}" value="${safeVal}" data-original-value="${safeVal}" data-original-conf="${conf}" oninput="handleNormFieldEdit('${key}', this)">
+        <div class="email-digest-field-src" id="normSrc_${key}"></div>
         <span class="field-error-text ${isBlank ? '' : 'u-hidden'}">Not found in the email/JSON — enter it manually or leave blank if genuinely not provided.</span>
       </div>`;
   };

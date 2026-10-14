@@ -35,13 +35,15 @@ function renderRoleDashboard() {
 
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
 
+  const screen1 = document.getElementById("screen-1");
+  if (screen1) screen1.classList.toggle("is-worker-view", !canManageAssignments());
   if (canManageAssignments()) {
     if (titleEl) titleEl.textContent = "Assignment Dashboard";
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = intakeToolbarHtml() + renderManagerDashboardHtml();
   } else {
-    if (titleEl) titleEl.textContent = "";
-    if (subtitleEl) subtitleEl.textContent = "";
+    if (titleEl) titleEl.textContent = "My Work Queue";
+    if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = intakeToolbarHtml() + renderWorkerDashboardHtml();
   }
 }
@@ -295,7 +297,7 @@ function renderSubmissionsTable() {
     }
     tbody.innerHTML = `
       <tr>
-        <td colspan="11" style="padding: 0; border: none;">
+        <td colspan="8" style="padding: 0; border: none;">
           <div style="position: sticky; left: 50%; transform: translateX(-50%); width: max-content;">
             <div class="empty-state">
               <i class="ph ${emptyIcon} empty-state-icon"></i>
@@ -329,6 +331,22 @@ function renderSubmissionsTable() {
       ? `<button class="btn-action-view btn-action-referral" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-scales"></i> Review</button>`
       : `<button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button>`;
 
+    const assigneeRole = sub.assignedTo ? (USER_ROLES_CONFIG[sub.assignedTo] || null) : null;
+    const assigneeChip = assigneeRole
+      ? `<span class="badge badge-info"><i class="ph ph-user-circle"></i> ${assigneeRole.name}</span>`
+      : `<span class="badge badge-secondary"><i class="ph ph-user-minus"></i> Unassigned</span>`;
+    const assignCell = !isManagerView ? assigneeChip : `
+      <div class="qi-assign">
+        ${assigneeChip}
+        <button class="btn btn-xs btn-outline" onclick="openAssignSubmissionModal('${sub.id}')" title="${sub.assignedTo ? 'Reassign' : 'Assign'}" aria-label="${sub.assignedTo ? 'Reassign' : 'Assign'} ${sub.id}">
+          <i class="ph ph-user-switch"></i>
+        </button>
+      </div>`;
+    const vCount = getSubmissionDataVersionCount(sub);
+    const missingCount = getOutstandingMissingCount(sub);
+    const parts = String(sub.receivedAt || "").split(' ');
+    const receivedLabel = parts.length >= 3 ? `${parts[1]} ${parts[2]}` : (sub.receivedAt || "—");
+
     return `
       <tr class="${isSelected ? 'active-row' : ''} ${isReferral ? 'referral-row' : ''}" onclick="openCaseAtCurrentStep('${sub.id}')">
         <td>
@@ -336,42 +354,35 @@ function renderSubmissionsTable() {
             <i class="ph ${pIcon}"></i> ${sub.priority} • ${String(sub.slaText || '—').split(' ')[0]}
           </span>
         </td>
-        <td><strong class="font-mono text-primary">${sub.id}</strong></td>
-        <td>${channelBadge}</td>
+        <td>
+          <strong class="font-mono text-primary">${sub.id}</strong>
+          <div class="qi-sub">${channelBadge}</div>
+        </td>
         <td>
           <strong>${sub.insured}</strong>
           ${isReferral ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
           <div class="text-secondary text-sm">FEIN: ${sub.fein || "—"} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
-          ${sub.underwriter ? `<div class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</div>` : ''}
-        </td>
-        <td><span class="badge badge-light">${sub.lobName}</span></td>
-        <td>
-          ${(sub.docs && sub.docs.length > 0) ? `
-          <button class="btn-table-docs" onclick="event.stopPropagation(); openDocsManagerModal('${sub.id}');" title="Click to view all ${sub.docs.length} attached documents & PDF previews">
-            <i class="ph ph-folder-open text-primary"></i>
-            <span>View Docs</span>
-            <span class="doc-badge-count">${sub.docs.length}</span>
-          </button>` : `
-          <span class="text-xs text-muted" style="font-style:italic;"><i class="ph ph-folder-dashed"></i> No documents attached</span>`}
+          <div class="qi-sub"><span class="badge badge-light">${sub.lobName}</span>${sub.underwriter ? ` <span class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</span>` : ''}</div>
         </td>
         <td>
-          ${(() => {
-            const vCount = getSubmissionDataVersionCount(sub);
-            const missingCount = getOutstandingMissingCount(sub);
-            return `<button class="btn-table-docs" onclick="event.stopPropagation(); openSubmissionVersionHistoryModal('${sub.id}');" title="Click to view submission data version history${missingCount > 0 ? ` — ${missingCount} item(s) still outstanding` : ''}">
-                  <i class="ph ph-stack text-primary"></i>
-                  <span>Versions</span>
-                  <span class="doc-badge-count">${vCount}</span>
-                  ${missingCount > 0 ? `<span class="badge badge-danger" style="font-size:9px; margin-left:4px;">${missingCount} Missing</span>` : ''}
-                </button>`;
-          })()}
+          <div class="qi-pair">
+            ${(sub.docs && sub.docs.length > 0) ? `
+            <button class="btn-table-docs" onclick="event.stopPropagation(); openDocsManagerModal('${sub.id}');" title="View all ${sub.docs.length} attached documents & PDF previews">
+              <i class="ph ph-folder-open text-primary"></i>
+              <span>Docs</span>
+              <span class="doc-badge-count">${sub.docs.length}</span>
+            </button>` : `
+            <span class="text-xs text-muted" style="font-style:italic;"><i class="ph ph-folder-dashed"></i> No documents</span>`}
+            <button class="btn-table-docs" onclick="event.stopPropagation(); openSubmissionVersionHistoryModal('${sub.id}');" title="Submission data version history${missingCount > 0 ? ` — ${missingCount} item(s) still outstanding` : ''}">
+              <i class="ph ph-stack text-primary"></i>
+              <span>Versions</span>
+              <span class="doc-badge-count">${vCount}</span>
+            </button>
+            ${missingCount > 0 ? `<span class="badge badge-danger" style="font-size:10px;">${missingCount} Missing</span>` : ''}
+          </div>
         </td>
         <td>
-          ${(() => {
-            const parts = String(sub.receivedAt || "").split(' ');
-            const label = parts.length >= 3 ? `${parts[1]} ${parts[2]}` : (sub.receivedAt || "—");
-            return `<small class="text-muted sub-received"><i class="ph ph-clock"></i> ${label}</small>`;
-          })()}
+          <small class="text-muted sub-received"><i class="ph ph-clock"></i> ${receivedLabel}</small>
         </td>
         <td onclick="event.stopPropagation();">
           <span class="badge ${sub.statusBadge || 'badge-light'}">${sub.statusText || '—'}</span>
@@ -382,20 +393,7 @@ function renderSubmissionsTable() {
           </button>
         </td>
         <td onclick="event.stopPropagation();">
-          ${(() => {
-            const assigneeRole = sub.assignedTo ? (USER_ROLES_CONFIG[sub.assignedTo] || null) : null;
-            const assigneeChip = assigneeRole
-              ? `<span class="badge badge-info"><i class="ph ph-user-circle"></i> ${assigneeRole.name}</span>`
-              : `<span class="badge badge-secondary"><i class="ph ph-user-minus"></i> Unassigned</span>`;
-            if (!isManagerView) return assigneeChip;
-            return `
-              <div style="display:flex; align-items:center; gap:6px;">
-                ${assigneeChip}
-                <button class="btn btn-xs btn-outline" onclick="openAssignSubmissionModal('${sub.id}')" title="${sub.assignedTo ? 'Reassign' : 'Assign'}" aria-label="${sub.assignedTo ? 'Reassign' : 'Assign'} ${sub.id}">
-                  <i class="ph ph-user-switch"></i>
-                </button>
-              </div>`;
-          })()}
+          ${assignCell}
         </td>
         <td class="u-text-right">
           ${actionBtn}

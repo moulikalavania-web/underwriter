@@ -128,7 +128,6 @@ function renderDriverLicenseVerification(sub) {
 }
 
 window.renderDriverLicenseVerification = renderDriverLicenseVerification;
-window.applyAutoVehicleEnrichment = applyAutoVehicleEnrichment;
 window.applyAutoDriverLicenseVerification = applyAutoDriverLicenseVerification;
 window.runSubmissionRegistryFetch = runSubmissionRegistryFetch;
 window.renderRegistryVerificationCard = renderRegistryVerificationCard;

@@ -1033,10 +1033,12 @@ function diDecorateReview(subId, draft) {
     if (!badge || !badge.parentNode) return;
     const s = draft.fieldSources[k];
     const tag = document.createElement("span");
-    tag.className = "text-xs text-muted"; tag.style.marginLeft = "6px";
+    tag.className = "text-xs text-muted";
     tag.title = (s.snippet ? "“" + s.snippet + "”\n" : "") + "Read with: " + (s.method || "");
     tag.textContent = "from " + s.document + (s.page ? " (" + s.page + ")" : "");
-    badge.parentNode.appendChild(tag);
+    // The source sits under the field, on its own line, so a long file name never squeezes the label or the badge.
+    const slot = document.getElementById("normSrc_" + k);
+    if (slot) { slot.innerHTML = '<i class="ph ph-file-text"></i>'; slot.appendChild(tag); } else badge.parentNode.appendChild(tag);
   });
 }
 
