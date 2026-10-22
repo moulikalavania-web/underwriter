@@ -1,0 +1,116 @@
+<!-- Suite C20: Step 2 legal gates. Producer licence and sanctions run by themselves once ingestion is confirmed, before market
+     clearance, the FEIN check and the appetite knockouts; the case is held at Step 2 until both pass; at bind they are repeated,
+     except right after a screening with the same parties and list, or after the same producer passed in this session with no new registry. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.channelType = 'broker'; s.decisionLog = []; s.currentStep = 2; s.completedSteps = [1];
+    s.broker = 'Marsh & McLennan Commercial Brokerage'; s.insured = 'Clean Freight LLC'; s.address = '9 Elm Road, Dallas, TX 75201';
+    ['pasSync', 'sanctions', 'producerCheck', 'authorityRef', 'marketClearance', 'normalizedMeta'].forEach(function(k){ delete s[k]; });
+    for (var k in (over || {})) s[k] = over[k];
+    return s;
+  }
+  function holdLogs(sub){ return (sub.decisionLog || []).filter(function(d){ return d.decision === 'clearance_hold'; }); }
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+
+    // ---------- the page order on Step 2
+    var order = ['clearanceHoldContainer', 'producerLicensingContainer', 'sanctionsScreeningContainer', 'marketClearanceContainer', 'checkFeinNumber', 'appetiteRulesTable'];
+    var ok = true;
+    for (var i = 1; i < order.length; i++) { if (!(el(order[i - 1]).compareDocumentPosition(el(order[i])) & Node.DOCUMENT_POSITION_FOLLOWING)) ok = false; }
+    t('Step 2 lists producer, sanctions, market clearance, FEIN and appetite in that order, appetite last', ok);
+
+    // ---------- ingestion confirmed: both checks run by themselves
+    var raw = { id: 'SUB-EM-C20', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true,
+      insured: '(Pending — See Raw Email)', fein: 'PENDING', broker: 'Marsh & McLennan Commercial Brokerage', address: '9 Elm Road, Dallas, TX 75201', normalizationStatus: 'pending', decisionLog: [], currentStep: 1, completedSteps: [], docs: [], vehicles: [], drivers: [], losses: [],
+      rawEmailText: 'Hi,\nInsured: Delta Haulers\nFEIN: 74-9842109\nUS DOT: 1234567\nBroker: Marsh & McLennan Commercial Brokerage\nEffective: November 1, 2026\nThanks' };
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(raw); activeSubmissionId = raw.id; emailIngestionDraftBySubId = {};
+    emailIngestionDraftBySubId[raw.id] = buildLocalNormalizationDraft(raw);
+    t('before ingestion is confirmed neither check has run', !producerCurrent(raw) && !(raw.sanctions && raw.sanctions.screens && raw.sanctions.screens.length));
+    applyNormalizedDataToSubmission(raw.id);
+    t('confirming ingestion runs the producer check with no button', !!producerCurrent(raw) && raw.producerCheck.trigger === 'clearance');
+    t('and the sanctions screening', sanctionsStore(raw).screens.length === 1 && sanctionsStore(raw).screens[0].trigger === 'clearance');
+
+    // ---------- the hold
+    var A = mk('SUB-C20-A');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(A); activeSubmissionId = A.id; currentWorkflowStep = 2;
+    clearanceAutoRun(A, 'clearance');
+    t('a licensed, appointed producer and a clean name pass both checks', clearanceChecks(A).ok, JSON.stringify(clearanceChecks(A)));
+    t('the banner says the legal checks passed', /Legal checks passed/.test(el('clearanceHoldContainer').innerHTML));
+    toasts.length = 0; goToNextStep();
+    t('a passing case is not held: the stage decision opens', getComputedStyle(el('stageDecisionModal')).display !== 'none' && !toasts.some(function(m){ return /Held at Step 2/.test(m); }));
+    closeStageDecisionModal();
+
+    var B = mk('SUB-C20-B', { broker: 'Unknown Brokerage Ltd' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(B); activeSubmissionId = B.id; currentWorkflowStep = 2;
+    clearanceAutoRun(B, 'clearance');
+    t('an unknown producer fails the producer check', !clearanceChecks(B).producer.ok && clearanceChecks(B).sanctions.ok);
+    t('the banner names the hold and the reason', /Held at Step 2/.test(el('clearanceHoldContainer').innerHTML) && /Producer licence and appointment/.test(el('clearanceHoldContainer').innerHTML));
+    toasts.length = 0; goToNextStep();
+    t('Next is refused and Data Enrichment is not reached', currentWorkflowStep === 2 && B.currentStep === 2 && toasts.some(function(m){ return /Held at Step 2/.test(m); }));
+    t('the refusal is written to the case log', holdLogs(B).some(function(d){ return /Step 2 exit blocked/.test(d.notes); }));
+    goToWorkflowStep(4);
+    t('clicking a later step in the stepper does not get round it', currentWorkflowStep === 2);
+
+    var C = mk('SUB-C20-C', { insured: 'Northwind Demo Sanctioned Holdings' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(C); activeSubmissionId = C.id; currentWorkflowStep = 2;
+    clearanceAutoRun(C, 'clearance');
+    t('a potential sanctions match nobody has cleared holds the case', clearanceChecks(C).producer.ok && !clearanceChecks(C).sanctions.ok);
+    toasts.length = 0; goToNextStep();
+    t('and the case stays at Step 2', currentWorkflowStep === 2 && toasts.some(function(m){ return /sanctions screening/.test(m); }));
+
+    var D = mk('SUB-C20-D', { channelType: 'direct', broker: 'Direct Customer Portal' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(D); activeSubmissionId = D.id; currentWorkflowStep = 2;
+    clearanceAutoRun(D, 'clearance');
+    t('a direct case has no producer to check; sanctions alone decides', clearanceChecks(D).producer.ok && /Not applicable/.test(clearanceChecks(D).producer.label) && clearanceChecks(D).ok);
+
+    // ---------- the re-check at bind: sanctions
+    var S = mk('SUB-C20-S');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id;
+    runSanctionsScreening(S, 'clearance');
+    var n0 = sanctionsStore(S).screens.length;
+    t('a bind minutes after a screening, same parties, same list: no new screening', sanctionsGuardBind('test', S.id) === true && sanctionsStore(S).screens.length === n0);
+    sanctionsStore(S).extraParties.push({ name: 'New Party Inc', role: 'Other Named Party' });
+    sanctionsGuardBind('test', S.id);
+    t('a party added since: screened again', sanctionsStore(S).screens.length === n0 + 1 && sanctionsStore(S).screens[n0].trigger === 'bind');
+    sanctionsStore(S).extraParties.length = 0;
+    var last = sanctionsStore(S).screens[sanctionsStore(S).screens.length - 1];
+    last.ts = Date.now() - (SANCTIONS_REUSE_MINUTES + 1) * 60000;
+    var n1 = sanctionsStore(S).screens.length; sanctionsGuardBind('test', S.id);
+    t('a screening older than ' + SANCTIONS_REUSE_MINUTES + ' minutes: screened again', sanctionsStore(S).screens.length === n1 + 1);
+    var savedVer = SANCTIONS_LIST_VERSION; SANCTIONS_LIST_VERSION = 'test-2026-11';
+    var n2 = sanctionsStore(S).screens.length; sanctionsGuardBind('test', S.id);
+    t('a new list version: screened again', sanctionsStore(S).screens.length === n2 + 1);
+    SANCTIONS_LIST_VERSION = savedVer;
+
+    // ---------- the re-check at bind: producer
+    var P = mk('SUB-C20-P');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(P); activeSubmissionId = P.id;
+    runProducerCheck(P, 'clearance');
+    t('the producer passed in this session', producerVerifiedThisSession(P));
+    producerGuardBind('test', P.id);
+    t('a bind now does not repeat the check', P.producerCheck.trigger === 'clearance');
+    var savedBroker = P.broker; P.broker = 'Arora & Sons';
+    t('a different producer is not covered by that verification', !producerVerifiedThisSession(P));
+    P.broker = savedBroker;
+    PRODUCER_REGISTRY.push({ names: ['Placeholder Brokerage'], npn: '90009999', licenses: [], appointments: [] });
+    t('loading a registry since: the verification no longer counts', !producerVerifiedThisSession(P));
+    producerGuardBind('test', P.id);
+    t('and the bind repeats the check', P.producerCheck.trigger === 'bind');
+    PRODUCER_REGISTRY.pop();
+    runProducerCheck(P, 'clearance');
+    t('a new sign-in starts a new session', producerVerifiedThisSession(P) && (initAppAfterLogin('senior_uw'), !producerVerifiedThisSession(P)));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n') + (errs.length ? '\nPAGE ERRORS: ' + errs.join(' | ') : ''); document.body.appendChild(pre);
+})();
+</script>

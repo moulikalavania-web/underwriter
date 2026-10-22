@@ -676,7 +676,7 @@ function submitDeclineSubmission() {
 }
 
 function categorizeSubmissionOutcome(sub) {
-  const finalStep = WORKFLOW_STEPS.length; // step 7: Formal Quote & Policy Binding
+  const finalStep = BIND_STEP; // step 7: Formal Quote & Policy Binding
   const hasOutstandingMissing = getOutstandingMissingCount(sub) > 0;
   const isDeclined = sub.lifecycleStatus === "declined";
 
@@ -755,8 +755,8 @@ function renderTeamActivityMonthlyChart() {
     byUW[uw].push(sub);
   });
   const teamCount = Object.keys(byUW).length;
-  const activeCount = liveSubmissions.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length).length;
-  const completedCount = liveSubmissions.filter(s => (s.currentStep || 1) >= WORKFLOW_STEPS.length).length;
+  const activeCount = liveSubmissions.filter(s => (s.currentStep || 1) < BIND_STEP).length;
+  const completedCount = liveSubmissions.filter(s => (s.currentStep || 1) >= BIND_STEP).length;
   const delayedCount = liveSubmissions.filter(s => computeSubmissionActivityFlags(s).isDelayed).length;
 
   const kpiStrip = `
@@ -825,8 +825,8 @@ function renderTeamActivityBoard() {
 
   const cards = uwNames.map(uw => {
     const subs = byUW[uw];
-    const active = subs.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length);
-    const completed = subs.filter(s => (s.currentStep || 1) >= WORKFLOW_STEPS.length);
+    const active = subs.filter(s => (s.currentStep || 1) < BIND_STEP);
+    const completed = subs.filter(s => (s.currentStep || 1) >= BIND_STEP);
     const flagged = subs.map(s => ({ sub: s, flags: computeSubmissionActivityFlags(s) })).filter(x => x.flags.isDelayed);
     const avatarInitials = uw.split(" ").filter(w => w[0] === w[0].toUpperCase()).slice(0, 2).map(w => w[0]).join("") || uw.slice(0, 2).toUpperCase();
 

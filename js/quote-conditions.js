@@ -124,7 +124,9 @@ function qcPrefill(family) {
     condition: `${g.onFail.condition || "Meet the " + g.ruleName + " requirement"} Units affected: ${units.join("; ")}.`
   };
   QC_FORM_OPEN = true; qcRender(sub);
-  showToast(`Quote Condition prefilled from "${g.ruleName}". Check the premium and the deadline, then create it.`, "info");
+  // The rule and the quoted coverage give everything the draft needs: create it in one click. Without a known premium, the form stays open for it.
+  if (parseFloat(String(QC_PREFILL.premium).replace(/[^0-9.]/g, "")) > 0) { qcCreate(); return; }
+  showToast(`Quote Condition prefilled from "${g.ruleName}". Enter the premium, then create it.`, "info");
 }
 
 /**
@@ -205,13 +207,11 @@ function qcCreate() {
   };
   if (QC_PREFILL && QC_PREFILL.line.toLowerCase() === line.toLowerCase()) {
     c.rule = { family: QC_PREFILL.family, name: QC_PREFILL.ruleName, ruleIds: QC_PREFILL.ruleIds, vehicleIndexes: QC_PREFILL.vehicleIndexes, field: QC_PREFILL.field };
-    // The coverage is not provided while the rule is unmet: take it out of the quote and keep it, so it can come back.
-    const at = (sub.coverageRows || []).findIndex(r => String(r.line).toLowerCase() === line.toLowerCase() && !r.viaQuoteCondition);
-    if (at >= 0) { c.withheldRow = sub.coverageRows.splice(at, 1)[0]; }
+    // The coverage is taken out of the quote when the condition is issued (qcIssue), not while it is only a draft.
   }
   QC_PREFILL = null;
   c.versions.push({ version: 1, kind: "created", condition: condition, coverage: Object.assign({}, c.coverage), premium: c.premium, deadline: deadline, changes: [], reason: "", by: c.createdBy, at: c.createdAt });
-  qcSystemMessage(c, `Quote Condition ${c.id} drafted: ${line}; deadline ${deadline}.${c.rule ? ` Raised from the appetite rule "${c.rule.name}"; ${line} is withheld from the quote until the condition is met.` : ""}`);
+  qcSystemMessage(c, `Quote Condition ${c.id} drafted: ${line}; deadline ${deadline}.${c.rule ? ` Raised from the appetite rule "${c.rule.name}"; ${line} is withheld from the quote once this condition is issued, until it is met.` : ""}`);
   store.push(c);
   qcLog(sub, "qc_created", `${c.id}: add ${line} (${qcMoney(c.premium)} additional premium) if the insured meets the condition by ${deadline}: ${condition}`);
   QC_FORM_OPEN = false; QC_OPEN[c.id + ":doc"] = true;
@@ -225,6 +225,11 @@ function qcIssue(id) {
   const c = qcFind(sub, id); if (!c || c.status !== "draft") return;
   if (c.deadline < qcToday()) return qcFail("The deadline has passed. Withdraw this draft and create a new condition.");
   c.status = "issued"; c.issuedAt = qcNow(); c.issuedBy = qcActor();
+  if (c.rule && !c.withheldRow) {
+    // The coverage is not provided while the rule is unmet: take it out of the quote and keep it, so it can come back.
+    const at = (sub.coverageRows || []).findIndex(r => String(r.line).toLowerCase() === c.coverage.line.toLowerCase() && !r.viaQuoteCondition);
+    if (at >= 0) c.withheldRow = sub.coverageRows.splice(at, 1)[0];
+  }
   qcSystemMessage(c, `Version ${qcCurrentVersion(c).version} issued for the insured's signature (deadline ${c.deadline}). Download the document and send it to the broker.`);
   qcLog(sub, "qc_issued", `${c.id} version ${qcCurrentVersion(c).version} issued for signature; deadline ${c.deadline}.`);
   qcPersist(); qcRender(sub);
@@ -267,12 +272,16 @@ function qcExtend(id) {
   next.changes = qcDiff(prev, next);
   c.versions.push(next);
   c.deadline = newDeadline; c.condition = newCondition; c.premium = newPremium;
-  c.status = "issued"; c.signature = null;
-  qcSystemMessage(c, `Version ${next.version} issued: ${next.changes.map(x => `${x.field}: ${x.from} → ${x.to}`).join("; ")}. Reason: ${reason}. The insured must sign this version.`);
+  // Only the date moved: the insured already agreed to these terms, so a signed copy stays valid and is carried forward.
+  const dateOnly = next.changes.every(x => x.field === "Deadline");
+  const keepSignature = c.status === "signed" && c.signature && dateOnly;
+  if (keepSignature) { c.signature = Object.assign({}, c.signature, { carriedFromVersion: c.signature.version, version: next.version }); }
+  else { c.status = "issued"; c.signature = null; }
+  qcSystemMessage(c, `Version ${next.version} issued: ${next.changes.map(x => `${x.field}: ${x.from} → ${x.to}`).join("; ")}. Reason: ${reason}. ${keepSignature ? "Only the deadline changed, so the signature on the earlier version still applies." : "The insured must sign this version."}`);
   qcLog(sub, "qc_extended", `${c.id} version ${next.version}: ${next.changes.map(x => `${x.field} ${x.from} → ${x.to}`).join("; ")}. Reason: ${reason}.`);
   QC_OPEN[id + ":ext"] = false;
   qcPersist(); qcRender(sub);
-  showToast(`${c.id} extended to ${newDeadline} as version ${next.version}; the insured must sign it.`, "success");
+  showToast(`${c.id} extended to ${newDeadline} as version ${next.version}${keepSignature ? "; the existing signature still applies." : "; the insured must sign it."}`, "success");
 }
 
 function qcWithdraw(id) {
@@ -544,7 +553,7 @@ function qcFormHtml(sub) {
   return `<div class="qc-form">
     <div class="qc-form-head"><div class="qc-form-title"><i class="ph ph-file-plus"></i> New Quote Condition</div>
       <div class="qc-form-hint">Use this when the insured has not yet met something needed for a coverage but promises to meet it by a date.</div></div>
-    ${pf.ruleName ? `<div class="qc-note"><i class="ph ph-link"></i><div>Raised from the appetite rule "${qcEsc(pf.ruleName)}". Creating it withholds ${qcEsc(pf.line)} from the quote until the condition is met.</div></div>` : ""}
+    ${pf.ruleName ? `<div class="qc-note"><i class="ph ph-link"></i><div>Raised from the appetite rule "${qcEsc(pf.ruleName)}". Issuing it withholds ${qcEsc(pf.line)} from the quote until the condition is met.</div></div>` : ""}
     <div class="qc-form-section">Coverage</div>
     <div class="qc-grid">
       <label class="qc-field qc-wide">Coverage to add if met<input id="qc_cov_line" class="form-control" list="qc_cov_list" placeholder="e.g. Physical Damage" value="${qcEsc(pf.line || "")}"><datalist id="qc_cov_list">${sugg}</datalist></label>

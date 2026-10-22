@@ -498,6 +498,7 @@ function simulatePASBindSync(subId) {
       sub.statusBadge = "badge-success";
       if (!sub.completedSteps) sub.completedSteps = [];
       if (!sub.completedSteps.includes(7)) sub.completedSteps.push(7);
+      if (!sub.completedSteps.includes(8)) sub.completedSteps.push(8);   // Policy Issuance & Terms exists from the bind
 
       recordQuoteVersion(sub, true);
 

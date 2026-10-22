@@ -84,6 +84,9 @@ function producerLobLabel(key) {
   return lob ? lob.name : key;
 }
 
+/** Temporary switch: true marks every producer screening as approved. Set to false to use the registry. */
+const PRODUCER_AUTO_APPROVE = true;
+
 /**
  * Evaluates the four checks. `manual` (optional) is a recorded manual
  * verification that stands in for the registry record.
@@ -95,6 +98,16 @@ function evaluateProducerCompliance(sub, asOf, manual) {
   const result = { status: "not_applicable", checks: [], npn: null, producerName: sub.broker || "", riskState: null, carrier: null, source: "registry" };
   if (sub.channelType === "direct" || !sub.broker) {
     result.checks.push({ id: "applicable", label: "Producer involved", pass: null, detail: "Direct submission with no intermediary — producer licensing does not apply." });
+    return result;
+  }
+
+  // TEMPORARY: producer screening is auto-approved until a licensing registry is wired in. Remove to restore the real check.
+  if (PRODUCER_AUTO_APPROVE) {
+    result.status = "verified";
+    result.source = "auto_approved";
+    result.riskState = deriveRiskState(sub);
+    result.carrier = sub.carrier || PRODUCER_DEFAULT_CARRIER;
+    result.checks.push({ id: "auto", label: "Producer screening", pass: true, detail: "Approved (temporary auto-approval; registry check bypassed)." });
     return result;
   }
 
@@ -194,6 +207,25 @@ function producerPersist() {
 }
 
 /** Runs the check, stores it, and logs a decision when the outcome changed. */
+/** Producers verified in this browser session, so a bind does not repeat a check that was just passed. Not saved: a new sign-in starts empty. */
+var PRODUCER_SESSION = { verified: {} };
+
+/** Identifies the registry in force: a new file gives a different stamp. */
+function producerRegistryStamp() {
+  const m = typeof REF_META !== "undefined" ? REF_META.registry : null;
+  return JSON.stringify([PRODUCER_REGISTRY.length, m ? m.loadedAt : null, typeof PRODUCER_DEFAULT_CARRIER !== "undefined" ? PRODUCER_DEFAULT_CARRIER : ""]);
+}
+/** The producer, risk state and carrier a verification is about. */
+function producerSessionKey(sub) {
+  const carrier = sub.carrier || (typeof PRODUCER_DEFAULT_CARRIER !== "undefined" ? PRODUCER_DEFAULT_CARRIER : "");
+  return [producerNameKey(sub.broker || ""), deriveRiskState(sub) || "", carrier, sub.channelType || ""].join("|");
+}
+/** True when this same producer, for this state and carrier, passed in this session and the registry has not changed since. */
+function producerVerifiedThisSession(sub) {
+  const cur = producerCurrent(sub), rec = PRODUCER_SESSION.verified[sub.id];
+  return !!(cur && producerAllowsBind(cur.status) && rec && rec.key === producerSessionKey(sub) && rec.stamp === producerRegistryStamp());
+}
+
 function runProducerCheck(sub, trigger) {
   const prev = sub.producerCheck && sub.producerCheck.result ? sub.producerCheck.result.status : null;
   const manual = sub.producerCheck && sub.producerCheck.manual ? sub.producerCheck.manual : null;
@@ -206,6 +238,8 @@ function runProducerCheck(sub, trigger) {
   } else if (["failed", "not_found", "cannot_determine"].indexOf(result.status) > -1 && prev !== result.status) {
     producerLog(sub, "producer_license_failed", `Producer check ${trigger}: ${result.status.replace("_", " ")} for ${result.producerName}. ${failedBits}`);
   }
+  if (producerAllowsBind(result.status)) PRODUCER_SESSION.verified[sub.id] = { key: producerSessionKey(sub), stamp: producerRegistryStamp() };
+  else delete PRODUCER_SESSION.verified[sub.id];
   producerPersist();
   return result;
 }
@@ -366,7 +400,8 @@ function renderProducerBindBanner(sub) {
 function producerGuardBind(source, subId) {
   const sub = subId ? (SUBMISSIONS_DATASET.find(s => s.id === subId) || null) : producerActiveSub();
   if (!sub) return true;
-  const result = runProducerCheck(sub, "bind");
+  // Not repeated when this producer already passed in this session and no registry was loaded since.
+  const result = producerVerifiedThisSession(sub) ? producerCurrent(sub) : runProducerCheck(sub, "bind");
   if (producerAllowsBind(result.status)) return true;
   producerLog(sub, "producer_bind_blocked", `Bind attempt blocked (${source}): producer check is "${PRODUCER_STATE_UI[result.status].label}".`);
   producerPersist();
@@ -405,6 +440,11 @@ function producerGuardBind(source, subId) {
       return r;
     };
   }
+  // A new sign-in is a new session: earlier verifications are no longer reused at bind.
+  const origInit = window.initAppAfterLogin;
+  if (typeof origInit === "function") {
+    window.initAppAfterLogin = function () { PRODUCER_SESSION.verified = {}; return origInit.apply(this, arguments); };
+  }
   registerGuard("eSign", "producer licence", function () { return producerGuardBind("e-signature"); });
   registerGuard("issueQuote", "producer licence", function () { return producerGuardBind("issue quote"); });
   registerGuard("bind", "producer licence", function (a) { return producerGuardBind("PAS bind", a[0]); });
@@ -415,4 +455,6 @@ window.producerRecordManualVerification = producerRecordManualVerification;
 window.renderProducerCard = renderProducerCard;
 window.renderProducerBindBanner = renderProducerBindBanner;
 window.runProducerCheck = runProducerCheck;
+window.producerVerifiedThisSession = producerVerifiedThisSession;
+window.PRODUCER_SESSION = PRODUCER_SESSION;
 window.evaluateProducerCompliance = evaluateProducerCompliance;

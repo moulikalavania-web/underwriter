@@ -27,8 +27,9 @@
  */
 
 var SANCTIONS_MATCH_THRESHOLD = 0.8;                 // 0–1; compliance to set
-var SANCTIONS_LIST_NAME = "No watchlist loaded";
-var SANCTIONS_LIST_VERSION = "none";
+var SANCTIONS_REUSE_MINUTES = 10;                    // a bind this soon after a screening, with the same parties and the same list, does not screen again
+var SANCTIONS_LIST_NAME = "Demo watchlist (fictitious entries, not an official list)";
+var SANCTIONS_LIST_VERSION = "demo-1";
 
 /**
  * The watchlist to screen against. The application ships none: it is loaded from a licensed provider or the official
@@ -37,7 +38,15 @@ var SANCTIONS_LIST_VERSION = "none";
  * an approver may instead record that the parties were screened elsewhere (a reference is required).
  * Each entry: { name, aliases: [], type: "entity" | "individual", program }.
  */
-var SANCTIONS_WATCHLIST = [];
+// DEMO DATA: invented names so screening runs end to end. Replace with the official OFAC/UN/EU lists or a licensed
+// provider via the reference-data loader before any real use.
+var SANCTIONS_WATCHLIST = [
+  { name: "Northern Star Trading Group", aliases: ["NS Trading Group"], type: "entity", program: "DEMO-SDN" },
+  { name: "Viktor Test Sanctioned", aliases: ["V. Test Sanctioned"], type: "individual", program: "DEMO-SDN" },
+  { name: "Black Harbor Holdings", aliases: [], type: "entity", program: "DEMO-SSI" },
+  { name: "Omar Demo Blocked", aliases: ["O. Demo Blocked"], type: "individual", program: "DEMO-SDN" },
+  { name: "Crimson Delta Logistics", aliases: ["Crimson Delta Freight"], type: "entity", program: "DEMO-NS-PLC" }
+];
 
 var SANCTIONS_PARTY_ROLES = ["Principal / Owner", "Additional Insured", "Subsidiary / Affiliate", "Other Named Party"];
 
@@ -157,11 +166,34 @@ function sanctionsLog(sub, decision, notes, byOverride) {
 function sanctionsListLoaded() { return SANCTIONS_WATCHLIST.length > 0; }
 function sanctionsPartyKey(sub) { return sanctionsGatherParties(sub).map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";"); }
 
+/** Identifies the list in force: a new file, or a different version, gives a different stamp. */
+function sanctionsListStamp() {
+  const m = typeof REF_META !== "undefined" ? REF_META.watchlist : null;
+  return JSON.stringify([SANCTIONS_LIST_NAME, SANCTIONS_LIST_VERSION, SANCTIONS_WATCHLIST.length, m ? m.loadedAt : null]);
+}
+/** The parties as screened: names and roles, in a fixed order. */
+function sanctionsPartyKeyOf(sub) {
+  return sanctionsGatherParties(sub).map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";");
+}
+/** True when the latest screening covers today's parties against today's list (any trigger). */
+function sanctionsScreenIsCurrent(sub) {
+  const store = sanctionsStore(sub);
+  const last = store.screens[store.screens.length - 1];
+  if (!last) return false;
+  const lastKey = last.parties.map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";");
+  return lastKey === sanctionsPartyKeyOf(sub) && last.listStamp === sanctionsListStamp();
+}
+/** Screens only if the parties or the list changed since the last screening. Used when ingestion is confirmed. */
+function sanctionsEnsureScreened(sub, trigger) {
+  if (sanctionsScreenIsCurrent(sub)) return null;
+  return runSanctionsScreening(sub, trigger);
+}
+
 function runSanctionsScreening(sub, trigger) {
   const store = sanctionsStore(sub);
   if (!sanctionsListLoaded()) {
     const parties = sanctionsGatherParties(sub).map(p => ({ name: p.name, role: p.role, result: "not_screened", matches: [] }));
-    const screen = { id: "SCR-" + (store.screens.length + 1), at: sanctionsNow(), trigger, by: sanctionsActor(), listName: SANCTIONS_LIST_NAME, listVersion: SANCTIONS_LIST_VERSION, threshold: SANCTIONS_MATCH_THRESHOLD, parties, noList: true };
+    const screen = { id: "SCR-" + (store.screens.length + 1), at: sanctionsNow(), ts: Date.now(), listStamp: sanctionsListStamp(), trigger, by: sanctionsActor(), listName: SANCTIONS_LIST_NAME, listVersion: SANCTIONS_LIST_VERSION, threshold: SANCTIONS_MATCH_THRESHOLD, parties, noList: true };
     store.screens.push(screen);
     sanctionsLog(sub, "sanctions_no_list", `Sanctions screening ${trigger}: NOT PERFORMED. No watchlist is loaded, so ${parties.length} part${parties.length === 1 ? "y was" : "ies were"} not screened. Load a list or record an external screening.`);
     persistSanctions();
@@ -174,6 +206,8 @@ function runSanctionsScreening(sub, trigger) {
   const screen = {
     id: "SCR-" + (store.screens.length + 1),
     at: sanctionsNow(),
+    ts: Date.now(),
+    listStamp: sanctionsListStamp(),
     trigger,
     by: sanctionsActor(),
     listName: SANCTIONS_LIST_NAME,
@@ -468,21 +502,15 @@ function renderSanctionsBindBanner(sub) {
 // ----------------------------------------------------------------------------
 // 5. HOOKS — clearance step, bind actions, audit-log labels
 // ----------------------------------------------------------------------------
-/** Re-screen right before bind (re-using a bind-time screen from the last two
- *  minutes whose party list has not changed), then allow or block. */
+/** Re-screen right before bind, then allow or block. No new screening is run when the last one is only minutes old
+ *  (SANCTIONS_REUSE_MINUTES), covers the same parties and used the same list; the result is still checked. */
 function sanctionsGuardBind(source, subId) {
   const sub = subId ? (SUBMISSIONS_DATASET.find(s => s.id === subId) || null) : sanctionsActiveSub();
   if (!sub) return true;
   const store = sanctionsStore(sub);
   const last = store.screens[store.screens.length - 1];
-  const partyKey = sanctionsGatherParties(sub).map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";");
-  const lastKey = last ? last.parties.map(p => sanctionsNameKey(p.name) + "|" + p.role).sort().join(";") : null;
-  const fresh = last && last.trigger === "bind" && lastKey === partyKey &&
-    (Date.now() - (sub._sanctionsBindScreenAt || 0)) < 120000;
-  if (!fresh) {
-    runSanctionsScreening(sub, "bind");
-    sub._sanctionsBindScreenAt = Date.now();
-  }
+  const fresh = !!last && (Date.now() - (last.ts || 0)) < SANCTIONS_REUSE_MINUTES * 60000 && sanctionsScreenIsCurrent(sub);
+  if (!fresh) runSanctionsScreening(sub, "bind");
   const status = getSanctionsStatus(sub);
   if (sanctionsAllowsBind(status)) return true;
 
@@ -551,3 +579,5 @@ window.renderSanctionsCard = renderSanctionsCard;
 window.renderSanctionsBindBanner = renderSanctionsBindBanner;
 window.getSanctionsStatus = getSanctionsStatus;
 window.runSanctionsScreening = runSanctionsScreening;
+window.sanctionsEnsureScreened = sanctionsEnsureScreened;
+window.sanctionsScreenIsCurrent = sanctionsScreenIsCurrent;

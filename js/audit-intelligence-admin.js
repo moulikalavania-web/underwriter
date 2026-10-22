@@ -1112,125 +1112,6 @@ function renderQuoteComparisonTable() {
     </div>`;
 }
 
-let ratingTransitionTimer = null;
-let ratingTransitionInterval = null;
-let ratingStartTime = 0;
-
-function stopRatingTransition() {
-  if (ratingTransitionTimer) {
-    clearTimeout(ratingTransitionTimer);
-    ratingTransitionTimer = null;
-  }
-  if (ratingTransitionInterval) {
-    clearInterval(ratingTransitionInterval);
-    ratingTransitionInterval = null;
-  }
-}
-
-function startRatingTransition() {
-  stopRatingTransition();
-
-  const l1 = document.getElementById("ratingLoader1");
-  const l2 = document.getElementById("ratingLoader2");
-  const l3 = document.getElementById("ratingLoader3");
-
-  const i1 = document.getElementById("ratingIcon1");
-  const i2 = document.getElementById("ratingIcon2");
-  const i3 = document.getElementById("ratingIcon3");
-
-  const b1 = document.getElementById("ratingBadge1");
-  const b2 = document.getElementById("ratingBadge2");
-  const b3 = document.getElementById("ratingBadge3");
-
-  const t1 = document.getElementById("ratingTitle1");
-  const t2 = document.getElementById("ratingTitle2");
-  const t3 = document.getElementById("ratingTitle3");
-
-  const progressBar = document.getElementById("ratingProgressBar");
-  const percentText = document.getElementById("ratingPercentText");
-  const countdownText = document.getElementById("ratingCountdown");
-
-  if (!l1 || !l2 || !l3) return;
-
-  ratingStartTime = Date.now();
-
-  l1.style.opacity = "1.0";
-  l2.style.opacity = "0.5";
-  l3.style.opacity = "0.5";
-
-  i1.style.background = "#eff6ff"; i1.style.color = "#2563eb"; i1.innerHTML = `<i class="ph ph-spinner spin"></i>`;
-  i2.style.background = "#f1f5f9"; i2.style.color = "#94a3b8"; i2.innerHTML = `<i class="ph ph-circle"></i>`;
-  i3.style.background = "#f1f5f9"; i3.style.color = "#94a3b8"; i3.innerHTML = `<i class="ph ph-circle"></i>`;
-
-  b1.className = "badge badge-primary font-mono text-xs"; b1.textContent = "In Progress";
-  b2.className = "badge badge-light font-mono text-xs"; b2.textContent = "Queued";
-  b3.className = "badge badge-light font-mono text-xs"; b3.textContent = "Queued";
-
-  if (t1) { t1.style.fontWeight = "700"; t1.style.color = "#0f172a"; }
-  if (t2) { t2.style.fontWeight = "600"; t2.style.color = "#64748b"; }
-  if (t3) { t3.style.fontWeight = "600"; t3.style.color = "#64748b"; }
-
-  if (progressBar) progressBar.style.width = "0%";
-  if (percentText) percentText.textContent = "0%";
-  if (countdownText) countdownText.textContent = "6.0s";
-
-  ratingTransitionInterval = setInterval(() => {
-    const elapsed = Date.now() - ratingStartTime;
-    const remaining = Math.max(0, (6000 - elapsed) / 1000);
-    const progress = Math.min(100, Math.round((elapsed / 6000) * 100));
-
-    if (progressBar) progressBar.style.width = `${progress}%`;
-    if (percentText) percentText.textContent = `${progress}%`;
-    if (countdownText) countdownText.textContent = `${remaining.toFixed(1)}s`;
-
-    // Phase 1 -> Phase 2 Transition at 2.0s (Hitting rating engine -> Fetching data)
-    if (elapsed >= 2000 && elapsed < 4000) {
-      i1.style.background = "#dcfce7"; i1.style.color = "#16a34a"; i1.innerHTML = `<i class="ph ph-check-circle"></i>`;
-      b1.className = "badge badge-success font-mono text-xs"; b1.textContent = "Passed";
-
-      l2.style.opacity = "1.0";
-      i2.style.background = "#eff6ff"; i2.style.color = "#2563eb"; i2.innerHTML = `<i class="ph ph-spinner spin"></i>`;
-      b2.className = "badge badge-primary font-mono text-xs"; b2.textContent = "In Progress";
-      if (t2) { t2.style.fontWeight = "700"; t2.style.color = "#0f172a"; }
-    }
-
-    // Phase 2 -> Phase 3 Transition at 4.0s (Fetching data -> Calculating)
-    if (elapsed >= 4000) {
-      i1.style.background = "#dcfce7"; i1.style.color = "#16a34a"; i1.innerHTML = `<i class="ph ph-check-circle"></i>`;
-      b1.className = "badge badge-success font-mono text-xs"; b1.textContent = "Passed";
-
-      i2.style.background = "#dcfce7"; i2.style.color = "#16a34a"; i2.innerHTML = `<i class="ph ph-check-circle"></i>`;
-      b2.className = "badge badge-success font-mono text-xs"; b2.textContent = "Passed";
-
-      l3.style.opacity = "1.0";
-      i3.style.background = "#eff6ff"; i3.style.color = "#2563eb"; i3.innerHTML = `<i class="ph ph-spinner spin"></i>`;
-      b3.className = "badge badge-primary font-mono text-xs"; b3.textContent = "In Progress";
-      if (t3) { t3.style.fontWeight = "700"; t3.style.color = "#0f172a"; }
-    }
-  }, 50);
-
-  // Overall 6-second delay -> automatic redirect to final step (Step 7: Quote & Bind)
-  ratingTransitionTimer = setTimeout(() => {
-    stopRatingTransition();
-
-    if (i3) { i3.style.background = "#dcfce7"; i3.style.color = "#16a34a"; i3.innerHTML = `<i class="ph ph-check-circle"></i>`; }
-    if (b3) { b3.className = "badge badge-success font-mono text-xs"; b3.textContent = "Calculated"; }
-    if (progressBar) progressBar.style.width = "100%";
-    if (percentText) percentText.textContent = "100%";
-    if (countdownText) countdownText.textContent = "0.0s";
-
-    const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-    if (sub) {
-      if (!sub.completedSteps) sub.completedSteps = [];
-      if (!sub.completedSteps.includes(6)) sub.completedSteps.push(6);
-    }
-
-    showToast("✨ Rating Engine calculation completed! Redirecting to Step 7 (Quote & Bind)...", "success");
-
-    goToWorkflowStep(7);
-  }, 6000);
-}
-
 /**
  * Workflow Stepper Navigator (Step 1 = Doc Ingestion -> Step 7 = Quote & Bind)
  */
@@ -1250,18 +1131,20 @@ function goToWorkflowStep(stepNum) {
     }
   }
 
+  // Policy Issuance & Terms only exists once the policy is bound.
+  if (stepNum > BIND_STEP) {
+    const subBound = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
+    if (!(subBound && subBound.pasSync && subBound.pasSync.status === "success" && subBound.pasSync.policyNumber)) {
+      showToast("⛔ Policy Issuance & Terms opens once the policy is bound.", "danger");
+      stepNum = BIND_STEP;
+    }
+  }
+
   currentWorkflowStep = stepNum;
 
   const stepObj = WORKFLOW_STEPS.find(s => s.step === stepNum) || WORKFLOW_STEPS[0];
   currentScreenId = stepObj.id;
   setPageTitle(stepObj.title || `Step ${stepNum}`);
-
-  // Handle Rating Engine Transition timer for Step 6
-  if (stepNum === 6) {
-    startRatingTransition();
-  } else {
-    stopRatingTransition();
-  }
 
   // Make sure we are in workflow page view
   if (currentPage !== "workflow") {
@@ -1277,7 +1160,7 @@ function goToWorkflowStep(stepNum) {
   }
 
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  const completedList = sub && sub.completedSteps ? sub.completedSteps.filter(st => st <= 7) : [];
+  const completedList = sub && sub.completedSteps ? sub.completedSteps.filter(st => st <= WORKFLOW_STEPS.length) : [];
 
   // 2. Populate downstream screen data for active sub
   if (sub) renderAllDownstreamScreens(sub);
@@ -1289,15 +1172,17 @@ function goToWorkflowStep(stepNum) {
   const hItems = document.querySelectorAll("#workflowStepperBar .h-stepper-item");
   const hLines = document.querySelectorAll("#workflowStepperBar .h-stepper-line");
 
+  const activeStage = stageOfStep(stepNum);
+  const stageDone = st => stepsOfStage(st).every(n => completedList.includes(n));
   hItems.forEach((item) => {
-    const itemStep = parseInt(item.getAttribute("data-step"), 10);
+    const itemStage = parseInt(item.getAttribute("data-stage"), 10);
     item.classList.remove("active", "completed", "upcoming");
-    if (itemStep === stepNum) {
+    if (itemStage === activeStage) {
       item.classList.add("active");
       try {
         item.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
       } catch (e) {}
-    } else if (completedList.includes(itemStep)) {
+    } else if (stageDone(itemStage)) {
       item.classList.add("completed");
     } else {
       item.classList.add("upcoming");
@@ -1305,29 +1190,16 @@ function goToWorkflowStep(stepNum) {
   });
 
   hLines.forEach((line) => {
-    const lineStep = parseInt(line.getAttribute("data-line"), 10);
+    const lineStage = parseInt(line.getAttribute("data-line"), 10);
     line.classList.remove("completed");
-    if (completedList.includes(lineStep)) {
+    if (stageDone(lineStage)) {
       line.classList.add("completed");
     }
   });
 
-  // 4. Update Sidebar Step List (Completed vs Active)
-  for (let s = 1; s <= WORKFLOW_STEPS.length; s++) {
-    const sideItem = document.getElementById(`sideStep-${s}`);
-    if (sideItem) {
-      sideItem.classList.remove("active", "completed");
-      if (s === stepNum) {
-        sideItem.classList.add("active");
-      } else if (completedList.includes(s)) {
-        sideItem.classList.add("completed");
-      }
-    }
-  }
-
   const sideRatio = document.getElementById("sidebarStepRatio");
   if (sideRatio) {
-    sideRatio.textContent = `${completedList.length}/7 Done`;
+    sideRatio.textContent = `${completedList.length}/${WORKFLOW_STEPS.length} Done`;
   }
 
   // 5. Update Headers & Active Case Card
@@ -1360,8 +1232,8 @@ function goToScreen(screenId) {
  */
 function updateActiveCaseHeaders(sub) {
   if (!sub) return;
-  const completedList = (sub.completedSteps || []).filter(st => st <= 7);
-  const pct = Math.round((completedList.length / 7) * 100);
+  const completedList = (sub.completedSteps || []).filter(st => st <= WORKFLOW_STEPS.length);
+  const pct = Math.round((completedList.length / WORKFLOW_STEPS.length) * 100);
 
   // Top Header Case Workflow Pill
   const hCase = document.getElementById("headerActiveCaseSub");
@@ -1433,7 +1305,7 @@ function updateBottomFooter(stepObj, sub) {
   document.body.classList.add("has-bottom-footer");
 
   if (footerStepLabel) {
-    footerStepLabel.innerHTML = `<strong>Step ${stepObj.step} of 7</strong>`;
+    footerStepLabel.innerHTML = `<strong>Stage ${stepObj.stage} of ${WORKFLOW_STAGES.length}</strong> · ${WORKFLOW_STAGES[stepObj.stage - 1].title}`;
   }
   if (sub) {
     const footerDocCount = document.getElementById("footerDocCount");
@@ -1456,11 +1328,14 @@ function updateBottomFooter(stepObj, sub) {
   if (btnNext) {
     btnNext.disabled = false;
     btnNext.classList.remove("disabled");
-    if (stepObj.step === 7) {
-      // Leaving Step 7 must not claim the work is done: the policy is only finished once it is bound.
-      const isBound = !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+    const isBound = !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+    if (stepObj.step === BIND_STEP && isBound) {
+      btnNext.innerHTML = `Next: Policy Issuance <i class="ph ph-arrow-right"></i>`;
+      btnNext.onclick = goToNextStep;
+    } else if (stepObj.step >= BIND_STEP) {
+      // Leaving Quote & Bind must not claim the work is done: the policy is only finished once it is bound.
       btnNext.innerHTML = isBound
-        ? `<i class="ph ph-check-circle text-success"></i> Policy bound — Return to Intake Queue`
+        ? `<i class="ph ph-check-circle text-success"></i> Policy issued — Return to Intake Queue`
         : `<i class="ph ph-arrow-u-up-left"></i> Save &amp; Return to Intake Queue (not bound yet)`;
       btnNext.onclick = leaveStepSeven;
     } else {
@@ -1472,7 +1347,7 @@ function updateBottomFooter(stepObj, sub) {
 }
 
 /**
- * Step Forward in Workflow (1..7)
+ * Step Forward in Workflow (1..8)
  */
 // ============================================================================
 // CONFIGURABLE REVIEW ROUTING RULES (Senior Underwriter / Manager review)
@@ -1572,10 +1447,10 @@ function determineReviewRequirement(sub) {
 // ============================================================================
 // HUMAN DECISION GATE AT MAJOR STAGES (#6)
 // ============================================================================
-// Steps considered "major" gates: 2 (Clearance), 4 (UW Review), 5 (Authority
-// & Referral), 7 (Quote & Bind). The system performs automated checks, but
+// Steps considered "major" gates, one per stage: 2 (Clearance), 5 (Authority
+// & Referral). The system performs automated checks, but
 // a human must explicitly approve before the submission advances.
-const MAJOR_DECISION_STEPS = [2, 4, 5, 7];
+const MAJOR_DECISION_STEPS = [2, 5];
 let pendingStageAdvance = null;
 
 /**
@@ -1759,14 +1634,19 @@ function advanceWorkflowStepAfterDecision(currentStep) {
   }
 
   goToWorkflowStep(currentStep + 1);
-  const nextStepObj = WORKFLOW_STEPS.find(s => s.step === currentStep + 1);
-  showToast(`Step ${currentStep} Completed! Proceeding to Step ${currentStep + 1}: ${nextStepObj ? nextStepObj.shortTitle : ''}`, "success");
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
+}
+
+/** Stepper click: open the stage at the case's current step if it is inside that stage, else at the stage's first step. */
+function goToWorkflowStage(stage) {
+  const steps = stepsOfStage(stage);
+  goToWorkflowStep(steps.includes(currentWorkflowStep) ? currentWorkflowStep : steps[0]);
 }
 
 function goToNextStep() {
   const currentStep = currentWorkflowStep;
-  if (currentStep < WORKFLOW_STEPS.length) {
+  const boundNow = (() => { const b = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId); return !!(b && b.pasSync && b.pasSync.status === "success" && b.pasSync.policyNumber); })();
+  if (currentStep < BIND_STEP || (currentStep === BIND_STEP && boundNow)) {
     const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
 
     if (!hasPermission("workflow", "approve")) {
@@ -1805,11 +1685,10 @@ function goToNextStep() {
       else if (sub.currentStep === 5 && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
       else if (sub.currentStep === 6) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
       else if (sub.currentStep === 7) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
+      else if (sub.currentStep === 8) { sub.statusText = "Policy Issued"; sub.statusBadge = "badge-success"; }
     }
 
     goToWorkflowStep(currentStep + 1);
-    const nextStepObj = WORKFLOW_STEPS.find(s => s.step === currentStep + 1);
-    showToast(`Step ${currentStep} Completed! Proceeding to Step ${currentStep + 1}: ${nextStepObj ? nextStepObj.shortTitle : ''}`, "success");
     refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   } else {
     leaveStepSeven();

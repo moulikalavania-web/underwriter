@@ -66,7 +66,7 @@ function renderManagerDashboardHtml() {
   const workloadCards = allRoles.map(rk => {
     const r = USER_ROLES_CONFIG[rk];
     const subs = byAssignee[rk];
-    const active = subs.filter(s => (s.currentStep || 1) < WORKFLOW_STEPS.length).length;
+    const active = subs.filter(s => (s.currentStep || 1) < BIND_STEP).length;
     return `
       <div class="metric-box">
         <span class="lbl"><i class="ph ph-user-circle"></i> ${r.name} (${r.title.split(' (')[0]})</span>
@@ -152,8 +152,8 @@ function renderManagerDashboardHtml() {
 function renderWorkerDashboardHtml() {
   const mine = SUBMISSIONS_DATASET.filter(s => s.apiSourced && isMyCase(s));
   const notStarted = mine.filter(s => (s.currentStep || 1) === 1 && (!s.completedSteps || s.completedSteps.length === 0));
-  const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < WORKFLOW_STEPS.length);
-  const readyToQuote = mine.filter(s => (s.currentStep || 1) === WORKFLOW_STEPS.length);
+  const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < BIND_STEP);
+  const readyToQuote = mine.filter(s => (s.currentStep || 1) === BIND_STEP);
 
   // Single highest-priority item to act on next — a worker dashboard
   // surfaces ONE next action, not a table to triage themselves.
@@ -167,7 +167,7 @@ function renderWorkerDashboardHtml() {
         <div>
           <span class="text-xs text-muted"><i class="ph ph-arrow-right"></i> YOUR NEXT ACTION</span>
           <h3 style="margin:2px 0;">${next.insured} <code class="font-mono text-xs">${next.id}</code></h3>
-          <span class="text-sm text-muted">${nextStepObj.title} — Step ${next.currentStep || 1} of ${WORKFLOW_STEPS.length}</span>
+          <span class="text-sm text-muted">${nextStepObj.title} — Stage ${stageOfStep(next.currentStep || 1)} of ${WORKFLOW_STAGES.length}</span>
         </div>
         <button class="btn btn-primary" onclick="openCaseAtCurrentStep('${next.id}')"><i class="ph ph-arrow-right"></i> Continue Work</button>
       </div>

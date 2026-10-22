@@ -262,7 +262,7 @@ run<!--
           </div>
           <div class="case-card-progress">
             <div class="progress-info">
-              <span id="sidebarStepRatio">0/7 Done</span>
+              <span id="sidebarStepRatio">0/8 Done</span>
               <span id="sideCardProgressText">0%</span>
             </div>
             <div class="progress-track"><div class="progress-fill" id="sideCardProgressBar" style="width:0%;"></div></div>
@@ -401,111 +401,90 @@ run<!--
       <!-- ==================================================================== -->
       <div class="page-view u-hidden" id="workflowPageView">
         
-        <!-- Visual phase grouping above the 7-step stepper (purely informational,
-             does not change step navigation/click behavior below) -->
-        <div class="stepper-phase-groups" aria-hidden="true">
-          <span class="phase-group-label" style="flex: 2;">Intake & Clearance</span>
-          <span class="phase-group-label" style="flex: 3;">Underwriting & Authority</span>
-          <span class="phase-group-label" style="flex: 2;">Rating & Bind</span>
-        </div>
-
-        <!-- Workflow Horizontal Stepper Bar (Starts at Step 1: Doc Ingestion) -->
+        <!-- The six stages of the underwriting workflow. Some stages cover more than one working screen
+             (Intake & Clearance = Doc Ingestion + Clearance Check; UW Review & Rules = UW Workbench + Authority Desk). -->
         <nav class="horizontal-stepper-bar workflow-stepper-bar" id="workflowStepperBar">
           <div class="h-stepper-track">
-            
-            <!-- Step 1: Doc Ingestion -->
-            <div class="h-stepper-item active" data-step="1" data-screen="screen-2" onclick="goToWorkflowStep(1)">
+
+            <!-- Stage 1: Intake & Clearance -->
+            <div class="h-stepper-item active" data-stage="1" onclick="goToWorkflowStage(1)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">1</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Doc Ingestion</span>
-                <span class="h-stepper-desc">OCR & Schema</span>
+                <span class="h-stepper-title">Intake & Clearance</span>
+                <span class="h-stepper-desc">Docs, FEIN, legal checks</span>
               </div>
             </div>
 
             <div class="h-stepper-line" data-line="1"></div>
 
-            <!-- Step 2: Clearance Check -->
-            <div class="h-stepper-item" data-step="2" data-screen="screen-3" onclick="goToWorkflowStep(2)">
+            <!-- Stage 2: Completeness & Enrichment -->
+            <div class="h-stepper-item" data-stage="2" onclick="goToWorkflowStage(2)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">2</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Clearance Check</span>
-                <span class="h-stepper-desc">FEIN & Knockout</span>
+                <span class="h-stepper-title">Completeness & Enrichment</span>
+                <span class="h-stepper-desc">Requirements & data</span>
               </div>
             </div>
 
             <div class="h-stepper-line" data-line="2"></div>
 
-            <!-- Step 3: Data Enrichment -->
-            <div class="h-stepper-item" data-step="3" data-screen="screen-4" onclick="goToWorkflowStep(3)">
+            <!-- Stage 3: UW Review & Rules -->
+            <div class="h-stepper-item" data-stage="3" onclick="goToWorkflowStage(3)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">3</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Data Enrichment</span>
-                <span class="h-stepper-desc">APIs & Routing</span>
+                <span class="h-stepper-title">UW Review & Rules</span>
+                <span class="h-stepper-desc">Rules, referral, override</span>
               </div>
             </div>
 
             <div class="h-stepper-line" data-line="3"></div>
 
-            <!-- Step 4: UW Workbench -->
-            <div class="h-stepper-item" data-step="4" data-screen="screen-5" onclick="goToWorkflowStep(4)">
+            <!-- Stage 4: Rating & Pricing -->
+            <div class="h-stepper-item" data-stage="4" onclick="goToWorkflowStage(4)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">4</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">UW Workbench</span>
-                <span class="h-stepper-desc">Review & RFI</span>
+                <span class="h-stepper-title">Rating & Pricing</span>
+                <span class="h-stepper-desc">Premium & adjustments</span>
               </div>
             </div>
 
             <div class="h-stepper-line" data-line="4"></div>
 
-            <!-- Step 5: Authority Desk -->
-            <div class="h-stepper-item" data-step="5" data-screen="screen-6" onclick="goToWorkflowStep(5)">
+            <!-- Stage 5: Quoting & Binding -->
+            <div class="h-stepper-item" data-stage="5" onclick="goToWorkflowStage(5)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">5</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Authority Desk</span>
-                <span class="h-stepper-desc">CUO Referral</span>
+                <span class="h-stepper-title">Quoting & Binding</span>
+                <span class="h-stepper-desc">Quote, conditions, bind</span>
               </div>
             </div>
 
             <div class="h-stepper-line" data-line="5"></div>
 
-            <!-- Step 6: Rating Engine -->
-            <div class="h-stepper-item" data-step="6" data-screen="screen-7" onclick="goToWorkflowStep(6)">
+            <!-- Stage 6: Policy Issuance & Terms -->
+            <div class="h-stepper-item" data-stage="6" onclick="goToWorkflowStage(6)">
               <div class="h-stepper-node">
                 <span class="h-stepper-num">6</span>
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Rating Engine</span>
-                <span class="h-stepper-desc">LOB Pricing</span>
-              </div>
-            </div>
-
-            <div class="h-stepper-line" data-line="6"></div>
-
-            <!-- Step 7: Quote & Bind -->
-            <div class="h-stepper-item" data-step="7" data-screen="screen-8" onclick="goToWorkflowStep(7)">
-              <div class="h-stepper-node">
-                <span class="h-stepper-num">7</span>
-                <i class="ph ph-check h-stepper-check"></i>
-              </div>
-              <div class="h-stepper-label">
-                <span class="h-stepper-title">Quote & Bind</span>
-                <span class="h-stepper-desc">PDF & Binding</span>
+                <span class="h-stepper-title">Policy Issuance & Terms</span>
+                <span class="h-stepper-desc">Policy, term, coverages</span>
               </div>
             </div>
 
@@ -588,15 +567,28 @@ run<!--
         <div class="screen-header">
           <div>
             <h2>Clearance, FEIN Duplicate Check & Appetite Knockouts</h2>
-            <p class="screen-desc">Automated clearance checks to verify broker ownership, eliminate duplicate submissions, and evaluate hard appetite knockout criteria.</p>
+            <p class="screen-desc">Checks run in this order: producer licence and sanctions screening (legal gates, run automatically once ingestion is confirmed), then market clearance and broker of record, then the FEIN duplicate check, and last the appetite knockouts. The case is held here until both legal gates pass.</p>
           </div>
         </div>
 
-        <div class="two-col-grid">
+        <!-- Hold banner: shown while a legal check has not passed (js/clearance-gate.js) -->
+        <div id="clearanceHoldContainer" class="mb-3"></div>
+
+        <!-- 1. Producer licence & carrier appointment check (js/producer-licensing.js) -->
+        <div id="producerLicensingContainer" class="mt-3"></div>
+
+        <!-- 2. Sanctions / watchlist screening (js/sanctions-screening.js) -->
+        <div id="sanctionsScreeningContainer" class="mt-3"></div>
+
+        <!-- 3. Market clearance and broker of record (js/broker-commission.js) -->
+        <div id="marketClearanceContainer" class="mt-3"></div>
+
+        <!-- 4. FEIN duplicate clearance -->
+        <div class="mt-3">
           <!-- FEIN Duplicate Clearance -->
           <div class="card">
             <div class="card-header">
-              <h3><i class="ph ph-identification-badge"></i> Step 6: FEIN Clearance & Duplicate Detection</h3>
+              <h3><i class="ph ph-identification-badge"></i> 4. FEIN Clearance & Duplicate Detection</h3>
               <span class="badge badge-success" id="feinStatusBadge"><i class="ph ph-check-circle"></i> Unique Entity Cleared</span>
             </div>
             <div class="card-body">
@@ -626,11 +618,14 @@ run<!--
               </div>
             </div>
           </div>
+        </div>
 
+        <!-- 5. Appetite rules and knockouts, last -->
+        <div class="mt-3">
           <!-- Appetite Rules Knockout Engine -->
           <div class="card">
             <div class="card-header">
-              <h3><i class="ph ph-scales"></i> Step 7: Appetite Rules & Automated Knockouts</h3>
+              <h3><i class="ph ph-scales"></i> 5. Appetite Rules & Automated Knockouts</h3>
               <span class="badge badge-success" id="appetiteStatusBadge"><i class="ph ph-check"></i> All Appetite Rules Met</span>
             </div>
             <div class="card-body">
@@ -658,15 +653,6 @@ run<!--
             </div>
           </div>
         </div>
-
-        <!-- Market clearance and broker of record (js/broker-commission.js) -->
-        <div id="marketClearanceContainer" class="mt-3"></div>
-
-        <!-- Producer licence & carrier appointment check (js/producer-licensing.js) -->
-        <div id="producerLicensingContainer" class="mt-3"></div>
-
-        <!-- Sanctions / watchlist screening (js/sanctions-screening.js) -->
-        <div id="sanctionsScreeningContainer" class="mt-3"></div>
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -999,82 +985,14 @@ run<!--
       <section id="screen-7" class="screen-view">
         <div class="screen-header">
           <div>
-            <h2><i class="ph ph-calculator text-primary"></i> Actuarial Rating Engine Processing</h2>
-            <p class="screen-desc">Automated rating engine calculation, territory baserate lookups, vehicle schedule factors, and actuarial premium generation.</p>
+            <h2><i class="ph ph-calculator text-primary"></i> Rating &amp; Pricing</h2>
+            <p class="screen-desc">The case is ready to be rated. The rating engine's output is imported on Quote &amp; Bind, where the premium, taxes and fees are set.</p>
           </div>
-          <span class="badge badge-warning" style="font-size: 12px; font-weight: 700;">
-            <i class="ph ph-spinner spin"></i> Automated Rating Active
-          </span>
         </div>
-
-        <div class="rating-transition-card card p-4" style="max-width: 720px; margin: 20px auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: var(--shadow-md);">
-          <!-- Top Icon & Title -->
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="width: 72px; height: 72px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: inline-flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 14px; position: relative;">
-              <i class="ph ph-calculator"></i>
-              <div style="position: absolute; inset: -4px; border: 3px solid #bfdbfe; border-top-color: #2563eb; border-radius: 50%; animation: spin 1.2s linear infinite;"></div>
-            </div>
-            <h3 style="font-size: 20px; font-weight: 800; color: #0f172a; margin: 0 0 6px 0;">
-              Rating Engine Transition & Calculation
-            </h3>
-            <p style="color: #64748b; font-size: 13.5px; margin: 0;">
-              Connecting to actuarial rating services to calculate bindable quote terms...
-            </p>
-          </div>
-
-          <!-- Master Progress Bar -->
-          <div style="margin-bottom: 24px;">
-            <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 6px;">
-              <span style="color: #475569;"><i class="ph ph-chart-line text-primary"></i> Rating Engine Pipeline</span>
-              <span id="ratingPercentText" class="font-mono text-primary">0%</span>
-            </div>
-            <div style="background: #f1f5f9; border-radius: 999px; height: 10px; overflow: hidden; border: 1px solid #e2e8f0;">
-              <div id="ratingProgressBar" style="background: linear-gradient(90deg, #2563eb, #3b82f6); height: 100%; width: 0%; transition: width 0.15s linear;"></div>
-            </div>
-          </div>
-
-          <!-- Sequential Status Loaders -->
-          <div style="display: flex; flex-direction: column; gap: 12px; background: #f8fafc; padding: 18px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 24px;">
-            
-            <!-- Loader 1: Hitting rating engine... -->
-            <div id="ratingLoader1" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; transition: all 0.3s ease;">
-              <div class="u-row-gap12">
-                <span id="ratingIcon1" style="width: 26px; height: 26px; border-radius: 50%; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 14px;">
-                  <i class="ph ph-spinner spin"></i>
-                </span>
-                <span id="ratingTitle1" style="font-size: 14px; font-weight: 700; color: #0f172a;">Hitting rating engine...</span>
-              </div>
-              <span id="ratingBadge1" class="badge badge-primary font-mono text-xs">In Progress</span>
-            </div>
-
-            <!-- Loader 2: Fetching data... -->
-            <div id="ratingLoader2" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; opacity: 0.5; transition: all 0.3s ease;">
-              <div class="u-row-gap12">
-                <span id="ratingIcon2" style="width: 26px; height: 26px; border-radius: 50%; background: #f1f5f9; color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 14px;">
-                  <i class="ph ph-circle"></i>
-                </span>
-                <span id="ratingTitle2" style="font-size: 14px; font-weight: 600; color: #64748b;">Fetching data...</span>
-              </div>
-              <span id="ratingBadge2" class="badge badge-light font-mono text-xs">Queued</span>
-            </div>
-
-            <!-- Loader 3: Calculating... -->
-            <div id="ratingLoader3" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-radius: 6px; background: #ffffff; border: 1px solid #e2e8f0; opacity: 0.5; transition: all 0.3s ease;">
-              <div class="u-row-gap12">
-                <span id="ratingIcon3" style="width: 26px; height: 26px; border-radius: 50%; background: #f1f5f9; color: #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 14px;">
-                  <i class="ph ph-circle"></i>
-                </span>
-                <span id="ratingTitle3" style="font-size: 14px; font-weight: 600; color: #64748b;">Calculating...</span>
-              </div>
-              <span id="ratingBadge3" class="badge badge-light font-mono text-xs">Queued</span>
-            </div>
-
-          </div>
-
-          <!-- Bottom Footer / Countdown -->
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: #64748b; padding-top: 12px; border-top: 1px dashed #cbd5e1;">
-            <span><i class="ph ph-arrow-right-circle text-primary"></i> Target Redirect: Step 7 Formal Quote & Policy Binding</span>
-            <span>Auto-redirect in <strong id="ratingCountdown" class="font-mono text-primary" style="font-size: 13.5px;">6.0s</strong></span>
+        <div class="card" style="max-width: 720px;">
+          <div class="card-body">
+            <p style="margin:0 0 8px;"><i class="ph ph-check-circle text-success"></i> Underwriting review and referral are complete.</p>
+            <p class="text-muted text-xs" style="margin:0;">Continue to Quote &amp; Bind to import the rating output and issue the quote. Motor-carrier regulatory items (USDOT, MC number, statutory minimum) are checked when you continue.</p>
           </div>
         </div>
       </section>
@@ -1088,7 +1006,7 @@ run<!--
 
         <div class="screen-header" id="step7HeaderView">
           <div>
-            <span class="phase-pill phase-3-pill" id="step7PhasePill"><i class="ph ph-calculator"></i> Step 7 • Quote & Bind Studio</span>
+            <span class="phase-pill phase-3-pill" id="step7PhasePill"><i class="ph ph-calculator"></i> Stage 5 • Quote & Bind Studio</span>
             <h2 id="step7HeaderTitle">Commercial Trucking Formal Quote & Binding</h2>
             <p class="screen-desc" id="step7HeaderDesc">Import rating engine JSON output from your local system to generate and bind the commercial quote.</p>
           </div>
@@ -1175,6 +1093,18 @@ run<!--
             <strong>Actuarial Rating Engine:</strong> Final bindable quote is calculated by applying base territory loss costs, increased limits factors (ILF), vehicle stated value tiers, driver schedules, discretionary schedule credits, itemized state taxes, TRIA, and filing fees.
           </div>
         </div>
+      </section>
+
+      <!-- Screen 10: Policy Issuance & Terms (stage 6) -->
+      <section id="screen-10" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <span class="phase-pill phase-3-pill"><i class="ph ph-file-text"></i> Stage 6 • Policy Issuance & Terms</span>
+            <h2>Policy Issuance & Terms</h2>
+            <p class="screen-desc">The issued policy contract, its term, the new-business transaction, the frozen policy version and the coverages carried over from the bound quote.</p>
+          </div>
+        </div>
+        <div id="policyIssuanceContainer"></div>
       </section>
 
       </div> <!-- /workflow-screens-wrapper -->
@@ -1607,64 +1537,64 @@ run<!--
         <button class="tab-btn" id="qiTabPerf" onclick="switchQuoteIntelTab('perf')"><i class="ph ph-chart-line-up"></i> Performance</button>
       </div>
 
-      <!-- Panel: Version History (the quote ledger; was a separate Quote Versioning page) -->
-      <div id="qiPanelVersions" style="display:none;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
-          <p class="text-xs text-muted u-m0">Every quote generated on each submission: initial quotes, revised quotes and the final bound terms.</p>
-          <button class="btn btn-sm btn-success" style="width:auto;" onclick="exportQuoteVersionsCSV()"><i class="ph ph-file-csv"></i> Export to CSV</button>
-        </div>
-      <!-- Quick Summary Metric Bar -->
-      <div class="versions-summary-bar mb-3">
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Total Quotes Generated</span>
-          <strong class="v-sum-val" id="kpiTotalVersions">14 Quotes</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Active Submissions</span>
-          <strong class="v-sum-val" id="kpiActiveSubs">0 Submissions</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Bound Policies</span>
-          <strong class="v-sum-val text-success" id="kpiBoundCount">3 Bound</strong>
-        </div>
-        <div class="v-sum-item">
-          <span class="v-sum-lbl">Active / In Progress</span>
-          <strong class="v-sum-val text-primary" id="kpiActiveQuotes">0 Active</strong>
-        </div>
-      </div>
-
-      <!-- Filter & Search Toolbar -->
-      <div class="table-filter-bar mb-3">
-        <div class="filter-tabs" id="versionStatusFilterTabs">
-          <button class="tab-btn active" id="tabFilterVerAll" onclick="filterQuoteVersions('all')">All Quotes (<span id="tabCountVerAll">14</span>)</button>
-          <button class="tab-btn" id="tabFilterVerBound" onclick="filterQuoteVersions('bound')"><i class="ph ph-lock text-success"></i> Bound Policies (<span id="tabCountVerBound">3</span>)</button>
-          <button class="tab-btn" id="tabFilterVerActive" onclick="filterQuoteVersions('active')"><i class="ph ph-lightning text-primary"></i> Latest Active Quotes (<span id="tabCountVerActive">4</span>)</button>
-          <button class="tab-btn" id="tabFilterVerSuperceded" onclick="filterQuoteVersions('superceded')"><i class="ph ph-clock-counter-clockwise text-muted"></i> Previous Versions (<span id="tabCountVerSuperceded">7</span>)</button>
-        </div>
-
-        <div class="table-right-controls" style="display: flex; gap: 10px; align-items: center;">
-          <div class="submission-select-box" style="display: flex; align-items: center; gap: 6px;">
-            <label for="versionSubSelect" style="font-size: 11.5px; font-weight: 700; color: #475569; white-space: nowrap;">
-              <i class="ph ph-folder-open text-primary"></i> Select Submission:
-            </label>
-            <select id="versionSubSelect" class="form-control form-control-sm" style="font-weight: 700; min-width: 260px;" onchange="onVersionSubSelectChange(this.value)">
+      <!-- Panel: Version History (the quote ledger; was a separate Quote Versioning page) -->
+      <div id="qiPanelVersions" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px; flex-wrap:wrap;">
+          <p class="text-xs text-muted u-m0">Every quote generated on each submission: initial quotes, revised quotes and the final bound terms.</p>
+          <button class="btn btn-sm btn-success" style="width:auto;" onclick="exportQuoteVersionsCSV()"><i class="ph ph-file-csv"></i> Export to CSV</button>
+        </div>
+      <!-- Quick Summary Metric Bar -->
+      <div class="versions-summary-bar mb-3">
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Total Quotes Generated</span>
+          <strong class="v-sum-val" id="kpiTotalVersions">14 Quotes</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active Submissions</span>
+          <strong class="v-sum-val" id="kpiActiveSubs">0 Submissions</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Bound Policies</span>
+          <strong class="v-sum-val text-success" id="kpiBoundCount">3 Bound</strong>
+        </div>
+        <div class="v-sum-item">
+          <span class="v-sum-lbl">Active / In Progress</span>
+          <strong class="v-sum-val text-primary" id="kpiActiveQuotes">0 Active</strong>
+        </div>
+      </div>
+
+      <!-- Filter & Search Toolbar -->
+      <div class="table-filter-bar mb-3">
+        <div class="filter-tabs" id="versionStatusFilterTabs">
+          <button class="tab-btn active" id="tabFilterVerAll" onclick="filterQuoteVersions('all')">All Quotes (<span id="tabCountVerAll">14</span>)</button>
+          <button class="tab-btn" id="tabFilterVerBound" onclick="filterQuoteVersions('bound')"><i class="ph ph-lock text-success"></i> Bound Policies (<span id="tabCountVerBound">3</span>)</button>
+          <button class="tab-btn" id="tabFilterVerActive" onclick="filterQuoteVersions('active')"><i class="ph ph-lightning text-primary"></i> Latest Active Quotes (<span id="tabCountVerActive">4</span>)</button>
+          <button class="tab-btn" id="tabFilterVerSuperceded" onclick="filterQuoteVersions('superceded')"><i class="ph ph-clock-counter-clockwise text-muted"></i> Previous Versions (<span id="tabCountVerSuperceded">7</span>)</button>
+        </div>
+
+        <div class="table-right-controls" style="display: flex; gap: 10px; align-items: center;">
+          <div class="submission-select-box" style="display: flex; align-items: center; gap: 6px;">
+            <label for="versionSubSelect" style="font-size: 11.5px; font-weight: 700; color: #475569; white-space: nowrap;">
+              <i class="ph ph-folder-open text-primary"></i> Select Submission:
+            </label>
+            <select id="versionSubSelect" class="form-control form-control-sm" style="font-weight: 700; min-width: 260px;" onchange="onVersionSubSelectChange(this.value)">
               <option value="all" selected>All Submissions</option>
-            </select>
-          </div>
-          
-          <div class="search-box">
-            <i class="ph ph-magnifying-glass search-icon"></i>
-            <input type="text" id="versionSearchInput" placeholder="Search Insured, Quote #, Status..." onkeyup="searchQuoteVersionsTable()">
-          </div>
-        </div>
-      </div>
-
-      <!-- Submissions Quote Version Cards Container -->
-      <div id="quoteVersionCardsContainer" class="quote-version-cards-container">
-        <!-- Rendered dynamically by renderQuoteVersionsLedger() -->
-      </div>
-      </div>
-
+            </select>
+          </div>
+          
+          <div class="search-box">
+            <i class="ph ph-magnifying-glass search-icon"></i>
+            <input type="text" id="versionSearchInput" placeholder="Search Insured, Quote #, Status..." onkeyup="searchQuoteVersionsTable()">
+          </div>
+        </div>
+      </div>
+
+      <!-- Submissions Quote Version Cards Container -->
+      <div id="quoteVersionCardsContainer" class="quote-version-cards-container">
+        <!-- Rendered dynamically by renderQuoteVersionsLedger() -->
+      </div>
+      </div>
+
       <!-- Panel: Renewal Pipeline (js/renewals.js) -->
       <div id="qiPanelPipeline" style="display:none;"><div id="renewalPipelineRoot"></div></div>
 
@@ -2861,7 +2791,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
     <div class="footer-left-info">
       <div class="footer-step-status">
         <span class="footer-step-dot"></span>
-        <span id="footerStepLabel"><strong>Step 1 of 7</strong></span>
+        <span id="footerStepLabel"><strong>Stage 1 of 6</strong></span>
       </div>
       <div class="footer-sub-details">
         <span class="font-mono" id="footerSubId"></span>
@@ -2923,5 +2853,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/access-policy.js"></script>
   <script src="js/reference-data.js"></script>
   <script src="js/product-questionnaire.js"></script>
+  <script src="js/clearance-gate.js"></script>
+  <script src="js/policy-issuance.js"></script>
 </body>
 </html>

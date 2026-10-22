@@ -29,20 +29,36 @@ function canManageAssignments() {
 // The queue starts empty: a case enters through Create New Submission, Import from Email or the Integrating API.
 var SUBMISSIONS_DATASET = [];
 
-// Screen & Workflow Steps Configuration (7 Workflow Steps: Doc Ingestion -> Quote & Bind)
+// Screen & Workflow Steps Configuration. Eight working screens, shown to the user as six stages (WORKFLOW_STAGES):
+// 1 Doc Ingestion + 2 Clearance -> stage 1; 3 -> stage 2; 4 UW Workbench + 5 Authority Desk -> stage 3; 6 -> stage 4;
+// 7 Quote & Bind -> stage 5; 8 Policy Issuance -> stage 6. Step numbers stay as they are because gates and the audit log use them.
 const WORKFLOW_STEPS = [
-  { step: 1, id: "screen-2", title: "Doc Ingestion & Schema / OCR", shortTitle: "Doc Ingestion", icon: "ph-receipt" },
-  { step: 2, id: "screen-3", title: "FEIN & Appetite Clearance", shortTitle: "Clearance Check", icon: "ph-shield-check" },
-  { step: 3, id: "screen-4", title: "Enrichment & Smart Routing", shortTitle: "Data Enrichment", icon: "ph-tree-structure" },
-  { step: 4, id: "screen-5", title: "Underwriting Workbench", shortTitle: "UW Workbench", icon: "ph-briefcase" },
-  { step: 5, id: "screen-6", title: "Authority & Referral Desk", shortTitle: "Authority Desk", icon: "ph-scales" },
-  { step: 6, id: "screen-7", title: "LOB Rating & Pricing Engine", shortTitle: "Rating Engine", icon: "ph-calculator" },
-  { step: 7, id: "screen-8", title: "Formal Quote & Policy Binding", shortTitle: "Quote & Bind", icon: "ph-signature" }
+  { step: 1, stage: 1, id: "screen-2", title: "Doc Ingestion & Schema / OCR", shortTitle: "Doc Ingestion", icon: "ph-receipt" },
+  { step: 2, stage: 1, id: "screen-3", title: "FEIN & Appetite Clearance", shortTitle: "Clearance Check", icon: "ph-shield-check" },
+  { step: 3, stage: 2, id: "screen-4", title: "Enrichment & Smart Routing", shortTitle: "Data Enrichment", icon: "ph-tree-structure" },
+  { step: 4, stage: 3, id: "screen-5", title: "Underwriting Workbench", shortTitle: "UW Workbench", icon: "ph-briefcase" },
+  { step: 5, stage: 3, id: "screen-6", title: "Authority & Referral Desk", shortTitle: "Authority Desk", icon: "ph-scales" },
+  { step: 6, stage: 4, id: "screen-7", title: "LOB Rating & Pricing Engine", shortTitle: "Rating Engine", icon: "ph-calculator" },
+  { step: 7, stage: 5, id: "screen-8", title: "Formal Quote & Policy Binding", shortTitle: "Quote & Bind", icon: "ph-signature" },
+  { step: 8, stage: 6, id: "screen-10", title: "Policy Issuance & Terms", shortTitle: "Policy Issuance", icon: "ph-file-text", num: 10 }
 ];
+
+// The six stages of the underwriting workflow, as the stepper shows them.
+const WORKFLOW_STAGES = [
+  { stage: 1, title: "Submission Intake & Clearance", desc: "Documents, clearance, legal checks" },
+  { stage: 2, title: "Completeness & Data Enrichment", desc: "Requirements, enrichment, discrepancies" },
+  { stage: 3, title: "Underwriting Review & Rules", desc: "Rules, exclusions, referral, overrides" },
+  { stage: 4, title: "Rating & Pricing", desc: "Technical premium, adjustments" },
+  { stage: 5, title: "Quoting & Binding", desc: "Quote, conditions, bind, compliance" },
+  { stage: 6, title: "Policy Issuance & Terms", desc: "Policy, term, version, coverages" }
+];
+const BIND_STEP = 7;   // the Quote & Bind step: a case is "ready to quote" here and "issued" once it is bound
+const stageOfStep = n => (WORKFLOW_STEPS.find(w => w.step === n) || WORKFLOW_STEPS[0]).stage;
+const stepsOfStage = st => WORKFLOW_STEPS.filter(w => w.stage === st).map(w => w.step);
 
 const SCREEN_ORDER = [
   { id: "screen-1", num: 1, title: "Intake & Submissions Hub", shortTitle: "Intake Hub", phase: "Phase 1", phaseGroup: "phaseGroup1", icon: "ph-tray" },
-  ...WORKFLOW_STEPS.map(w => ({ id: w.id, num: w.step + 1, title: w.title, shortTitle: w.shortTitle, phase: "Workflow", phaseGroup: "workflow", icon: w.icon })),
+  ...WORKFLOW_STEPS.map(w => ({ id: w.id, num: w.num || w.step + 1, title: w.title, shortTitle: w.shortTitle, phase: "Workflow", phaseGroup: "workflow", icon: w.icon })),
   { id: "screen-9", num: 9, title: "Decline Archive & System Logs", shortTitle: "Decline Archive", phase: "Exit", phaseGroup: "phaseGroupExit", icon: "ph-prohibit" }
 ];
 
