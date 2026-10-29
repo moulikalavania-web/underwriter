@@ -75,14 +75,15 @@
     var html = el('quoteConditionContainer').innerHTML;
     t('the Quote Condition card suggests a condition and names the units without a dashcam', /Appetite rule not met: Dashcam Required/.test(html) && /Unit 2/.test(html) && /Unit 3/.test(html) && /No dashcam/.test(html) && /Not stated/.test(html) && !/Unit 1 \(2022 Volvo VNL 760\) \(Dashcam installed\)/.test(html));
     t('the appetite table shows the failing rows', /Dashcam Required — Unit 2/.test(el('appetiteRulesTable').innerHTML) && /FAIL/.test(el('appetiteRulesTable').innerHTML));
-    qcPrefill('ELG-mtgsfrji7d1');
-    t('the form is prefilled: Own Damage, its limit and deductible, the premium, 30 days, and the install wording', el('qc_cov_line').value === 'Own Damage' && el('qc_cov_limit').value === '$1,000,000' && el('qc_cov_ded').value === '$300' && el('qc_premium').value === '14850' && el('qc_deadline').value === in30 && /Install a dashcam/.test(el('qc_condition').value) && /Unit 2/.test(el('qc_condition').value) && /Unit 3/.test(el('qc_condition').value) && !/Unit 1/.test(el('qc_condition').value), el('qc_condition').value);
-    qcCreate();
+    var fam = qcSuggestions(sub)[0].family;
+    qcPrefill(fam);
+    // the rule and the quoted coverage give everything the draft needs, so choosing the suggestion drafts it at once
     var c1 = sub.quoteConditions[0];
-    t('creating it links the condition to the rule and the units', !!c1 && c1.rule.family === 'ELG-mtgsfrji7d1' && c1.rule.vehicleIndexes.join() === '1,2' && c1.deadline === in30);
+    t('choosing the suggestion drafts the condition: Own Damage, its limit and deductible, the premium, 30 days, and the install wording', !!c1 && c1.coverage.line === 'Own Damage' && c1.coverage.limit === '$1,000,000' && c1.coverage.ded === '$300' && c1.premium === 14850 && c1.deadline === in30 && /Install a dashcam/.test(c1.condition) && /Unit 2/.test(c1.condition) && /Unit 3/.test(c1.condition) && c1.status === 'draft');
+    t('creating it links the condition to the rule and the units', !!c1 && c1.rule.family === fam && c1.rule.vehicleIndexes.join() === '1,2' && c1.deadline === in30);
+    qcIssue('QC-1'); qcRender(sub);   // the coverage is taken out of the quote when the condition is issued, not while it is a draft
     t('Own Damage is withheld from the quote while the condition is open; the premium does not change', !sub.coverageRows.some(function(r){ return r.line === 'Own Damage'; }) && sub.coverageRows.length === 1 && !!c1.withheldRow && sub.discretionaryPricing.finalPremium === 21050);
     t('the card says what is withheld and no second suggestion appears', /Withheld from the quote/.test(el('quoteConditionContainer').innerHTML) && !/Appetite rule not met/.test(el('quoteConditionContainer').innerHTML));
-    qcIssue('QC-1'); qcRender(sub);
     setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email, signed PDF'); qcRecordSignature('QC-1');
     var doc = qcDocumentHtml(sub, c1, 1);
     t('the document to sign states the dashcam condition, the units and the deadline', /Install a dashcam/.test(doc) && /Unit 2/.test(doc) && doc.indexOf(in30) > -1 && /Own Damage/.test(doc) && /\$14,850/.test(doc));
@@ -100,8 +101,8 @@
     // ---------- not installed by the deadline: coverage stays out, premium unchanged
     var sub2 = mkSub('SUB-DC-2', [true, false, undefined]); sub2.appetiteRules = buildProductAppetiteRules(null, sub2);
     SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub2); activeSubmissionId = sub2.id; renderAppetiteRules(sub2.appetiteRules); noticeOpenStudio(sub2.id);
-    qcPrefill('ELG-mtgsfrji7d1'); setv('qc_deadline', in10); qcCreate();
-    var d1 = sub2.quoteConditions[0]; qcIssue('QC-1'); qcRender(sub2);
+    qcPrefill(fam);
+    var d1 = sub2.quoteConditions[0]; d1.deadline = in10; d1.versions[0].deadline = in10; qcIssue('QC-1'); qcRender(sub2);
     setv('qc_sig_name_QC-1', 'Dana Whitfield'); setv('qc_sig_date_QC-1', today); setv('qc_sig_ref_QC-1', 'Email'); qcRecordSignature('QC-1');
     var snap = JSON.stringify([sub2.coverageRows, sub2.discretionaryPricing, sub2.currentPremium]);
     d1.deadline = yesterday; d1.versions[0].deadline = yesterday;      // the deadline passes with no dashcam

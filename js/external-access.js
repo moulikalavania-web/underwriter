@@ -175,7 +175,8 @@ function extReconcileActive() {
   if (typeof origDash === "function") {
     window.renderRoleDashboard = extScoped(function () {
       var saved = {};
-      Object.keys(EXTERNAL_ROLES).forEach(function (k) { saved[k] = USER_ROLES_CONFIG[k]; delete USER_ROLES_CONFIG[k]; });
+      // The signed-in persona keeps its own entry, or the page heading would fall back to the first underwriter's name.
+      Object.keys(EXTERNAL_ROLES).forEach(function (k) { if (k === currentUserRole) return; saved[k] = USER_ROLES_CONFIG[k]; delete USER_ROLES_CONFIG[k]; });
       try { return origDash.apply(this, arguments); } finally { Object.keys(saved).forEach(function (k) { USER_ROLES_CONFIG[k] = saved[k]; }); }
     });
   }

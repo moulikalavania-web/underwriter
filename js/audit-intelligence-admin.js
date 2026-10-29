@@ -1145,6 +1145,12 @@ function goToWorkflowStep(stepNum) {
   const stepObj = WORKFLOW_STEPS.find(s => s.step === stepNum) || WORKFLOW_STEPS[0];
   currentScreenId = stepObj.id;
   setPageTitle(stepObj.title || `Step ${stepNum}`);
+  // The breadcrumb names the step the person is on, whichever way they got here (Next, the stepper, a link).
+  if (typeof setBreadcrumb === "function") setBreadcrumb([
+    { label: "FUT", onClick: "showIntakePage()" },
+    { label: "Active Case Workflow", onClick: "goToWorkflowStep(1)" },
+    { label: stepObj.title || `Step ${stepNum}` }
+  ]);
 
   // Make sure we are in workflow page view
   if (currentPage !== "workflow") {

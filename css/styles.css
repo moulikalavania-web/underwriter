@@ -8438,3 +8438,7 @@ body.has-bottom-footer .app-layout {
 /* Workflow steps that share a page: a card marked data-views shows only on the steps it names (js/workflow-steps.js). */
 .wf-view-off { display: none !important; }
 .ws-small { font-size: 11px; }
+/* The footer's own display rule comes later than .u-hidden, so it must be hidden explicitly (it showed on the sign-in screen). */
+.bottom-workflow-footer.u-hidden { display: none; }
+/* The header select is light text on a dark field; its dropdown list took the light text on a light popup, so the product list looked empty. */
+.app-header select option { background: var(--color-shell-accent); color: #F7F8FA; }

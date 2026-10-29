@@ -174,7 +174,9 @@
     t('the policy binds and gets a policy number', !!(A.pasSync && A.pasSync.status === 'success' && A.pasSync.policyNumber), JSON.stringify(A.pasSync) + ' ' + lastToast());
     t('the invoice is made at bind, from the bound policy, and nothing was downloaded by it', !!A.invoice && A.invoice.policyNumber === A.pasSync.policyNumber && /^INV-/.test(A.invoice.invoiceNumber) && pdfMade === 0 && !!el('downloadInvoiceBtn'), JSON.stringify(A.invoice || null).slice(0, 120));
     t('the Step 7 card shows the policy number', /Bound/.test(el('pasSyncCard').innerHTML) && A.pasSync && el('pasSyncCard').innerHTML.indexOf(A.pasSync.policyNumber) > -1);
-    t('only now does the bottom bar say the policy is bound', /Policy bound/.test(el('btnNextStep').textContent), el('btnNextStep').textContent);
+    t('only now does the bottom bar offer Policy Issuance', /Next: Policy Issuance/.test(el('btnNextStep').textContent), el('btnNextStep').textContent);
+    el('btnNextStep').click();
+    t('Next opens Policy Issuance, and its bar says the policy is issued', currentWorkflowStep === ISSUANCE_STEP && /Policy issued/.test(el('btnNextStep').textContent), currentWorkflowStep + ' ' + el('btnNextStep').textContent);
     toasts.length = 0; el('btnNextStep').click();
     t('returning to the queue says it is bound, with the policy number', /bound/.test(lastToast()) && lastToast().indexOf(A.pasSync.policyNumber) > -1 && !/Policy Flow Complete/.test(lastToast()), lastToast());
 

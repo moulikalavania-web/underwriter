@@ -84,9 +84,6 @@ function producerLobLabel(key) {
   return lob ? lob.name : key;
 }
 
-/** Temporary switch: true marks every producer screening as approved. Set to false to use the registry. */
-const PRODUCER_AUTO_APPROVE = true;
-
 /**
  * Evaluates the four checks. `manual` (optional) is a recorded manual
  * verification that stands in for the registry record.
@@ -98,16 +95,6 @@ function evaluateProducerCompliance(sub, asOf, manual) {
   const result = { status: "not_applicable", checks: [], npn: null, producerName: sub.broker || "", riskState: null, carrier: null, source: "registry" };
   if (sub.channelType === "direct" || !sub.broker) {
     result.checks.push({ id: "applicable", label: "Producer involved", pass: null, detail: "Direct submission with no intermediary — producer licensing does not apply." });
-    return result;
-  }
-
-  // TEMPORARY: producer screening is auto-approved until a licensing registry is wired in. Remove to restore the real check.
-  if (PRODUCER_AUTO_APPROVE) {
-    result.status = "verified";
-    result.source = "auto_approved";
-    result.riskState = deriveRiskState(sub);
-    result.carrier = sub.carrier || PRODUCER_DEFAULT_CARRIER;
-    result.checks.push({ id: "auto", label: "Producer screening", pass: true, detail: "Approved (temporary auto-approval; registry check bypassed)." });
     return result;
   }
 

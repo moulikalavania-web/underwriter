@@ -54,7 +54,11 @@ function renderRoleDashboard() {
 
   const screen1 = document.getElementById("screen-1");
   if (screen1) screen1.classList.toggle("is-worker-view", !canManageAssignments());
-  if (canManageAssignments()) {
+  if (typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole)) {
+    if (titleEl) titleEl.textContent = "Book Overview";
+    if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
+    container.innerHTML = renderScopeOverviewHtml(roleConfig);
+  } else if (canManageAssignments()) {
     if (titleEl) titleEl.textContent = "Assignment Dashboard";
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = intakeToolbarHtml() + renderManagerDashboardHtml();
@@ -63,6 +67,27 @@ function renderRoleDashboard() {
     if (subtitleEl) subtitleEl.textContent = `${roleConfig.name} • ${roleConfig.title}`;
     container.innerHTML = intakeToolbarHtml() + renderWorkerDashboardHtml();
   }
+}
+
+/** For a persona that sees cases by scope, not by assignment (the Compliance Officer, a producer): what is in view, with nothing "assigned to you". */
+function renderScopeOverviewHtml(roleConfig) {
+  const seen = SUBMISSIONS_DATASET.filter(s => s.apiSourced);
+  const active = seen.filter(s => (s.currentStep || 1) < QUOTE_STEP).length;
+  const quoting = seen.filter(s => (s.currentStep || 1) >= QUOTE_STEP && (s.currentStep || 1) <= BIND_STEP).length;
+  const bound = seen.filter(s => s.pasSync && s.pasSync.status === "success" && s.pasSync.policyNumber).length;
+  const refs = seen.filter(referralPending).length;
+  const box = (icon, label, n) => `<div class="metric-box"><span class="lbl"><i class="ph ${icon}"></i> ${label}</span><strong class="val">${n}</strong></div>`;
+  return `
+    <div class="card mb-2"><div class="card-body">
+      <p class="text-sm" style="margin:0;"><i class="ph ph-eye"></i> ${authEsc(roleConfig.limitText || "Read-only access")}. The cases you may see are listed in the queue below; none of them is assigned to you.</p>
+    </div></div>
+    <div class="metric-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:12px;">
+      ${box("ph-folders", "Cases in view", seen.length)}
+      ${box("ph-hourglass", "Before quote", active)}
+      ${box("ph-file-text", "Quoting or binding", quoting)}
+      ${box("ph-seal-check", "Bound", bound)}
+      ${box("ph-paper-plane-tilt", "Referrals waiting", refs)}
+    </div>`;
 }
 
 function renderManagerDashboardHtml() {

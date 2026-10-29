@@ -82,6 +82,9 @@ def static_checks():
     ids = re.findall(r'\sid="([^"]+)"', idx)
     d = sorted({i for i in ids if ids.count(i) > 1})
     res.append(("no duplicate element ids in index.html", not d, ", ".join(d[:10])))
+    res.append(("index.html starts with its header comment, with no stray text before it", idx.lstrip("﻿").startswith("<!--") or idx.lstrip("﻿").lower().startswith("<!doctype"), repr(idx[:20])))
+    prod = open(os.path.join(ROOT, "js", "producer-licensing.js"), encoding="utf-8").read()
+    res.append(("producer screening has no auto-approve switch", "AUTO_APPROVE" not in prod and "auto_approved" not in prod, ""))
     # a function must have one definition: with two, whichever file loads last silently wins
     defs = {}
     for f in sorted(on_disk):
