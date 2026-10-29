@@ -1,0 +1,225 @@
+<!-- Suite C21: the fourteen workflow steps. The order, which cards each step shows on a shared page, ingest and extract views,
+     triage (kind of message, quick read before the legal checks, expected documents, duplicates), the Confirm gate, loss run
+     analysis, statement of values, appetite match, and the decision brief with the broker reply. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  function off(id){ return el(id).classList.contains('wf-view-off'); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.channelType = 'broker'; s.decisionLog = []; s.currentStep = 1; s.completedSteps = [];
+    ['pasSync', 'sanctions', 'producerCheck', 'authorityRef', 'marketClearance', 'normalizedMeta', 'brokerResponses', 'brokerDrafts'].forEach(function(k){ delete s[k]; });
+    for (var k in (over || {})) s[k] = over[k];
+    return s;
+  }
+  function raw(id, text, files){
+    return { id: id, receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true,
+      insured: '(Pending — See Raw Email)', fein: 'PENDING', dot: null, mcNumber: null, broker: '(Pending Extraction)', email: '', address: '(Pending)', normalizationStatus: 'pending',
+      decisionLog: [], currentStep: 1, completedSteps: [], docs: [], vehicles: [], drivers: [], losses: [], rawEmailText: text, rawAttachments: files || [] };
+  }
+  function use(sub){ SUBMISSIONS_DATASET.length = 0; (Array.isArray(sub) ? sub : [sub]).forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = (Array.isArray(sub) ? sub[0] : sub).id; }
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    currentUserRole = 'senior_uw';
+
+    // ---------- the order
+    var want = ['screen-2/ingest', 'screen-3/clearance', 'screen-2/extract', 'screen-2/confirm', 'screen-4/enrich', 'screen-5/score', 'screen-8/surplus', 'screen-11/brief', 'screen-6/authority', 'screen-8/subjectivities', 'screen-8/rating', 'screen-8/quote', 'screen-8/bind', 'screen-10/issuance'];
+    t('there are fourteen steps in the agreed order', WORKFLOW_STEPS.map(function(w){ return w.id + '/' + w.view; }).join() === want.join(), WORKFLOW_STEPS.map(function(w){ return w.id + '/' + w.view; }).join());
+    t('steps are numbered 1 to 14 and the constants name them', WORKFLOW_STEPS.every(function(w, i){ return w.step === i + 1; }) && [INGEST_STEP, CLEARANCE_STEP, EXTRACT_STEP, CONFIRM_STEP, ENRICH_STEP, SCORE_STEP, SURPLUS_STEP, BRIEF_STEP, AUTH_STEP, SUBJ_STEP, RATING_STEP, QUOTE_STEP, BIND_STEP, ISSUANCE_STEP].join() === '1,2,3,4,5,6,7,8,9,10,11,12,13,14');
+    t('every step opens a page that exists', WORKFLOW_STEPS.every(function(w){ return !!el(w.id); }));
+    t('the stages never go backwards and there are six', WORKFLOW_STEPS.every(function(w, i, a){ return i === 0 || w.stage >= a[i - 1].stage; }) && WORKFLOW_STAGES.length === 6 && WORKFLOW_STEPS[13].stage === 6);
+    t('the old rating placeholder page is gone', !el('screen-7'));
+
+    // ---------- which cards a step shows on a shared page
+    var A = mk('SUB-C21-A', { currentStep: 5, completedSteps: [1, 2, 3, 4] }); use(A);   // past clearance, so the stepper may go anywhere
+    function shows(step, shown, hidden, label){
+      goToWorkflowStep(step);
+      t(label + ' shows ' + shown.join(', '), shown.every(function(id){ return !off(id); }), shown.filter(off).join());
+      t(label + ' hides ' + hidden.join(', '), hidden.every(off), hidden.filter(function(id){ return !off(id); }).join());
+    }
+    shows(INGEST_STEP, ['ingestReceivedContainer'], ['rawEmailCaptureContainer', 'ocrPipelineCard', 'completenessContainer', 'extractSummaryContainer'], 'Ingest');
+    shows(EXTRACT_STEP, ['extractSummaryContainer', 'ocrPipelineCard'], ['ingestReceivedContainer', 'rawEmailCaptureContainer', 'completenessContainer'], 'Extract');
+    shows(CONFIRM_STEP, ['rawEmailCaptureContainer', 'completenessContainer'], ['ingestReceivedContainer', 'extractSummaryContainer', 'ocrPipelineCard'], 'Confirm');
+    shows(SURPLUS_STEP, ['surplusLinesContainer'], ['subjectivitiesContainer', 'step7GeneratedQuoteArea', 'discretionaryPricingContainer', 'binderCertificatesContainer'], 'Surplus Lines');
+    shows(SUBJ_STEP, ['subjectivitiesContainer'], ['surplusLinesContainer', 'step7GeneratedQuoteArea', 'discretionaryPricingContainer'], 'Subjectivities');
+    shows(RATING_STEP, ['discretionaryPricingContainer', 'ratingSnapshotContainer'], ['surplusLinesContainer', 'subjectivitiesContainer', 'step7GeneratedQuoteArea', 'triaOfferContainer'], 'Rating');
+    shows(QUOTE_STEP, ['step7GeneratedQuoteArea', 'triaOfferContainer', 'noticesContainer', 'authorityContainer'], ['surplusLinesContainer', 'subjectivitiesContainer', 'discretionaryPricingContainer', 'binderCertificatesContainer'], 'Quote');
+    shows(BIND_STEP, ['step7GeneratedQuoteArea', 'binderCertificatesContainer', 'subjectivitiesContainer', 'surplusLinesContainer'], ['discretionaryPricingContainer', 'triaOfferContainer'], 'Bind');
+    t('only the active page is shown', (goToWorkflowStep(SCORE_STEP), el('screen-5').classList.contains('active') && !el('screen-8').classList.contains('active') && !el('screen-2').classList.contains('active')));
+    goToWorkflowStep(CONFIRM_STEP);
+    t('the ingestion page is retitled for the step', el('ingestScreenTitle').textContent === 'Confirm Extracted Data');
+
+    // ---------- kind of message
+    function kind(text, files, over){ var s = raw('SUB-C21-K', text, files); for (var k in (over || {})) s[k] = over[k]; return triageClassify(s); }
+    var base = 'Insured: Delta Haulers\nFEIN: 74-9842109\nUS DOT: 1234567\nPlease quote auto liability for 12 vehicles and 14 drivers, effective 11/01/2026.';
+    t('a request for coverage is a new submission', kind(base).kind === 'new_submission', JSON.stringify(kind(base)));
+    t('a renewal request is told apart', kind('Please renew our expiring policy for Delta Haulers, FEIN 74-9842109.').kind === 'renewal');
+    t('a change to an existing policy is told apart', kind('Policy number CAT-2026-100001: please add a vehicle effective next week.').kind === 'endorsement');
+    use([mk('SUB-C21-OPEN'), raw('SUB-C21-K', 'Re SUB-C21-OPEN: attaching the loss runs you asked for. Insured Delta Haulers, FEIN 74-9842109')]);
+    t('a message that names an open case is a follow-up to it', triageClassify(SUBMISSIONS_DATASET[1]).kind === 'followup' && triageClassify(SUBMISSIONS_DATASET[1]).ref === 'SUB-C21-OPEN');
+    t('a message with no insurance content is not a submission', kind('Lunch on Friday? The usual place.').kind === 'not_insurance');
+    t('a case entered directly is a new submission', triageClassify(mk('SUB-C21-D', { rawEmailText: undefined, rawAttachments: [] })).kind === 'new_submission');
+
+    // ---------- quick read before the legal checks
+    var E = raw('SUB-C21-E', 'Hi,\nInsured: Delta Haulers\nFEIN: 74-9842109\nUS DOT: 1234567\nBroker: Marsh & McLennan Commercial Brokerage\nContact: ops@delta.example\nEffective: November 1, 2026\nThanks');
+    var rawBefore = E.rawEmailText; use(E);
+    var rd = triageQuickRead(E);
+    t('the quick read finds who is named from the email text alone', !!rd && rd.insured === 'Delta Haulers' && rd.fein === '74-9842109' && rd.dot === '1234567' && /Marsh/.test(rd.broker), JSON.stringify(rd));
+    t('it fills the placeholders and marks the read as preliminary', E.insured === 'Delta Haulers' && E.fein === '74-9842109' && E.triage.filled.indexOf('insured') > -1 && E.triage.method === 'Quick read of the email text only');
+    t('the raw email is not changed', E.rawEmailText === rawBefore && E.normalizationStatus === 'pending');
+    E.insured = 'Edited By A Person'; triageQuickRead(E);
+    t('a value a person already set is not overwritten', E.insured === 'Edited By A Person');
+    var E2 = raw('SUB-C21-E2', 'Insured: Gamma Freight\nFEIN: 11-2223334\nBroker: Aon\nUS DOT: 7654321'); use(E2);
+    clearanceAutoRun(E2, 'clearance');
+    t('arriving at the legal checks reads the insured first, so they check a real name', E2.insured === 'Gamma Freight' && E2.sanctions && E2.sanctions.screens && E2.sanctions.screens.length === 1, E2.insured);
+    var D = mk('SUB-C21-DIR', { rawEmailText: undefined }); delete D.rawEmailText;
+    t('a case without an email has no quick read', triageQuickRead(D) === null);
+
+    // ---------- documents expected, duplicates, the card
+    var files = [{ name: 'Loss_Runs_2022-2025.pdf', type: 'application/pdf', size: 1000, base64: btoa('x') }, { name: 'ACORD_125_Delta.pdf', type: 'application/pdf', size: 1000, base64: btoa('x') }];
+    var T = raw('SUB-C21-T', base, files); use(T);
+    var exp = triageExpectedDocs(T), by = {}; exp.forEach(function(d){ by[d.key] = d; });
+    t('the application and loss runs are found by file name', by.application.present && by.application.via === 'ACORD_125_Delta.pdf' && by.loss_run.present && by.loss_run.via === 'Loss_Runs_2022-2025.pdf');
+    t('the vehicle schedule and driver list are reported as not received', !by.vehicle_schedule.present && !by.driver_list.present);
+    var T2 = raw('SUB-C21-T2', base + '\nUnit 1: 2022 Volvo VNL\nDriver 1: Rahul Sharma\nLoss Run History:\n2024: x', []);
+    var exp2 = triageExpectedDocs(T2), by2 = {}; exp2.forEach(function(d){ by2[d.key] = d; });
+    t('a schedule written into the email text counts as received', by2.vehicle_schedule.present && by2.driver_list.present && by2.loss_run.present && by2.vehicle_schedule.via === 'email text');
+    var O = mk('SUB-C21-OLD', { insured: 'Delta Haulers', fein: '74-9842109', broker: 'Other Brokers Inc' });
+    var N = raw('SUB-C21-NEW', base + '\nBroker: Aon', files); use([O, N]);
+    renderTriageCard(N);
+    t('the triage card names the kind, the documents and the duplicate from another producer', /New submission/.test(el('triageContainer').innerHTML) && /Not received/.test(el('triageContainer').innerHTML) && /SUB-C21-OLD/.test(el('triageContainer').innerHTML) && /market conflict/.test(el('triageContainer').innerHTML));
+    t('a duplicate card from the same producer says to attach it', (N.broker = O.broker, renderTriageCard(N), /same producer/.test(el('triageContainer').innerHTML)));
+    t('document types are recognised from names and from content', recognizeDocument('ACORD 140 property.pdf', '').key === 'acord140' && recognizeDocument('x.pdf', 'STATEMENT OF VALUES\nLoc 1').key === 'sov' && recognizeDocument('IFTA_Q3.xlsx', '').key === 'ifta' && recognizeDocument('misc.pdf', 'hello').key === 'other' && recognizeDocument('dec page 2025.pdf', '').key === 'dec_page');
+
+    // ---------- the Ingest view
+    var I = raw('SUB-C21-I', '<b>Hello</b> & Insured: Delta Haulers', [{ name: 'a.txt', type: 'text/plain', size: 12, base64: btoa('Insured: X') }]); use(I);
+    renderIngestReceived(I);
+    t('the Ingest card shows the email as received, escaped, and the file list', /&lt;b&gt;Hello&lt;\/b&gt; &amp; Insured/.test(el('ingestReceivedContainer').innerHTML) && /a\.txt/.test(el('ingestReceivedContainer').innerHTML) && /Stored unchanged/.test(el('ingestReceivedContainer').innerHTML) && /Nothing has been read yet/.test(el('ingestReceivedContainer').innerHTML));
+    use(mk('SUB-C21-DIR2', { rawAttachments: [] })); delete SUBMISSIONS_DATASET[0].rawEmailText; renderIngestReceived(SUBMISSIONS_DATASET[0]);
+    t('a case entered directly says there is nothing to keep', /entered directly/.test(el('ingestReceivedContainer').innerHTML));
+
+    // ---------- extraction starts at Step 3, not before
+    var X = raw('SUB-C21-X', 'Insured: Links\nFEIN: 74-9842109\nBroker: Arora & Sons\nUS DOT: 1234567', []); use(X);
+    emailIngestionDraftBySubId = {};
+    var box = el('rawEmailCaptureContainer');
+    currentWorkflowStep = INGEST_STEP; box.innerHTML = 'x'; renderIngestionReviewDirect(X, box);
+    t('nothing is read while the files are only being received', !emailIngestionDraftBySubId[X.id] && box.innerHTML === '');
+    currentWorkflowStep = CLEARANCE_STEP; renderIngestionReviewDirect(X, box);
+    t('nor during triage and the legal checks', !emailIngestionDraftBySubId[X.id]);
+    currentWorkflowStep = EXTRACT_STEP; renderIngestionReviewDirect(X, box);
+    for (var w = 0; w < 60 && !emailIngestionDraftBySubId[X.id]; w++) await sleep(50);
+    t('reading starts when the person reaches the Extract step', !!emailIngestionDraftBySubId[X.id] && emailIngestionDraftBySubId[X.id].insured === 'Links');
+    renderExtractSummary(X);
+    t('the Extract card lists what was read', /What was read|Only the email text was read/.test(el('extractSummaryContainer').innerHTML));
+
+    // ---------- the Confirm gate
+    var G = raw('SUB-C21-G', 'Insured: Links\nFEIN: 74-9842109\nBroker: Arora & Sons', []); G.currentStep = CONFIRM_STEP; use(G); currentWorkflowStep = CONFIRM_STEP;
+    toasts.length = 0; goToNextStep();
+    t('an email case cannot leave Confirm until the extracted data is applied', G.currentStep === CONFIRM_STEP && toasts.some(function(m){ return /Apply the extracted data first/.test(m); }), toasts.join(' | '));
+
+    // ---------- loss run analysis
+    var L = mk('SUB-C21-L', { effectiveDate: '2026-06-01', rawEmailText: 'Loss run currently valued 01/15/2024', losses: [
+      { year: '2023 - 2024', desc: 'Rear-end collision', status: 'Open', incurred: '$150,000' },
+      { year: '2023 - 2024', desc: 'Cargo claim', status: 'Closed', incurred: '$8,000' },
+      { year: '2024 - 2025', desc: 'Windshield', status: 'Closed', incurred: '$1,800' },
+      { year: '2025 - 2026', desc: 'Fender', status: 'Closed', incurred: '$4,200' },
+      { year: '2025 - 2026', desc: 'Jackknife', status: 'Closed', incurred: '$30,000' },
+      { year: '2025 - 2026', desc: 'Theft', status: 'Closed', incurred: '$9,000' },
+      { year: '2019 - 2020', desc: 'Old', status: 'Closed', incurred: '$99,000' }] });
+    var la = analyzeLossRuns(L);
+    t('the three policy years before the effective date are used', la.terms.map(function(x){ return x.label; }).join() === '2023-2024,2024-2025,2025-2026');
+    t('claims, incurred, open and largest add up per year', la.terms[0].claims === 2 && la.terms[0].incurred === 158000 && la.terms[0].open === 1 && la.terms[0].largest === 150000 && la.terms[2].claims === 3 && la.claims === 6 && la.incurred === 203000 && la.open === 1);
+    t('an old claim outside the three years is not counted but is mentioned', la.claims === 6 && la.flags.some(function(f){ return /outside the three policy years/.test(f.text); }));
+    t('a large claim, an open claim, rising frequency and a stale valuation are flagged', la.flags.some(function(f){ return /Large claim: \$150,000/.test(f.text); }) && la.flags.some(function(f){ return /still open/.test(f.text); }) && la.trend === 'rising' && la.flags.some(function(f){ return /more than 90 days ago/.test(f.text); }), JSON.stringify(la.flags.map(function(f){ return f.text; })));
+    var L2 = mk('SUB-C21-L2', { effectiveDate: '2026-06-01', rawEmailText: '', losses: [{ year: '2025 - 2026', desc: 'No claims recorded', status: 'Clean', incurred: '$0' }] });
+    var la2 = analyzeLossRuns(L2);
+    t('a clean year counts as covered with no claims, and years with no loss run are named', la2.terms[2].rows === 1 && la2.terms[2].claims === 0 && la2.flags.filter(function(f){ return /No loss run covers/.test(f.text); }).length === 2);
+    t('with no rows at all the analysis says so', analyzeLossRuns(mk('SUB-C21-L3', { losses: [] })).noRows === true);
+    use(L); renderLossRunAnalysis(L);
+    t('the Enrichment page shows the table and the flags and keeps a summary on the case', /2023-2024/.test(el('lossRunAnalysisContainer').innerHTML) && /Large claim/.test(el('lossRunAnalysisContainer').innerHTML) && L.lossAnalysis.claims === 6 && L.lossAnalysis.incurred === 203000);
+
+    // ---------- statement of values
+    var V = mk('SUB-C21-V', { rawEmailText: 'Total fleet value: $600,000', vehicles: [
+      { xid: 1, year: 2022, make: 'Volvo', model: 'VNL', vin: 'AAA111', stated_value: 150000 }, { xid: 2, year: 2021, make: 'Freightliner', model: 'Cascadia', vin: 'BBB222', stated_value: 140000 },
+      { xid: 3, year: 2020, make: 'Kenworth', model: 'T680', vin: 'AAA111', stated_value: 130000 }, { xid: 4, year: 2019, make: 'Ford', model: 'F-150', vin: 'DDD444', stated_value: null },
+      { xid: 5, year: 2023, make: 'Peterbilt', model: '579', vin: 'EEE555', stated_value: 900000 }] });
+    var sov = buildSov(V), sa = analyzeSov(V, sov);
+    t('the trucking SOV is the scheduled units with their stated values', sov.kind === 'units' && sov.rows.length === 5 && sa.total === 1320000 && sa.count === 5);
+    t('a missing value, a repeated VIN, an outlier and a disagreement with the stated total are found', sa.flags.some(function(f){ return /no value/.test(f.text); }) && sa.flags.some(function(f){ return /AAA111.*2 times/i.test(f.text); }) && sa.flags.some(function(f){ return /far from the typical value/.test(f.text); }) && sa.flags.some(function(f){ return /state a total of \$600,000/.test(f.text); }), JSON.stringify(sa.flags.map(function(f){ return f.text; })));
+    var tbl = [{ rows: [['Loc #', 'Address', 'Building', 'Contents', 'Business Income', 'TIV', 'Construction'], ['1', '10 Main St, Houston TX', '$1,000,000', '$200,000', '$100,000', '$1,300,000', 'Masonry'], ['2', '22 Oak Ave, Dallas TX', '$2,000,000', '$300,000', '$0', '$2,400,000', 'Frame'], ['Total', '', '', '', '', '$3,700,000', '']] }];
+    var ps = parseSovFromTables([{ name: 'sov.xlsx', tables: tbl }]);
+    t('locations are read from an attached statement of values', !!ps && ps.kind === 'locations' && ps.rows.length === 2 && ps.rows[0].address === '10 Main St, Houston TX' && ps.rows[1].building === 2000000 && ps.rows[0].tiv === 1300000 && ps.docs[0] === 'sov.xlsx', JSON.stringify(ps && ps.rows));
+    var P = mk('SUB-C21-P', { lobKey: 'property', rawEmailText: '', sov: ps, vehicles: [] }); var pa = analyzeSov(P, buildSov(P));
+    t('a location whose parts do not add to its TIV is flagged', pa.flags.some(function(f){ return /Location 2.*2,300,000.*2,400,000/.test(f.text); }) && pa.total === 3700000, JSON.stringify(pa.flags.map(function(f){ return f.text; })));
+    use(V); renderSov(V);
+    t('the SOV card shows units, total and flags and keeps a summary', /Statement of values/.test(el('sovContainer').innerHTML) && /\$1,320,000/.test(el('sovContainer').innerHTML) && V.sovAnalysis.count === 5);
+    use(mk('SUB-C21-V0', { vehicles: [] })); renderSov(SUBMISSIONS_DATASET[0]);
+    t('with nothing scheduled the SOV card says so', /Nothing to show/.test(el('sovContainer').innerHTML));
+
+    // ---------- appetite match
+    var rule = function(f, pass, can, ov){ return { ruleId: f, factor: f, val: 'x', pass: pass, canOverride: can, manualPassOverride: !!ov, guardrail: 'g' }; };
+    t('all rules passing is in appetite', appetiteMatch(mk('SUB-C21-M1', { appetiteRules: [rule('a', true, true), rule('b', true, true)] })).verdict === 'in');
+    var m2 = appetiteMatch(mk('SUB-C21-M2', { appetiteRules: [rule('a', true, true), rule('b', false, true), rule('c', true, true), rule('d', true, true)] }));
+    t('a failed rule an approver may override is in appetite with exceptions', m2.verdict === 'exceptions' && m2.percent === 75 && m2.passed === 3);
+    var m3 = appetiteMatch(mk('SUB-C21-M3', { appetiteRules: [rule('a', true, true), rule('b', false, false)] }));
+    t('a failed rule that cannot be overridden is outside appetite', m3.verdict === 'out' && m3.hard.length === 1);
+    t('no rules means no verdict, not a pass', appetiteMatch(mk('SUB-C21-M4', { appetiteRules: [] })).verdict === 'none');
+    use(mk('SUB-C21-M5', { appetiteRules: [rule('Minimum Driver Age', false, true)] })); renderAppetiteMatch(SUBMISSIONS_DATASET[0]);
+    t('the card lists the rule that failed and who can override it', /Minimum Driver Age/.test(el('appetiteMatchContainer').innerHTML) && /By an approver/.test(el('appetiteMatchContainer').innerHTML) && /Risk score/.test(el('appetiteMatchContainer').innerHTML));
+
+    // ---------- decision brief and broker reply
+    var good = mk('SUB-C21-B1', { insured: 'Clean Freight LLC', broker: 'Marsh & McLennan Commercial Brokerage', appetiteRules: [rule('a', true, true)] });
+    use(good);
+    var bg = buildDecisionBrief(good);
+    t('the brief lists the checks it ran', ['Producer licence and appointment', 'Sanctions screening', 'Market clearance', 'Duplicate check', 'Completeness', 'Loss history', 'Registry verification (FMCSA, NHTSA, DMV)', 'Placement'].every(function(l){ return bg.checks.some(function(c){ return c.label === l; }); }), bg.checks.map(function(c){ return c.label; }).join());
+    t('the registry check is shown as not checked, never as passed', bg.checks.filter(function(c){ return /Registry/.test(c.label); })[0].status === 'pending');
+    var bd = buildDecisionBrief(mk('SUB-C21-B2', { appetiteRules: [rule('Hard rule', false, false)] }));
+    t('a rule that cannot be overridden suggests declining, and says which', bd.recommendation === 'decline' && /Hard rule/.test(bd.reasons.join(' ')));
+    var bi = buildDecisionBrief(mk('SUB-C21-B3', { appetiteRules: [rule('a', true, true)], insured: '', fein: '', address: '' }));
+    t('a file that is not complete suggests asking for more', bi.recommendation === 'info' && /required item/.test(bi.reasons.join(' ')), bi.recommendation + ' ' + bi.reasons.join(' '));
+    t('decline outranks asking for more', buildDecisionBrief(mk('SUB-C21-B4', { appetiteRules: [rule('Hard', false, false)], insured: '', fein: '' })).recommendation === 'decline');
+    renderDecisionBrief(good);
+    t('the brief page shows the suggestion, the checks and three drafts', /Suggested:/.test(el('decisionBriefContainer').innerHTML) && /Producer licence/.test(el('decisionBriefContainer').innerHTML) && !!el('brokerDraft_quote') && !!el('brokerDraft_info') && !!el('brokerDraft_decline'));
+    var dq = brokerResponseDraft(good, 'quote'), dd = brokerResponseDraft(mk('SUB-C21-B5', { appetiteRules: [rule('Minimum Driver Age', false, false)] }), 'decline'), di = brokerResponseDraft(mk('SUB-C21-B6', { insured: '', fein: '' }), 'info');
+    t('each draft says what it should', /within our appetite/.test(dq) && /Minimum Driver Age/.test(dd) && /unable to offer terms/.test(dd) && /still need/.test(di) && /Regards/.test(dq));
+    el('brokerDraft_quote').value = 'x'; toasts.length = 0; recordBrokerResponse('quote');
+    t('an empty reply is refused', !(good.brokerResponses || []).length && toasts.some(function(m){ return /reply is empty/.test(m); }));
+    el('brokerDraft_quote').value = dq + '\nP.S. Looking forward to it.'; toasts.length = 0; recordBrokerResponse('quote');
+    var last = (good.brokerResponses || [])[0];
+    t('recording a reply keeps the text and writes it to the case log', !!last && last.kind === 'quote' && /Looking forward/.test(last.text) && good.decisionLog.some(function(d){ return d.decision === 'broker_response_quote'; }) && /Last recorded/.test(el('brokerResponseContainer').innerHTML));
+    t('the log knows how to show the new decisions', !!AUDIT_ACTION_META.broker_response_quote && !!AUDIT_ACTION_META.broker_response_info && !!AUDIT_ACTION_META.broker_response_decline);
+    brokerDraftEdited('info', 'My own wording for the info request, long enough.'); renderDecisionBrief(good);
+    t('an edited draft survives the page being drawn again', el('brokerDraft_info').value === 'My own wording for the info request, long enough.');
+    currentUserRole = 'assistant'; toasts.length = 0; recordBrokerResponse('info');
+    t('someone without approval cannot record a reply', (good.brokerResponses || []).length === 1);
+    currentUserRole = 'senior_uw';
+
+    // ---------- walking the steps in order
+    var W = clone(GOLDEN_PATH_SUBMISSION); W.id = 'SUB-C21-W'; W.normalizationStatus = 'normalized'; W.currentStep = 1; W.completedSteps = []; W.decisionLog = []; ['pasSync','sanctions','producerCheck','authorityRef','marketClearance','quoteIssued'].forEach(function(k){ delete W[k]; }); use(W); showWorkflowPage(1);
+    var seq = [];
+    for (var n = 1; n < BIND_STEP; n++) {
+      var before = currentWorkflowStep; goToNextStep();
+      var modal = el('stageDecisionModal') && getComputedStyle(el('stageDecisionModal')).display !== 'none';
+      if (modal) { el('stageDecisionNotes').value = 'Reviewed by the tester'; submitStageDecision(true); }
+      seq.push(before + '>' + currentWorkflowStep);
+      if (currentWorkflowStep === before) break;
+    }
+    t('Next walks the steps one at a time up to the Bind step', currentWorkflowStep === BIND_STEP && seq.join(' ') === '1>2 2>3 3>4 4>5 5>6 6>7 7>8 8>9 9>10 10>11 11>12 12>13', seq.join(' '));
+    t('the steps passed are recorded as completed', [1,2,3,4,5,6,7,8,9,10,11,12].every(function(s){ return W.completedSteps.indexOf(s) > -1; }) && W.currentStep === BIND_STEP);
+    t('status labels follow the steps that have one', (W.currentStep = RATING_STEP, setStatusForStep(W), W.statusText === 'Ready for Rating') && (W.currentStep = QUOTE_STEP, setStatusForStep(W), W.statusText === 'Quote Generated') && (W.currentStep = SCORE_STEP, setStatusForStep(W), W.statusText === 'UW Review'));
+    t('Policy Issuance stays closed until the policy is bound', (goToWorkflowStep(ISSUANCE_STEP), currentWorkflowStep === BIND_STEP));
+    t('the old rating page id still opens the rating step from the diagram', (goToScreen('screen-7'), currentWorkflowStep === RATING_STEP));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

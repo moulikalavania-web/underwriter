@@ -157,7 +157,7 @@ function clearanceHoldReasons(sub) {
           const why = clearanceHoldReasons(sub);
           if (why.length) {
             clearanceLog(sub, "clearance_hold", `Step 2 exit blocked: ${why.join("; ")}.`);
-            showToast(`⛔ Held at Step 2: ${why.join("; ")}. Both legal checks must pass before Data Enrichment.`, "danger");
+            showToast(`⛔ Held at Step 2: ${why.join("; ")}. Both legal checks must pass before Document Extraction.`, "danger");
             renderClearanceHold(sub);
             return;
           }

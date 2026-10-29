@@ -121,20 +121,21 @@
     currentUserRole = 'senior_uw';
     PRODUCER_REGISTRY.length = 0; savedReg.forEach(function(r){ PRODUCER_REGISTRY.push(r); }); delete A.producerCheck;
 
-    // ---------- walk a case through the seven steps
+    // ---------- walk a case through the steps up to the quote
     selectSubmission(A.id, false); showWorkflowPage(1); toasts.length = 0;
     var path = [];
-    for (var n = 1; n <= 6; n++) {
+    for (var n = 1; n < QUOTE_STEP; n++) {
       var before = currentWorkflowStep; goToNextStep();
       var modal = el('stageDecisionModal') && getComputedStyle(el('stageDecisionModal')).display !== 'none';
       if (modal) { var notes = el('stageDecisionNotes'); if (notes) notes.value = 'Reviewed by the tester'; submitStageDecision(true); }
       path.push(before + '>' + currentWorkflowStep);
       if (currentWorkflowStep === before) break;
     }
-    t('a fixture case walks from Step 1 to Step 7 with no waivers', currentWorkflowStep === 7 && A.currentStep === 7 && !((A.completeness && A.completeness.waivers) || []).length, path.join(' '));
+    t('a fixture case walks from Step 1 to the Quote step with no waivers', currentWorkflowStep === QUOTE_STEP && A.currentStep === QUOTE_STEP && !((A.completeness && A.completeness.waivers) || []).length, path.join(' '));
 
-    // ---------- Step 7: the application has no sample quote; a rating file is imported
+    // ---------- the Quote step: the application has no sample quote; a rating file is imported
     t('Step 7 asks for a rating file and offers no sample quote', !A.importedRatingData && /Browse Rating JSON/.test(el('step7MainContentContainer').innerHTML) && !/sample quote/i.test(el('step7MainContentContainer').innerHTML) && !el('useSampleQuoteBtn'));
+    goToWorkflowStep(BIND_STEP);
     t('and the bottom bar does not claim completion', !/Finish/.test(el('btnNextStep').innerHTML) && /not bound yet/.test(el('btnNextStep').textContent));
     applyImportedRatingDataToSubmission(clone(SAMPLE_RATING_JSON), A); renderStep7View(A);
     t('an imported rating file produces the quote', !!A.importedRatingData && A.isQuoteImported === true && !!A.discretionaryPricing);
@@ -179,7 +180,7 @@
 
     // ---------- leaving early is honest
     var B = SUBMISSIONS_DATASET.filter(function(s){ return s.id !== A.id && s.lobKey === 'trucking'; })[0];
-    B.assignedTo = 'senior_uw'; delete B.pasSync; delete B.quoteIssued; B.currentStep = 7; selectSubmission(B.id, false); showWorkflowPage(7);
+    B.assignedTo = 'senior_uw'; delete B.pasSync; delete B.quoteIssued; B.currentStep = BIND_STEP; selectSubmission(B.id, false); showWorkflowPage(BIND_STEP);
     toasts.length = 0; leaveStepSeven();
     t('leaving Step 7 without binding does not say the flow is complete', /not bound yet/.test(lastToast()) && !/Complete/.test(lastToast()), lastToast());
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }

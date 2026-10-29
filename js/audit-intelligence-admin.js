@@ -1113,7 +1113,7 @@ function renderQuoteComparisonTable() {
 }
 
 /**
- * Workflow Stepper Navigator (Step 1 = Doc Ingestion -> Step 7 = Quote & Bind)
+ * Workflow Stepper Navigator (Step 1 = Ingest -> Step 14 = Policy Issuance)
  */
 function goToWorkflowStep(stepNum) {
   if (stepNum < 1) stepNum = 1;
@@ -1121,13 +1121,13 @@ function goToWorkflowStep(stepNum) {
 
   // Compliance gate applies here too, not just in goToNextStep() — this is
   // the single low-level navigator, so it also covers direct stepper-bar
-  // clicks and the auto-redirect after the Step 6 rating transition timer.
-  if (stepNum === 7) {
+  // clicks and the auto-redirect after the Rating step transition timer.
+  if (stepNum === QUOTE_STEP) {
     const subForGate = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
     const gaps = getComplianceGapsForRating(subForGate);
     if (gaps.length > 0) {
       showToast(`⛔ Cannot enter Rating & Quote — missing regulatory requirements: ${gaps.join("; ")}.`, "danger");
-      stepNum = 6;
+      stepNum = RATING_STEP;
     }
   }
 
@@ -1164,6 +1164,7 @@ function goToWorkflowStep(stepNum) {
 
   // 2. Populate downstream screen data for active sub
   if (sub) renderAllDownstreamScreens(sub);
+  if (typeof applyWorkflowView === "function") applyWorkflowView(stepObj, sub);
 
   // Auto-fetch NHTSA / FMCSA / State DMV registry data the first time this
   // submission's Data Enrichment & Smart Routing step is opened.
@@ -1219,6 +1220,8 @@ function goToScreen(screenId) {
     showIntakePage();
   } else if (screenId === "screen-9") {
     showArchivePage();
+  } else if (screenId === "screen-7") {   // the architecture diagram still calls the rating page screen 7
+    showWorkflowPage(RATING_STEP);
   } else {
     const stepObj = WORKFLOW_STEPS.find(s => s.id === screenId);
     if (stepObj) {
@@ -1447,10 +1450,10 @@ function determineReviewRequirement(sub) {
 // ============================================================================
 // HUMAN DECISION GATE AT MAJOR STAGES (#6)
 // ============================================================================
-// Steps considered "major" gates, one per stage: 2 (Clearance), 5 (Authority
-// & Referral). The system performs automated checks, but
+// Steps considered "major" gates: Triage & Clearance and the Authority & Referral
+// Desk. The system performs automated checks, but
 // a human must explicitly approve before the submission advances.
-const MAJOR_DECISION_STEPS = [2, 5];
+const MAJOR_DECISION_STEPS = [CLEARANCE_STEP, AUTH_STEP];
 let pendingStageAdvance = null;
 
 /**
@@ -1543,7 +1546,7 @@ function openStageDecisionModal(sub, currentStep) {
   titleEl.textContent = `Human Decision Required: ${stepObj ? stepObj.title : "Stage " + currentStep}`;
 
   let extra = "";
-  if (currentStep === 5) {
+  if (currentStep === AUTH_STEP) {
     const review = determineReviewRequirement(sub);
     extra = review.required
       ? `<div class="alert alert-warning u-fs-12-5"><i class="ph ph-warning"></i> <strong>${review.level === "manager" ? "Manager" : "Senior Underwriter"} review required</strong> based on configured routing rules:<ul style="margin:6px 0 0 18px;">${review.reasons.map(r => `<li>${r}</li>`).join("")}</ul></div>`
@@ -1618,19 +1621,25 @@ function submitStageDecision(approved) {
   }
 }
 
+/** The lifecycle label a case carries once it reaches its current step. Steps that are not listed keep the label they have. */
+function setStatusForStep(sub) {
+  const n = sub.currentStep;
+  if (n === CLEARANCE_STEP) sub.statusText = "Clearance Check";
+  else if (n === ENRICH_STEP) sub.statusText = "Data Enrichment";
+  else if (n === SCORE_STEP) { sub.statusText = "UW Review"; sub.statusBadge = "badge-info"; }
+  else if (n === AUTH_STEP && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
+  else if (n === RATING_STEP) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
+  else if (n === QUOTE_STEP) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
+  else if (n === ISSUANCE_STEP) { sub.statusText = "Policy Issued"; sub.statusBadge = "badge-success"; }
+}
+
 function advanceWorkflowStepAfterDecision(currentStep) {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (sub) {
     if (!sub.completedSteps) sub.completedSteps = [];
     if (!sub.completedSteps.includes(currentStep)) sub.completedSteps.push(currentStep);
     sub.currentStep = currentStep + 1;
-
-    if (sub.currentStep === 2) sub.statusText = "Clearance Check";
-    else if (sub.currentStep === 3) sub.statusText = "Data Enrichment";
-    else if (sub.currentStep === 4) { sub.statusText = "UW Review"; sub.statusBadge = "badge-info"; }
-    else if (sub.currentStep === 5 && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
-    else if (sub.currentStep === 6) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
-    else if (sub.currentStep === 7) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
+    setStatusForStep(sub);
   }
 
   goToWorkflowStep(currentStep + 1);
@@ -1659,11 +1668,11 @@ function goToNextStep() {
       return; // Wait for explicit human approve/reject via the modal
     }
 
-    // Compliance gate: block entry into Step 7 (Rating Engine / Quote & Bind)
+    // Compliance gate: block entry into the Quote step (after the Rating Engine)
     // for motor-carrier risks that don't yet have USDOT/MC/MCS-90/statutory
     // minimum limits on file — the external rating engine can't properly
     // evaluate the risk without these.
-    if (currentStep === 6 && sub) {
+    if (currentStep === RATING_STEP && sub) {
       const gaps = getComplianceGapsForRating(sub);
       if (gaps.length > 0) {
         showToast(`⛔ Cannot proceed to Rating & Quote — missing regulatory requirements: ${gaps.join("; ")}.`, "danger");
@@ -1677,15 +1686,7 @@ function goToNextStep() {
         sub.completedSteps.push(currentStep);
       }
       sub.currentStep = currentStep + 1;
-
-      // Update lifecycle status label if advancing
-      if (sub.currentStep === 2) sub.statusText = "Clearance Check";
-      else if (sub.currentStep === 3) sub.statusText = "Data Enrichment";
-      else if (sub.currentStep === 4) { sub.statusText = "UW Review"; sub.statusBadge = "badge-info"; }
-      else if (sub.currentStep === 5 && authNeedsReferral(sub)) { sub.statusText = "Senior Referral"; sub.statusBadge = "badge-warning"; }
-      else if (sub.currentStep === 6) { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
-      else if (sub.currentStep === 7) { sub.statusText = "Quote Generated"; sub.statusBadge = "badge-success"; }
-      else if (sub.currentStep === 8) { sub.statusText = "Policy Issued"; sub.statusBadge = "badge-success"; }
+      setStatusForStep(sub);   // update the lifecycle status label as the case advances
     }
 
     goToWorkflowStep(currentStep + 1);
@@ -1695,13 +1696,13 @@ function goToNextStep() {
   }
 }
 
-/** Return to the queue from Step 7, saying truthfully whether the policy was bound. */
+/** Return to the queue from the Quote & Bind steps, saying truthfully whether the policy was bound. */
 function leaveStepSeven() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   const bound = !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
   showIntakePage();
   if (bound) showToast(`✅ Policy ${sub.pasSync.policyNumber} is bound. Returned to the Submission Intake Queue.`, "success");
-  else showToast("ℹ️ Returned to the queue. The policy is not bound yet; the case stays open at Step 7" + (sub && !sub.quoteIssued ? " (quote not issued)." : (sub && !sub.customerApproved ? " (awaiting customer acceptance)." : " (bind pending).")), "info");
+  else showToast("ℹ️ Returned to the queue. The policy is not bound yet; the case stays open at Step " + (sub && sub.currentStep || BIND_STEP) + (sub && !sub.quoteIssued ? " (quote not issued)." : (sub && !sub.customerApproved ? " (awaiting customer acceptance)." : " (bind pending).")), "info");
 }
 
 /**

@@ -10,7 +10,7 @@
 //   - "Clear saved session" (header) still wipes it and reloads blank.
 // ============================================================================
 const FUT_STORAGE_KEY = "veridex_app_state_v1";
-const APP_STATE_VERSION = 2;
+const APP_STATE_VERSION = 3;   // 3: the workflow has 14 steps; a session saved with the old step numbers is not carried over
 const APP_STATE_MAX_CHARS = 4500000;
 // Restoring the saved session when the page loads is switched OFF for now: a refresh starts blank, as before. The save, the version key,
 // the size guard and restoreAppState() all stay in place; set this to true to bring the restore back.

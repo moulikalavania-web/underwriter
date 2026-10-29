@@ -337,12 +337,12 @@ function computeSubmissionActivityFlags(sub) {
   // progressing past the first couple of steps are flagged as at-risk.
   let isDelayed = false;
   let delayReason = "";
-  if ((sub.priority === "P1" || sub.priority === "P2") && ageHours > 24 && (sub.currentStep || 1) <= 2) {
+  if ((sub.priority === "P1" || sub.priority === "P2") && ageHours > 24 && (sub.currentStep || 1) <= CLEARANCE_STEP) {
     isDelayed = true;
     delayReason = `${sub.priority} priority, received ${Math.round(ageHours)}h ago, still at "${stepObj ? stepObj.shortTitle : 'Intake'}"`;
-  } else if (authNeedsReferral(sub) && (sub.currentStep || 1) < 5) {
+  } else if (authNeedsReferral(sub) && (sub.currentStep || 1) < AUTH_STEP) {
     isDelayed = true;
-    delayReason = `Exceeds underwriter authority — awaiting escalation/referral before Step 5`;
+    delayReason = `Exceeds underwriter authority — awaiting escalation/referral before Step ${AUTH_STEP}`;
   }
 
   return {
@@ -676,14 +676,14 @@ function submitDeclineSubmission() {
 }
 
 function categorizeSubmissionOutcome(sub) {
-  const finalStep = BIND_STEP; // step 7: Formal Quote & Policy Binding
+  const finalStep = BIND_STEP; // the Bind step: completed only once the policy is bound
   const hasOutstandingMissing = getOutstandingMissingCount(sub) > 0;
   const isDeclined = sub.lifecycleStatus === "declined";
 
   if (sub.completedSteps && sub.completedSteps.includes(finalStep)) {
     return "issued"; // Fully completed the Quote & Bind step = policy issued
   }
-  if (sub.currentStep >= finalStep) {
+  if (sub.currentStep >= QUOTE_STEP) {
     return "quoteGenerated"; // Reached the final step, quote formed, not yet bound
   }
   if (isDeclined || hasOutstandingMissing) {
@@ -755,8 +755,8 @@ function renderTeamActivityMonthlyChart() {
     byUW[uw].push(sub);
   });
   const teamCount = Object.keys(byUW).length;
-  const activeCount = liveSubmissions.filter(s => (s.currentStep || 1) < BIND_STEP).length;
-  const completedCount = liveSubmissions.filter(s => (s.currentStep || 1) >= BIND_STEP).length;
+  const activeCount = liveSubmissions.filter(s => (s.currentStep || 1) < QUOTE_STEP).length;
+  const completedCount = liveSubmissions.filter(s => (s.currentStep || 1) >= QUOTE_STEP).length;
   const delayedCount = liveSubmissions.filter(s => computeSubmissionActivityFlags(s).isDelayed).length;
 
   const kpiStrip = `
@@ -825,8 +825,8 @@ function renderTeamActivityBoard() {
 
   const cards = uwNames.map(uw => {
     const subs = byUW[uw];
-    const active = subs.filter(s => (s.currentStep || 1) < BIND_STEP);
-    const completed = subs.filter(s => (s.currentStep || 1) >= BIND_STEP);
+    const active = subs.filter(s => (s.currentStep || 1) < QUOTE_STEP);
+    const completed = subs.filter(s => (s.currentStep || 1) >= QUOTE_STEP);
     const flagged = subs.map(s => ({ sub: s, flags: computeSubmissionActivityFlags(s) })).filter(x => x.flags.isDelayed);
     const avatarInitials = uw.split(" ").filter(w => w[0] === w[0].toUpperCase()).slice(0, 2).map(w => w[0]).join("") || uw.slice(0, 2).toUpperCase();
 

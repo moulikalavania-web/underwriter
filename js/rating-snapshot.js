@@ -110,7 +110,7 @@ function rsBasis(sub) {
 // ----------------------------------------------------------------------------
 // 3. SAVING A VERSION
 // ----------------------------------------------------------------------------
-function rsReachedRating(sub) { return Math.max(sub.currentStep || 1, typeof currentWorkflowStep !== "undefined" ? currentWorkflowStep || 1 : 1) >= 6; }
+function rsReachedRating(sub) { return Math.max(sub.currentStep || 1, typeof currentWorkflowStep !== "undefined" ? currentWorkflowStep || 1 : 1) >= RATING_STEP; }
 
 /** Saves a new version if the details differ from the latest one; returns the version saved, or null when nothing changed. */
 function rsCapture(sub, trigger, force) {
@@ -233,7 +233,7 @@ function rsDownload(version) {
   if (typeof AUDIT_ACTION_META !== "undefined") AUDIT_ACTION_META.rating_snapshot_saved = { label: "Rating Snapshot Saved", icon: "ph-camera", badge: "badge-info", outcome: "outcome-comm" };
   const wrap = (name, fn) => { const orig = window[name]; if (typeof orig === "function") window[name] = function () { const r = orig.apply(this, arguments); try { fn.apply(this, arguments); } catch (e) { console.warn("Rating snapshot hook failed:", name, e); } return r; }; };
   const subOf = a => (a && a.id && typeof a === "object" && a.vehicles !== undefined) ? a : rsActiveSub();
-  wrap("renderRatingEnginePayload", function (sub) { const s = subOf(sub); if (s) { rsCapture(s, "Rating payload generated (Step 6)"); if (s.id === activeSubmissionId) rsRender(s); } });
+  wrap("renderRatingEnginePayload", function (sub) { const s = subOf(sub); if (s) { rsCapture(s, "Rating payload generated (Rating step)"); if (s.id === activeSubmissionId) rsRender(s); } });
   wrap("renderStep7View", function (sub) { const s = subOf(sub); if (s) { rsCapture(s, "Quote & Bind opened with changed details"); rsRender(s); } });
   wrap("downloadRatingJSON", function () { const s = rsActiveSub(); if (s) { rsCapture(s, "Rating payload downloaded for the engine", true); rsRender(s); } });
   wrap("copyRatingJSON", function () { const s = rsActiveSub(); if (s) { rsCapture(s, "Rating payload copied for the engine", true); rsRender(s); } });

@@ -414,7 +414,7 @@ run<!--
               </div>
               <div class="h-stepper-label">
                 <span class="h-stepper-title">Intake & Clearance</span>
-                <span class="h-stepper-desc">Docs, FEIN, legal checks</span>
+                <span class="h-stepper-desc">Ingest, triage, legal checks</span>
               </div>
             </div>
 
@@ -427,8 +427,8 @@ run<!--
                 <i class="ph ph-check h-stepper-check"></i>
               </div>
               <div class="h-stepper-label">
-                <span class="h-stepper-title">Completeness & Enrichment</span>
-                <span class="h-stepper-desc">Requirements & data</span>
+                <span class="h-stepper-title">Extraction & Enrichment</span>
+                <span class="h-stepper-desc">Extract, confirm, check</span>
               </div>
             </div>
 
@@ -442,7 +442,7 @@ run<!--
               </div>
               <div class="h-stepper-label">
                 <span class="h-stepper-title">UW Review & Rules</span>
-                <span class="h-stepper-desc">Rules, referral, override</span>
+                <span class="h-stepper-desc">Score, surplus, brief, authority</span>
               </div>
             </div>
 
@@ -498,21 +498,27 @@ run<!--
       <section id="screen-2" class="screen-view">
         <div class="screen-header">
           <div>
-            <h2>Document Ingestion Pipeline</h2>
-            <p class="screen-desc">Cloud storage parsing (S3/OCI), AI-driven OCR extraction, and schema normalization into standard data fields.</p>
+            <h2 id="ingestScreenTitle">Document Ingestion Pipeline</h2>
+            <p class="screen-desc" id="ingestScreenDesc">Cloud storage parsing (S3/OCI), AI-driven OCR extraction, and schema normalization into standard data fields.</p>
           </div>
         </div>
 
         <!-- Raw Email Capture & AI Normalization (Add-On) — only rendered
              when the active submission arrived via Email Digest raw capture
              and has not yet been AI-normalized. Untouched otherwise. -->
-        <div id="rawEmailCaptureContainer"></div>
+        <!-- Step 1 (Ingest): what arrived, exactly as received (js/workflow-steps.js) -->
+        <div id="ingestReceivedContainer" data-views="ingest"></div>
+
+        <!-- Step 3 (Extract): which files were read, how, and what came out (js/workflow-steps.js) -->
+        <div id="extractSummaryContainer" data-views="extract"></div>
+
+        <div id="rawEmailCaptureContainer" data-views="confirm"></div>
 
         <!-- OCR Extraction Visualizer — hidden until AI normalization has
              actually completed for raw email-captured submissions. Always
              visible for submissions that didn't arrive via raw email
              capture (they're already normalized on ingest). -->
-        <div class="card ocr-pipeline-card-full" id="ocrPipelineCard">
+        <div class="card ocr-pipeline-card-full" id="ocrPipelineCard" data-views="extract">
           <div class="card-header">
             <h3><i class="ph ph-brain"></i> Document Extraction Pipeline</h3>
             <span class="badge badge-light"></span>
@@ -552,7 +558,7 @@ run<!--
         </div>
 
         <!-- Submission completeness checklist (js/submission-completeness.js) -->
-        <div id="completenessContainer"></div>
+        <div id="completenessContainer" data-views="confirm"></div>
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -570,6 +576,9 @@ run<!--
             <p class="screen-desc">Checks run in this order: producer licence and sanctions screening (legal gates, run automatically once ingestion is confirmed), then market clearance and broker of record, then the FEIN duplicate check, and last the appetite knockouts. The case is held here until both legal gates pass.</p>
           </div>
         </div>
+
+        <!-- Triage: what kind of message this is, who sent it, and what it looks like (js/workflow-steps.js) -->
+        <div id="triageContainer" class="mb-3"></div>
 
         <!-- Hold banner: shown while a legal check has not passed (js/clearance-gate.js) -->
         <div id="clearanceHoldContainer" class="mb-3"></div>
@@ -776,6 +785,10 @@ run<!--
         <!-- Driver License Verification: DL number & license details captured
              from the submission (email/JSON), checked against State DMV. -->
         <div id="screen4DriverLicenseContainer" class="mt-4"></div>
+
+        <!-- Loss run analysis and statement of values (js/submission-analysis.js) -->
+        <div id="lossRunAnalysisContainer" class="mt-4"></div>
+        <div id="sovContainer" class="mt-4"></div>
       </section>
 
       <!-- Screen 5: Underwriting Workbench -->
@@ -790,6 +803,9 @@ run<!--
             <button class="btn btn-danger" onclick="openDeclineSubmissionModal(activeSubmissionId)"><i class="ph ph-prohibit"></i> Decline Submission</button>
           </div>
         </div>
+
+        <!-- Appetite match: risk score and fit against the product's appetite rules (js/submission-analysis.js) -->
+        <div id="appetiteMatchContainer" class="mb-3"></div>
 
         <!-- UW Summary Header Strip (Quote ID / Applicant / LOB / State / Effective Date / Status / Assigned Underwriter) -->
         <div id="wbSummaryStripContainer" class="mb-3"></div>
@@ -982,21 +998,6 @@ run<!--
       </section>
 
       <!-- Screen 7: Automated Rating Engine Transition Screen -->
-      <section id="screen-7" class="screen-view">
-        <div class="screen-header">
-          <div>
-            <h2><i class="ph ph-calculator text-primary"></i> Rating &amp; Pricing</h2>
-            <p class="screen-desc">The case is ready to be rated. The rating engine's output is imported on Quote &amp; Bind, where the premium, taxes and fees are set.</p>
-          </div>
-        </div>
-        <div class="card" style="max-width: 720px;">
-          <div class="card-body">
-            <p style="margin:0 0 8px;"><i class="ph ph-check-circle text-success"></i> Underwriting review and referral are complete.</p>
-            <p class="text-muted text-xs" style="margin:0;">Continue to Quote &amp; Bind to import the rating output and issue the quote. Motor-carrier regulatory items (USDOT, MC number, statutory minimum) are checked when you continue.</p>
-          </div>
-        </div>
-      </section>
-
       <!-- Screen 8: Formal Quote Generation, PDF Preview & Binding -->
       <!-- Screen 8: Formal Quote Generation & Actuarial Breakdown Studio -->
       <!-- Screen 8: Formal Quote Generation & Actuarial Breakdown Studio -->
@@ -1004,7 +1005,7 @@ run<!--
         <!-- Hidden file input for direct system JSON upload -->
         <input class="u-hidden" type="file" id="quoteJsonSystemDirectInput" accept=".json,application/json" onchange="handleSystemJsonFileSelect(event)">
 
-        <div class="screen-header" id="step7HeaderView">
+        <div class="screen-header" id="step7HeaderView" data-views="rating quote">
           <div>
             <span class="phase-pill phase-3-pill" id="step7PhasePill"><i class="ph ph-calculator"></i> Stage 5 • Quote & Bind Studio</span>
             <h2 id="step7HeaderTitle">Commercial Trucking Formal Quote & Binding</h2>
@@ -1024,40 +1025,40 @@ run<!--
         </div>
 
         <!-- Underwriting Discretionary Pricing (Post-Rating) -->
-        <div id="discretionaryPricingContainer"><!-- rendered dynamically by renderStep7View() --></div>
+        <div id="discretionaryPricingContainer" data-views="rating"><!-- rendered dynamically by renderStep7View() --></div>
 
         <!-- Rating snapshot: the risk details sent to the rating engine, the risk score and the premium, versioned (js/rating-snapshot.js) -->
-        <div id="ratingSnapshotContainer"></div>
+        <div id="ratingSnapshotContainer" data-views="rating"></div>
 
         <!-- TRIA offer & election record (js/tria-offer.js) -->
-        <div id="triaOfferContainer"></div>
+        <div id="triaOfferContainer" data-views="quote"></div>
 
         <!-- Adverse-action notice gate (js/adverse-notices.js) -->
-        <div id="noticesContainer"></div>
+        <div id="noticesContainer" data-views="quote"></div>
 
         <!-- Subjectivities tracker: pre-bind gate and post-bind due dates (js/subjectivities.js) -->
-        <div id="subjectivitiesContainer"></div>
+        <div id="subjectivitiesContainer" data-views="subjectivities bind"></div>
 
         <!-- Binder and certificates of insurance (js/binders-certificates.js) -->
-        <div id="binderCertificatesContainer"></div>
+        <div id="binderCertificatesContainer" data-views="bind"></div>
 
         <!-- Endorsements, cancellation and reinstatement (js/policy-changes.js) -->
-        <div id="policyChangesContainer"></div>
+        <div id="policyChangesContainer" data-views="bind"></div>
 
         <!-- Renewal status (js/renewals.js) -->
-        <div id="renewalStatusContainer"></div>
+        <div id="renewalStatusContainer" data-views="bind"></div>
 
         <!-- Broker and commission (js/broker-commission.js) -->
-        <div id="commissionContainer"></div>
+        <div id="commissionContainer" data-views="quote bind"></div>
         <!-- Surplus lines (js/surplus-lines.js) -->
-        <div id="surplusLinesContainer"></div>
+        <div id="surplusLinesContainer" data-views="surplus bind"></div>
         <!-- Underwriting authority (js/authority.js) -->
-        <div id="authorityContainer"></div>
+        <div id="authorityContainer" data-views="quote bind"></div>
 
         <!-- Dynamic Main Step 7 Content Container — wrapped so the page can
              smooth-scroll to it right after a rating JSON import finishes
              (see handleApplyImportedJson()/handleSystemJsonFileSelect()). -->
-        <div id="step7GeneratedQuoteArea">
+        <div id="step7GeneratedQuoteArea" data-views="quote bind">
           <div id="step7MainContentContainer" class="step7-quote-container">
             <!-- Dynamically populated via renderStep7View() -->
           </div>
@@ -1068,7 +1069,7 @@ run<!--
              rating engine, kept in sync by renderRatingEnginePayload()
              (called on every downstream render). Collapsed by default since
              it's a technical/audit view, not primary underwriter workflow. -->
-        <details class="wb-collapsible mt-3">
+        <details class="wb-collapsible mt-3" data-views="rating quote">
           <summary><i class="ph ph-caret-right wb-collapsible-caret"></i> Rating Engine JSON Payload (Technical View)</summary>
           <div class="json-viewer-card mb-3">
             <div class="card-header">
@@ -1087,12 +1088,24 @@ run<!--
           </div>
         </details>
 
-        <div class="step-guide-bar mt-3">
+        <div class="step-guide-bar mt-3" data-views="rating quote">
           <i class="ph ph-lightbulb"></i>
           <div>
             <strong>Actuarial Rating Engine:</strong> Final bindable quote is calculated by applying base territory loss costs, increased limits factors (ILF), vehicle stated value tiers, driver schedules, discretionary schedule credits, itemized state taxes, TRIA, and filing fees.
           </div>
         </div>
+      </section>
+
+      <!-- Screen 11: Decision Brief & Broker Response (workflow step 8) -->
+      <section id="screen-11" class="screen-view">
+        <div class="screen-header">
+          <div>
+            <h2><i class="ph ph-clipboard-text text-primary"></i> Decision Brief &amp; Broker Response</h2>
+            <p class="screen-desc">Everything that decides this risk on one page: appetite fit, completeness, the checks that passed and failed, and what the broker should be told. Nothing is sent from here until an underwriter chooses a reply.</p>
+          </div>
+        </div>
+        <div id="decisionBriefContainer"></div>
+        <div id="brokerResponseContainer" class="mt-3"></div>
       </section>
 
       <!-- Screen 10: Policy Issuance & Terms (stage 6) -->
@@ -1382,7 +1395,7 @@ run<!--
             <div class="exit-card">
               <div class="exit-card-header">
                 <i class="ph ph-copy-simple text-danger"></i>
-                <strong>Exit Path 1: Duplicate FEIN (Step 6)</strong>
+                <strong>Exit Path 1: Duplicate FEIN (Step 2)</strong>
               </div>
               <p>Occurs when another broker has already locked the customer's FEIN. Prevents conflicting dual-agency quotes.</p>
               <div class="status-tag" id="exitCountDuplicateFein">0 Records</div>
@@ -1391,7 +1404,7 @@ run<!--
             <div class="exit-card">
               <div class="exit-card-header">
                 <i class="ph ph-prohibit text-danger"></i>
-                <strong>Exit Path 2: Appetite Knockout (Step 7)</strong>
+                <strong>Exit Path 2: Appetite Knockout (Step 2)</strong>
               </div>
               <p>Triggered when risk criteria fall outside carrier underwriting guidelines (e.g. excess hazmat, extreme loss ratio, out-of-territory).</p>
               <div class="status-tag" id="exitCountAppetiteKnockout">0 Records</div>
@@ -2855,5 +2868,8 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/product-questionnaire.js"></script>
   <script src="js/clearance-gate.js"></script>
   <script src="js/policy-issuance.js"></script>
+  <script src="js/workflow-steps.js"></script>
+  <script src="js/submission-analysis.js"></script>
+  <script src="js/decision-brief.js"></script>
 </body>
 </html>

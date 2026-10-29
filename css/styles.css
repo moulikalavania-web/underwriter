@@ -8434,3 +8434,7 @@ body.has-bottom-footer .app-layout {
 .qi-assign { flex-wrap: nowrap; }
 .qi-assign .badge, .submission-main-table td:nth-child(7) .badge { white-space: nowrap; }
 .active-sub-chip .badge:empty, .active-sub-chip .font-mono:empty { display: none; }
+
+/* Workflow steps that share a page: a card marked data-views shows only on the steps it names (js/workflow-steps.js). */
+.wf-view-off { display: none !important; }
+.ws-small { font-size: 11px; }

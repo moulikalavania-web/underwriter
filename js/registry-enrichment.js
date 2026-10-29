@@ -128,6 +128,4 @@ function renderDriverLicenseVerification(sub) {
 }
 
 window.renderDriverLicenseVerification = renderDriverLicenseVerification;
-window.applyAutoDriverLicenseVerification = applyAutoDriverLicenseVerification;
-window.runSubmissionRegistryFetch = runSubmissionRegistryFetch;
 window.renderRegistryVerificationCard = renderRegistryVerificationCard;

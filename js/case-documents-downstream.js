@@ -1843,7 +1843,7 @@ function getSubmissionRatingPayload(sub) {
       "expiration_date": expiration,
       "lock_rate_effective_date": null,
       "business_yrs_exp": years === null ? null : String(years),
-      "binding": sub.currentStep >= 7 ? "yes" : "pending",
+      "binding": sub.currentStep >= BIND_STEP ? "yes" : "pending",
       "al_check": hasCover(/liab/i) || null,
       "cargo_check": sub.lobKey === "trucking" ? hasCover(/cargo/i) : null,
       "pd_check": hasCover(/physical|own damage|collision|comprehensive/i) || null
@@ -2229,7 +2229,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">1</span>
           <div>
-            <div class="summary-step-title">Step 1: Document Ingestion & Optical Character Recognition (OCR)</div>
+            <div class="summary-step-title">Steps 1, 3 &amp; 4: Ingest, Extract &amp; Confirm (Document Ingestion &amp; OCR)</div>
             <div class="summary-step-desc">Document ingestion pipeline, file validation, OCR parsing, and canonical entity schema creation.</div>
           </div>
         </div>
@@ -2261,7 +2261,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">2</span>
           <div>
-            <div class="summary-step-title">Step 2: FEIN Clearance & Appetite Knockout Screening</div>
+            <div class="summary-step-title">Step 2: Triage &amp; Clearance (FEIN Clearance &amp; Appetite Knockout Screening)</div>
             <div class="summary-step-desc">Duplicate FEIN broker of record lock check, carrier appetite rules validation, and knockout verification.</div>
           </div>
         </div>
@@ -2293,7 +2293,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">3</span>
           <div>
-            <div class="summary-step-title">Step 3: Third-Party Data Enrichment & Automated Routing</div>
+            <div class="summary-step-title">Step 5: Enrichment &amp; Checks (Third-Party Data Enrichment &amp; Automated Routing)</div>
             <div class="summary-step-desc">External API data enrichment (CAB, SAFER/FMCSA, LexisNexis, ISO) and smart underwriter queue routing.</div>
           </div>
         </div>
@@ -2325,7 +2325,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">4</span>
           <div>
-            <div class="summary-step-title">Step 4: Underwriting Workbench, Loss Runs & Subjectivities</div>
+            <div class="summary-step-title">Steps 6, 7, 8 &amp; 10: Score &amp; Appetite, Surplus Lines, Decision Brief and Subjectivities (Underwriting Workbench &amp; Loss Runs)</div>
             <div class="summary-step-desc">5-year historical loss triangulation, ACORD application audit, subjectivities tracking, and RFI log.</div>
           </div>
         </div>
@@ -2357,7 +2357,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">5</span>
           <div>
-            <div class="summary-step-title">Step 5: Authority Delegation & CUO Referral Desk</div>
+            <div class="summary-step-title">Step 9: Authority Delegation &amp; CUO Referral Desk</div>
             <div class="summary-step-desc">Underwriting limits verification, Underwriter-to-Senior escalation workflow, and formal CUO sign-off.</div>
           </div>
         </div>
@@ -2389,7 +2389,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">6</span>
           <div>
-            <div class="summary-step-title">Step 6: Actuarial Rating Engine & Multi-Line Pricing Payload</div>
+            <div class="summary-step-title">Step 11: Actuarial Rating Engine &amp; Multi-Line Pricing Payload</div>
             <div class="summary-step-desc">Automated rating engine calculation, vehicle schedules, driver multipliers, and actuarial payload schema.</div>
           </div>
         </div>
@@ -2421,7 +2421,7 @@ function renderAllStepsSummaryModal(sub) {
         <div class="summary-step-title-box">
           <span class="summary-step-badge">7</span>
           <div>
-            <div class="summary-step-title">Step 7: Formal Bindable Quote & Policy Issuance Terms</div>
+            <div class="summary-step-title">Steps 12, 13 &amp; 14: Quote, Bind &amp; Policy Issuance (Formal Bindable Quote &amp; Terms)</div>
             <div class="summary-step-desc">Official quote document generation, subjectivity verification, binding studio, and policy packet issuance.</div>
           </div>
         </div>

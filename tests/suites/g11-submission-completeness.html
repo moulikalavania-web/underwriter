@@ -107,12 +107,13 @@
     completenessRequestMissing();
     t('no duplicate missing items on a second request', sub.missingItems.documents.filter(function(x){return x==='Currently valued loss runs';}).length === 1);
 
-    // ---------- Step 1 gate
+    // ---------- Confirm step gate
+    sub.normalizationStatus = 'normalized';   // the extracted data has been applied; only completeness is being tested
     currentUserRole = 'junior';
-    currentWorkflowStep = 1;
-    sub.currentStep = 1; sub.completedSteps = [];
+    currentWorkflowStep = CONFIRM_STEP;
+    sub.currentStep = CONFIRM_STEP; sub.completedSteps = [];
     goToNextStep();
-    t('gate blocks leaving Step 1 while incomplete', sub.currentStep === 1 && sub.completedSteps.length === 0);
+    t('gate blocks leaving the Confirm step while incomplete', sub.currentStep === CONFIRM_STEP && sub.completedSteps.length === 0);
     t('gate attempt audited', sub.decisionLog.some(function(d){return d.decision==='completeness_gate_blocked';}));
     currentUserRole = 'senior';
     renderCompletenessCard(sub);
@@ -120,13 +121,13 @@
     completenessWaive('doc_lossruns');
     currentUserRole = 'junior';
     goToNextStep();
-    t('after the waiver the file moves on to Step 2', sub.currentStep === 2 && sub.completedSteps.indexOf(1) > -1, 'step=' + sub.currentStep);
-    // the gate applies at Step 1 only: an incomplete file at Step 3 (no decision modal) still advances
+    t('after the waiver the file moves on to the next step', sub.currentStep === CONFIRM_STEP + 1 && sub.completedSteps.indexOf(CONFIRM_STEP) > -1, 'step=' + sub.currentStep);
+    // the gate applies at the Confirm step only: an incomplete file at the Enrichment step (no decision modal) still advances
     sub.docs = []; sub.completeness = null;
     t('file is incomplete again', evaluateCompleteness(sub).status === 'incomplete');
-    sub.currentStep = 3; currentWorkflowStep = 3; sub.completedSteps = [1, 2];
+    sub.currentStep = ENRICH_STEP; currentWorkflowStep = ENRICH_STEP; sub.completedSteps = [1, 2, 3, 4];
     goToNextStep();
-    t('gate does not apply after Step 1', sub.currentStep === 4, 'step=' + sub.currentStep);
+    t('gate does not apply after the Confirm step', sub.currentStep === ENRICH_STEP + 1, 'step=' + sub.currentStep);
 
     // ---------- direct submission and product requirements
     var direct = seed('trucking'); direct.channelType = 'direct'; direct.broker = 'Direct Customer (Online Intake)';

@@ -392,7 +392,7 @@ function authGuardBind(source, subId) { return authGuard(source, subId ? authSub
       var sub = authActive(), txt = document.getElementById("juniorEscalationText");
       var r = origEsc.apply(this, arguments);
       try {
-        if (sub && !(sub.authorityRef && sub.authorityRef.status === "pending")) authRaiseCore(sub, (txt && txt.value.trim()) || "Risk exceeds authority; referred for sign-off from the Step 5 desk.");
+        if (sub && !(sub.authorityRef && sub.authorityRef.status === "pending")) authRaiseCore(sub, (txt && txt.value.trim()) || "Risk exceeds authority; referred for sign-off from the Authority & Referral Desk.");
         renderAuthorityCard(sub);
       } catch (e) { console.warn("Referral record failed:", e); }
       return r;
@@ -406,7 +406,7 @@ function authGuardBind(source, subId) { return authGuard(source, subId ? authSub
       if (action === "approve" && sub) {
         var a = authAssess(sub, currentUserRole);
         if (sub.authorityRef && sub.authorityRef.status === "pending") {
-          if (!authDecideCore(sub, "approve", "Sign-off at the Step 5 referral desk.", false).ok) return;
+          if (!authDecideCore(sub, "approve", "Sign-off at the Authority & Referral Desk.", false).ok) return;
         } else if (!a.own.ok) {
           showToast("⛔ This risk is beyond your authority: " + a.own.reasons.join("; ") + ".", "danger"); return;
         } else if (authPreparers(sub).indexOf(authActor()) > -1 && sub.authorityRef) {

@@ -451,7 +451,7 @@ function issueQuoteAction() {
     sub.statusText = "Quote Issued";
     sub.statusBadge = "badge-success";
     sub.quoteIssued = true;
-    if (!sub.completedSteps.includes(7)) sub.completedSteps.push(7);
+    if (!sub.completedSteps.includes(QUOTE_STEP)) sub.completedSteps.push(QUOTE_STEP);
 
     const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
     if (!sub.decisionLog) sub.decisionLog = [];

@@ -140,7 +140,7 @@
     var sub = { id: 'SUB-EM90001', receivedAt: 'Just Now', slaText: 'Pending Triage', slaCountdown: 'Pending', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', rawEmailText: '', rawAttachments: files.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: files.map(function(f){ return { name: f[0], type: 'pdf', desc: 'Raw Upload • Unprocessed' }; }), ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'pending', currentStep: 1, completedSteps: [], assignedTo: null };
     var originals = JSON.stringify(sub.rawAttachments);
     SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id;
-    var box = el('rawEmailCaptureContainer');
+    var box = el('rawEmailCaptureContainer'); currentWorkflowStep = CONFIRM_STEP;
     renderIngestionReviewDirect(sub, box);
     for (var w = 0; w < 100 && !emailIngestionDraftBySubId[sub.id]; w++) await new Promise(function(res){ setTimeout(res, 50); });
     var draft = emailIngestionDraftBySubId[sub.id];
@@ -244,13 +244,13 @@
     var gHist = await pdf(['Acme Mutual Insurance Company', 'Currently valued 08/01/2026', '2024: Rear-end collision, Closed, $12,500 incurred'], false);
     var gFiles = [['intake-form.pdf', gApp], ['fleet.xlsx', gFleet], ['people.docx', gPeople], ['history.pdf', gHist]];
     var gsub = { id: 'SUB-EM90004', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending — See Raw Email)', fein: 'PENDING', address: '(Pending)', broker: '(Pending Extraction)', email: '', exposureVal: 0, rawEmailText: '', rawAttachments: gFiles.map(function(f){ return { name: f[0], type: '', size: f[1].length, base64: b64(f[1]) }; }), docs: gFiles.map(function(f){ return { name: f[0], type: 'pdf', desc: 'Raw Upload • Unprocessed' }; }), ocrFields: [], vehicles: [], drivers: [], losses: [], coverageRows: [], decisionLog: [], canonicalJson: {}, normalizationStatus: 'normalized', currentStep: 1, completedSteps: [], assignedTo: null };
-    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(gsub); activeSubmissionId = gsub.id; currentWorkflowStep = 1;
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(gsub); activeSubmissionId = gsub.id; currentWorkflowStep = CONFIRM_STEP;
     var ids = function(){ return evaluateCompleteness(gsub).missingRequired.map(function(i){ return i.id; }); };
     var before = ids();
     t('before reading the documents the vehicle schedule, driver list and the three documents are missing', ['vehicles', 'drivers', 'doc_vehicles', 'doc_drivers', 'losses'].every(function(i){ return before.indexOf(i) > -1; }), before.join(','));
     toasts.length = 0;
     var passed = completenessGuardNextStep();
-    t('the gate blocks leaving Step 1 and says it is looking in the attached documents', passed === false && /Cannot leave Step 1/.test(toasts[0]) && /Looking for them in the attached documents/.test(toasts[0]), toasts[0]);
+    t('the gate blocks leaving the Confirm step and says it is looking in the attached documents', passed === false && /Cannot leave Step \d+ \(Confirm\)/.test(toasts[0]) && /Looking for them in the attached documents/.test(toasts[0]), toasts[0]);
     for (var w4 = 0; w4 < 100 && !gsub.fetchedFromDocuments; w4++) await new Promise(function(res){ setTimeout(res, 50); });
     t('the vehicle schedule is filled from the spreadsheet: year, make, VIN, value', gsub.vehicles.length === 2 && gsub.vehicles[0].year === 2022 && gsub.vehicles[0].make === 'Volvo' && gsub.vehicles[0].vin === VIN1 && gsub.vehicles[0].stated_value === 125000 && gsub.vehicles[1].stated_value === 98500, JSON.stringify(gsub.vehicles));
     t('the driver list is filled from the Word table', gsub.drivers.length === 2 && gsub.drivers[0].given_name === 'Rahul' && gsub.drivers[0].licenseNumber === 'D1234567' && gsub.drivers[0].licensestate === 'TX' && gsub.drivers[1].dob === '11/02/1985', JSON.stringify(gsub.drivers.map(function(d){ return d.given_name + d.licenseNumber; })));

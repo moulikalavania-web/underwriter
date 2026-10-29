@@ -29,36 +29,45 @@ function canManageAssignments() {
 // The queue starts empty: a case enters through Create New Submission, Import from Email or the Integrating API.
 var SUBMISSIONS_DATASET = [];
 
-// Screen & Workflow Steps Configuration. Eight working screens, shown to the user as six stages (WORKFLOW_STAGES):
-// 1 Doc Ingestion + 2 Clearance -> stage 1; 3 -> stage 2; 4 UW Workbench + 5 Authority Desk -> stage 3; 6 -> stage 4;
-// 7 Quote & Bind -> stage 5; 8 Policy Issuance -> stage 6. Step numbers stay as they are because gates and the audit log use them.
+// Screen & Workflow Steps Configuration. Fourteen workflow steps, shown to the user as six stages (WORKFLOW_STAGES).
+// A step is a position in the order below; `id` is the page (screen) it opens and `view` says which cards of a shared page
+// belong to it (a card marked data-views="surplus bind" shows on those steps only). Several steps share a page:
+// 1, 3 and 4 are the ingestion page, and 7, 10, 11, 12 and 13 are the quote studio page.
+const INGEST_STEP = 1, CLEARANCE_STEP = 2, EXTRACT_STEP = 3, CONFIRM_STEP = 4, ENRICH_STEP = 5, SCORE_STEP = 6, SURPLUS_STEP = 7,
+  BRIEF_STEP = 8, AUTH_STEP = 9, SUBJ_STEP = 10, RATING_STEP = 11, QUOTE_STEP = 12, BIND_STEP = 13, ISSUANCE_STEP = 14;
 const WORKFLOW_STEPS = [
-  { step: 1, stage: 1, id: "screen-2", title: "Doc Ingestion & Schema / OCR", shortTitle: "Doc Ingestion", icon: "ph-receipt" },
-  { step: 2, stage: 1, id: "screen-3", title: "FEIN & Appetite Clearance", shortTitle: "Clearance Check", icon: "ph-shield-check" },
-  { step: 3, stage: 2, id: "screen-4", title: "Enrichment & Smart Routing", shortTitle: "Data Enrichment", icon: "ph-tree-structure" },
-  { step: 4, stage: 3, id: "screen-5", title: "Underwriting Workbench", shortTitle: "UW Workbench", icon: "ph-briefcase" },
-  { step: 5, stage: 3, id: "screen-6", title: "Authority & Referral Desk", shortTitle: "Authority Desk", icon: "ph-scales" },
-  { step: 6, stage: 4, id: "screen-7", title: "LOB Rating & Pricing Engine", shortTitle: "Rating Engine", icon: "ph-calculator" },
-  { step: 7, stage: 5, id: "screen-8", title: "Formal Quote & Policy Binding", shortTitle: "Quote & Bind", icon: "ph-signature" },
-  { step: 8, stage: 6, id: "screen-10", title: "Policy Issuance & Terms", shortTitle: "Policy Issuance", icon: "ph-file-text", num: 10 }
+  { step: 1, stage: 1, id: "screen-2", view: "ingest", title: "Submission Ingest", shortTitle: "Ingest", icon: "ph-tray-arrow-down" },
+  { step: 2, stage: 1, id: "screen-3", view: "clearance", title: "Triage & Clearance", shortTitle: "Triage & Clearance", icon: "ph-shield-check" },
+  { step: 3, stage: 2, id: "screen-2", view: "extract", title: "Document Extraction", shortTitle: "Extract", icon: "ph-brain" },
+  { step: 4, stage: 2, id: "screen-2", view: "confirm", title: "Confirm Extracted Data", shortTitle: "Confirm", icon: "ph-list-checks" },
+  { step: 5, stage: 2, id: "screen-4", view: "enrich", title: "Enrichment & Checks", shortTitle: "Enrich & Check", icon: "ph-tree-structure" },
+  { step: 6, stage: 3, id: "screen-5", view: "score", title: "Risk Score & Appetite Match", shortTitle: "Score & Appetite", icon: "ph-briefcase" },
+  { step: 7, stage: 3, id: "screen-8", view: "surplus", title: "Surplus Lines", shortTitle: "Surplus Lines", icon: "ph-globe-hemisphere-west" },
+  { step: 8, stage: 3, id: "screen-11", view: "brief", title: "Decision Brief & Broker Response", shortTitle: "Decision Brief", icon: "ph-clipboard-text" },
+  { step: 9, stage: 3, id: "screen-6", view: "authority", title: "Authority & Referral Desk", shortTitle: "Authority Desk", icon: "ph-scales" },
+  { step: 10, stage: 3, id: "screen-8", view: "subjectivities", title: "Subjectivities", shortTitle: "Subjectivities", icon: "ph-list-checks" },
+  { step: 11, stage: 4, id: "screen-8", view: "rating", title: "LOB Rating & Pricing Engine", shortTitle: "Rating Engine", icon: "ph-calculator" },
+  { step: 12, stage: 5, id: "screen-8", view: "quote", title: "Quote & Quote Conditions", shortTitle: "Quote", icon: "ph-signature" },
+  { step: 13, stage: 5, id: "screen-8", view: "bind", title: "Bind", shortTitle: "Bind", icon: "ph-seal-check" },
+  { step: 14, stage: 6, id: "screen-10", view: "issuance", title: "Policy Issuance & Terms", shortTitle: "Policy Issuance", icon: "ph-file-text", num: 10 }
 ];
 
 // The six stages of the underwriting workflow, as the stepper shows them.
 const WORKFLOW_STAGES = [
-  { stage: 1, title: "Submission Intake & Clearance", desc: "Documents, clearance, legal checks" },
-  { stage: 2, title: "Completeness & Data Enrichment", desc: "Requirements, enrichment, discrepancies" },
-  { stage: 3, title: "Underwriting Review & Rules", desc: "Rules, exclusions, referral, overrides" },
-  { stage: 4, title: "Rating & Pricing", desc: "Technical premium, adjustments" },
-  { stage: 5, title: "Quoting & Binding", desc: "Quote, conditions, bind, compliance" },
+  { stage: 1, title: "Submission Intake & Clearance", desc: "Ingest, triage, legal checks" },
+  { stage: 2, title: "Extraction & Data Enrichment", desc: "Extract, confirm, enrich and check" },
+  { stage: 3, title: "Underwriting Review & Rules", desc: "Score, appetite, surplus lines, brief, authority, subjectivities" },
+  { stage: 4, title: "Rating & Pricing", desc: "Technical premium, taxes and adjustments" },
+  { stage: 5, title: "Quoting & Binding", desc: "Quote, quote conditions, bind" },
   { stage: 6, title: "Policy Issuance & Terms", desc: "Policy, term, version, coverages" }
 ];
-const BIND_STEP = 7;   // the Quote & Bind step: a case is "ready to quote" here and "issued" once it is bound
 const stageOfStep = n => (WORKFLOW_STEPS.find(w => w.step === n) || WORKFLOW_STEPS[0]).stage;
 const stepsOfStage = st => WORKFLOW_STEPS.filter(w => w.stage === st).map(w => w.step);
+const stepObjOf = n => WORKFLOW_STEPS.find(w => w.step === n) || WORKFLOW_STEPS[0];
 
 const SCREEN_ORDER = [
   { id: "screen-1", num: 1, title: "Intake & Submissions Hub", shortTitle: "Intake Hub", phase: "Phase 1", phaseGroup: "phaseGroup1", icon: "ph-tray" },
-  ...WORKFLOW_STEPS.map(w => ({ id: w.id, num: w.num || w.step + 1, title: w.title, shortTitle: w.shortTitle, phase: "Workflow", phaseGroup: "workflow", icon: w.icon })),
+  ...WORKFLOW_STEPS.filter((w, i, all) => all.findIndex(x => x.id === w.id) === i).map(w => ({ id: w.id, num: w.num || w.step + 1, title: w.title, shortTitle: w.shortTitle, phase: "Workflow", phaseGroup: "workflow", icon: w.icon })),
   { id: "screen-9", num: 9, title: "Decline Archive & System Logs", shortTitle: "Decline Archive", phase: "Exit", phaseGroup: "phaseGroupExit", icon: "ph-prohibit" }
 ];
 

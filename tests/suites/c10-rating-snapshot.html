@@ -27,14 +27,14 @@
     // ---------- before the rating step nothing is saved
     var early = mk('SUB-RS-0', 3); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(early); activeSubmissionId = early.id; currentWorkflowStep = 3;
     renderRatingEnginePayload(early); rsRender(early);
-    t('before Step 6 no snapshot is saved, and the card says when one will be', (early.ratingSnapshots || []).length === 0 && /once the case reaches the rating step/.test(el('ratingSnapshotContainer').innerHTML));
+    t('before the Rating step no snapshot is saved, and the card says when one will be', (early.ratingSnapshots || []).length === 0 && /once the case reaches the rating step/.test(el('ratingSnapshotContainer').innerHTML));
     t('the Rating Snapshot card sits in the Quote & Bind screen', !!el('ratingSnapshotContainer') && !!el('ratingSnapshotContainer').closest('#screen-8'));
 
     // ---------- version 1: when the rating details are generated
-    var sub = mk('SUB-RS-1', 6); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentWorkflowStep = 6;
+    var sub = mk('SUB-RS-1', RATING_STEP); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(sub); activeSubmissionId = sub.id; currentWorkflowStep = RATING_STEP;
     renderRatingEnginePayload(sub);
     var v1 = sub.ratingSnapshots[0];
-    t('generating the rating payload saves version 1', sub.ratingSnapshots.length === 1 && v1.version === 1 && v1.previousVersion === null && v1.changes.length === 0 && /Step 6/.test(v1.trigger) && !!v1.at && !!v1.by);
+    t('generating the rating payload saves version 1', sub.ratingSnapshots.length === 1 && v1.version === 1 && v1.previousVersion === null && v1.changes.length === 0 && /Rating step/.test(v1.trigger) && !!v1.at && !!v1.by);
     var c = v1.content;
     t('it holds the rating inputs sent to the engine', !!c.ratingInputs.coveragesInfo && !!c.ratingInputs.radiusOfOperationsInfo && !!c.ratingInputs.filingInfo && c.insured.name === 'Links Freight LLC' && c.insured.garagingState !== undefined);
     t('it holds the vehicles with value and dashcam, and the drivers\' risk details', c.vehicles.length === 2 && c.vehicles[0].stated_value === 125000 && c.vehicles[0].dashcam === true && c.vehicles[1].dashcam === false && c.vehicles[0].vin === '4V4NC9EH5NN123456' && c.drivers[0].age === 27 && c.drivers[0].licensestate === 'TX' && c.drivers[0].experience === '3 Years' && c.drivers[0].violations === 0);
@@ -50,7 +50,7 @@
     renderRatingEnginePayload(sub); renderStep7View(sub); rsCapture(sub, 'again');
     t('generating the same details again saves nothing', sub.ratingSnapshots.length === 1);
     var v1json = JSON.stringify(v1);
-    sub.currentStep = 7; currentWorkflowStep = 7; renderStep7View(sub);
+    sub.currentStep = QUOTE_STEP; currentWorkflowStep = QUOTE_STEP; renderStep7View(sub);
     t('moving to the next step is workflow, not a rating detail: no new version', sub.ratingSnapshots.length === 1);
 
     // ---------- details change: a new version, the old one kept

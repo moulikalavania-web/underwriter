@@ -20,7 +20,7 @@
  *     RFI modal, and registers the gaps in the submission's missing-items list
  *     that the Customer Communication log already resolves.
  *   - An approver may waive a required item with a written reason.
- *   - Leaving Step 1 is blocked while required items are missing and unwaived.
+ *   - Leaving the Confirm step is blocked while required items are missing and unwaived.
  *
  * The checks read what is actually on the submission (fields, schedules,
  * extracted data and attached documents); they do not read the contents of a
@@ -394,7 +394,7 @@ function renderCompletenessCard(sub) {
           <div style="flex:1; height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden;"><div style="width:${r.percent}%; height:100%; background:${barColor};"></div></div>
           <strong style="font-size:13px;">${r.requiredMet} of ${r.required} required (${r.percent}%)</strong>
         </div>
-        ${ok ? "" : `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> Step 1 cannot be completed until the required items below are received or waived by an approver.</div>`}
+        ${ok ? "" : `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> The Confirm step cannot be completed until the required items below are received or waived by an approver.</div>`}
         <h4 style="margin:10px 0 4px;">Application data</h4>
         <div class="rules-table-container" style="max-height:none; overflow:visible;"><table class="data-table"><thead><tr><th>Item</th><th>Status</th><th>Detail</th><th></th></tr></thead><tbody>${dataRows}</tbody></table></div>
         <h4 style="margin:14px 0 4px;">Documents</h4>
@@ -411,19 +411,19 @@ function renderCompletenessCard(sub) {
 }
 
 // ----------------------------------------------------------------------------
-// 7. HOOKS — render with the downstream screens, and gate leaving Step 1
+// 7. HOOKS — render with the downstream screens, and gate leaving the Confirm step
 // ----------------------------------------------------------------------------
 function completenessGuardNextStep() {
-  if (typeof currentWorkflowStep === "undefined" || currentWorkflowStep !== 1) return true;
+  if (typeof currentWorkflowStep === "undefined" || currentWorkflowStep !== CONFIRM_STEP) return true;
   const sub = completenessActiveSub();
   if (!sub) return true;
-  const r = runCompletenessCheck(sub, "step 1 exit");
+  const r = runCompletenessCheck(sub, "confirm step exit");
   if (r.status === "complete") return true;
-  completenessLog(sub, "completeness_gate_blocked", `Step 1 exit blocked: ${r.missingRequired.length} required item(s) missing — ${r.missingRequired.map(i => i.label).join("; ")}.`);
+  completenessLog(sub, "completeness_gate_blocked", `Confirm step exit blocked: ${r.missingRequired.length} required item(s) missing — ${r.missingRequired.map(i => i.label).join("; ")}.`);
   completenessPersist();
   const first = r.missingRequired.slice(0, 3).map(i => i.label).join("; ");
   const searching = typeof diAutoFetchForCompleteness === "function" && diAutoFetchForCompleteness(sub);
-  showToast(`⛔ Cannot leave Step 1: ${r.missingRequired.length} required item(s) missing (${first}${r.missingRequired.length > 3 ? "…" : ""}). ${searching ? "Looking for them in the attached documents… " : ""}Request them from the broker or have an approver waive them.`, "danger");
+  showToast(`⛔ Cannot leave Step ${CONFIRM_STEP} (Confirm): ${r.missingRequired.length} required item(s) missing (${first}${r.missingRequired.length > 3 ? "…" : ""}). ${searching ? "Looking for them in the attached documents… " : ""}Request them from the broker or have an approver waive them.`, "danger");
   renderCompletenessCard(sub);
   return false;
 }
@@ -436,7 +436,7 @@ function completenessGuardNextStep() {
     AUDIT_ACTION_META.completeness_waiver_removed = { label: "Waiver Removed", icon: "ph-arrow-counter-clockwise", badge: "badge-light", outcome: "outcome-comm" };
     AUDIT_ACTION_META.completeness_rfi_requested = { label: "Missing Items Requested", icon: "ph-envelope-open", badge: "badge-light", outcome: "outcome-comm" };
     AUDIT_ACTION_META.completeness_fetched = { label: "Items Read From Documents", icon: "ph-file-search", badge: "badge-info", outcome: "outcome-comm" };
-    AUDIT_ACTION_META.completeness_gate_blocked = { label: "Step 1 Exit Blocked — Incomplete", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
+    AUDIT_ACTION_META.completeness_gate_blocked = { label: "Confirm Step Exit Blocked — Incomplete", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
   }
 
   const origAll = window.renderAllDownstreamScreens;
@@ -446,7 +446,7 @@ function completenessGuardNextStep() {
       try {
         if (sub) {
           // Only files still at intake write to the audit log; later-stage files just display the card.
-          if ((sub.currentStep || 1) <= 1) runCompletenessCheck(sub, "view");
+          if ((sub.currentStep || 1) <= CONFIRM_STEP) runCompletenessCheck(sub, "view");
           renderCompletenessCard(sub);
         }
       } catch (e) { console.warn("Completeness card failed:", e); }

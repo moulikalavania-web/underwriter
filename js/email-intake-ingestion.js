@@ -313,7 +313,7 @@ function renderRawEmailCapturePanel(sub) {
 // ingest.
 function togglePostNormalizationCards(sub) {
   const isPendingRawCapture = sub && sub.rawEmailText !== undefined && sub.normalizationStatus === "pending";
-  const display = isPendingRawCapture ? "none" : "";
+  const display = (isPendingRawCapture && currentWorkflowStep !== EXTRACT_STEP) ? "none" : "";
   const ocrCard = document.getElementById("ocrPipelineCard");
   if (ocrCard) ocrCard.style.display = display;
 }

@@ -296,7 +296,7 @@ function renderStep7View(sub) {
   const pillEl = document.getElementById("step7PhasePill");
 
   if (!isQuoteImported || !currentImportedRatingData) {
-    if (pillEl) pillEl.innerHTML = `<i class="ph ph-calculator"></i> Step 7 • Quote & Bind Studio`;
+    if (pillEl) pillEl.innerHTML = `<i class="ph ph-calculator"></i> Step ${QUOTE_STEP} • Quote & Bind Studio`;
     if (titleEl) titleEl.textContent = "Commercial Trucking Formal Quote & Binding";
     if (descEl) descEl.textContent = "Import rating engine JSON output from your local system to generate and bind the commercial quote.";
 
@@ -351,14 +351,14 @@ function renderStep7View(sub) {
   }
 
   // Once JSON is imported, render the generated quote!
-  if (pillEl) pillEl.innerHTML = `<i class="ph ph-check-circle text-success"></i> Step 7 • Quote Generated`;
+  if (pillEl) pillEl.innerHTML = `<i class="ph ph-check-circle text-success"></i> Step ${QUOTE_STEP} • Quote Generated`;
   if (titleEl) titleEl.textContent = "Commercial Trucking Formal Quote & Binding";
   if (descEl) descEl.textContent = "Generated from imported rating engine output JSON. Actuarial factors decomposed, fees itemized, and terms bindable.";
 
   container.innerHTML = getGeneratedQuoteHtml(currentImportedRatingData, sub) + renderIssueAndBindCard(sub);
   // keep the bottom bar (Return to queue / bound) in step with the case
-  if (currentPage === "workflow" && currentWorkflowStep === 7 && sub && sub.id === activeSubmissionId && typeof updateBottomFooter === "function") {
-    try { updateBottomFooter(WORKFLOW_STEPS.find(s => s.step === 7), sub); } catch (e) { /* footer not mounted */ }
+  if (currentPage === "workflow" && (currentWorkflowStep === QUOTE_STEP || currentWorkflowStep === BIND_STEP) && sub && sub.id === activeSubmissionId && typeof updateBottomFooter === "function") {
+    try { updateBottomFooter(stepObjOf(currentWorkflowStep), sub); } catch (e) { /* footer not mounted */ }
   }
 }
 
@@ -497,8 +497,7 @@ function simulatePASBindSync(subId) {
       sub.statusText = "Policy Issued";
       sub.statusBadge = "badge-success";
       if (!sub.completedSteps) sub.completedSteps = [];
-      if (!sub.completedSteps.includes(7)) sub.completedSteps.push(7);
-      if (!sub.completedSteps.includes(8)) sub.completedSteps.push(8);   // Policy Issuance & Terms exists from the bind
+      [QUOTE_STEP, BIND_STEP, ISSUANCE_STEP].forEach(n => { if (!sub.completedSteps.includes(n)) sub.completedSteps.push(n); });   // Policy Issuance & Terms exists from the bind
 
       recordQuoteVersion(sub, true);
 

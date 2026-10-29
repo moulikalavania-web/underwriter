@@ -66,7 +66,7 @@ function renderManagerDashboardHtml() {
   const workloadCards = allRoles.map(rk => {
     const r = USER_ROLES_CONFIG[rk];
     const subs = byAssignee[rk];
-    const active = subs.filter(s => (s.currentStep || 1) < BIND_STEP).length;
+    const active = subs.filter(s => (s.currentStep || 1) < QUOTE_STEP).length;
     return `
       <div class="metric-box">
         <span class="lbl"><i class="ph ph-user-circle"></i> ${r.name} (${r.title.split(' (')[0]})</span>
@@ -152,8 +152,8 @@ function renderManagerDashboardHtml() {
 function renderWorkerDashboardHtml() {
   const mine = SUBMISSIONS_DATASET.filter(s => s.apiSourced && isMyCase(s));
   const notStarted = mine.filter(s => (s.currentStep || 1) === 1 && (!s.completedSteps || s.completedSteps.length === 0));
-  const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < BIND_STEP);
-  const readyToQuote = mine.filter(s => (s.currentStep || 1) === BIND_STEP);
+  const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < QUOTE_STEP);
+  const readyToQuote = mine.filter(s => (s.currentStep || 1) >= QUOTE_STEP && (s.currentStep || 1) <= BIND_STEP);
 
   // Single highest-priority item to act on next — a worker dashboard
   // surfaces ONE next action, not a table to triage themselves.
@@ -324,8 +324,6 @@ function renderSubmissionsTable() {
     else if (sub.priority === "P2") { pClass = "badge-priority-p2"; pIcon = "ph-lightning"; }
 
     const isReferral = isReferralCase(sub);
-    const stepNum = sub.currentStep || 1;
-    const stepObj = SCREEN_ORDER.find(s => s.num === stepNum) || SCREEN_ORDER[0];
 
     const actionBtn = (currentUserRole === "senior" && isReferral)
       ? `<button class="btn-action-view btn-action-referral" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-scales"></i> Review</button>`
@@ -764,7 +762,7 @@ function viewIssuedQuote(subId) {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === subId);
   if (!sub || !sub.quoteIssued) return;
   selectSubmission(subId, false);
-  showWorkflowPage(7);
+  showWorkflowPage(QUOTE_STEP);
   if (typeof openViewQuoteSidebar === "function") openViewQuoteSidebar(subId);
   showToast(`📄 Viewing issued quote for ${sub.id}`, "info");
 }
