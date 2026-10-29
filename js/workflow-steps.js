@@ -39,7 +39,7 @@ function wsIsPlaceholder(v) { return v === undefined || v === null || v === "" |
 const WS_VIEW_TEXT = {
   ingest: ["Submission Ingest", "What arrived with this submission, kept exactly as received. Nothing is read, cleaned or changed at this step."],
   extract: ["Document Extraction", "Each file is read by the extractor its type needs. A value that is not in a document is left blank, never guessed."],
-  confirm: ["Confirm Extracted Data", "Check what was read, fix anything that is wrong, then apply it. Values read with high confidence and no conflict are already accepted; the rest are listed first."]
+  confirm: ["Confirm Extracted Data", "Check what was read, fix anything that is wrong, then apply it. A value that was not found is left blank and flagged; every field shows its confidence and the document it came from."]
 };
 
 /** Shows the cards that belong to this step on its page and hides the others on that page. */
