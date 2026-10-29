@@ -101,58 +101,46 @@ function triggerAppetiteFailureExit() {
   showToast("Appetite Knockout Triggered! Auto-Decline notice logged in the Decline Center.", "danger");
 }
 
+/** Decision buttons on the referral desk. They act on the tracked referral (sub.authorityRef) and name whoever is signed in. */
 function seniorUWAction(action) {
-  const stamp = document.getElementById("signoffStamp");
-  const badge = document.getElementById("referralStatusBadge");
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-
-  if (action === "approve") {
-    if (stamp) {
-      stamp.style.display = "block";
-      stamp.className = "signoff-stamp mt-3";
-      stamp.style.background = "#f0fdf4";
-      stamp.style.borderColor = "#10b981";
-      stamp.style.color = "#065f46";
-      stamp.innerHTML = `<i class="ph ph-stamp"></i> <strong>OFFICIALLY SIGNED OFF BY CUO:</strong> Cleared for Pricing by Marcus Vance (Chief Underwriting Officer) • Authority Delegated to Phase 4`;
-    }
-    if (badge) {
-      badge.className = "badge badge-success";
-      badge.textContent = "CUO Sign-Off Complete (Cleared for Pricing)";
-    }
-    if (sub) {
-      sub.statusText = "Ready for Rating";
-      sub.statusBadge = "badge-success";
-      sub.isReferral = false;
-    }
+  if (!sub) return;
+  const noteEl = document.getElementById("seniorDecisionNote");
+  const note = noteEl ? noteEl.value.trim() : "";
+  const verb = action === "approve" ? "approve" : (action === "revise" ? "return" : "decline");
+  const me = authRoleOwnerName(currentUserRole);
+  const refresh = () => {
+    renderAuthorityScreen(sub);
+    if (typeof renderAuthorityCard === "function") renderAuthorityCard(sub);
     renderSubmissionsTable();
+    renderRoleDashboard();
     refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
-    showToast("✍️ Marcus Vance (CUO) granted executive sign-off! Cleared for Pricing (Phase 4).", "success");
-  } else if (action === "revise") {
-    if (stamp) {
-      stamp.style.display = "block";
-      stamp.className = "signoff-stamp mt-3";
-      stamp.style.background = "#fffbeb";
-      stamp.style.borderColor = "#fde68a";
-      stamp.style.color = "#92400e";
-      stamp.innerHTML = `<i class="ph ph-arrow-counter-clockwise"></i> <strong>REVISION REQUESTED:</strong> Returned to Sarah Jenkins for additional loss warranty validation.`;
-    }
-    if (badge) {
-      badge.className = "badge badge-warning";
-      badge.textContent = "Returned for Revision";
-    }
-    showToast("🔄 Returned to the Underwriter I (Sarah Jenkins) for revision.", "warning");
-  } else {
-    if (stamp) {
-      stamp.style.display = "block";
-      stamp.className = "signoff-stamp mt-3";
-      stamp.style.background = "#fef2f2";
-      stamp.style.borderColor = "#fecaca";
-      stamp.style.color = "#991b1b";
-      stamp.innerHTML = `<i class="ph ph-prohibit"></i> <strong>DECLINED BY SENIOR CUO:</strong> Risk exceeds hazard tolerance`;
-    }
-    goToScreen("screen-9");
-    showToast("🚫 Risk declined by Senior Underwriter (Marcus Vance)! Archived in Exit Paths.", "danger");
+  };
+
+  if (sub.authorityRef && sub.authorityRef.status === "pending") {
+    const r = authDecideCore(sub, verb, note || (verb === "approve" ? "Sign-off at the Authority Desk." : ""), false);
+    if (!r.ok) return;
+    if (noteEl) noteEl.value = "";
+    refresh();
+    const raisedBy = String(sub.authorityRef.raisedBy || "").split(" (")[0];
+    if (verb === "approve") showToast("✍️ " + me + " signed off. Cleared for pricing.", "success");
+    else if (verb === "return") showToast("🔄 Returned to " + raisedBy + " for revision.", "warning");
+    else showToast("🚫 Referral declined by " + me + ". The case cannot be quoted; use Decline / Withdraw on the Workbench to close it.", "danger");
+    return;
   }
+
+  // No tracked referral: only an approver whose own authority covers the risk may clear it directly.
+  if (action !== "approve") { showToast("There is no referral awaiting a decision.", "info"); return; }
+  if (!authAssess(sub, currentUserRole).own.ok) {
+    showToast("⛔ This risk is beyond your authority: " + authAssess(sub, currentUserRole).own.reasons.join("; ") + ".", "danger");
+    return;
+  }
+  if (authPreparers(sub).indexOf(authActor()) > -1 && sub.authorityRef) { showToast("⛔ You prepared or referred this risk, so you cannot sign it off.", "danger"); return; }
+  sub.statusText = "Ready for Rating";
+  sub.statusBadge = "badge-success";
+  sub.isReferral = false;
+  refresh();
+  showToast("✍️ " + me + " signed off. Cleared for pricing.", "success");
 }
 
 // RFI Modal Handlers

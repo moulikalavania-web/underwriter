@@ -24,7 +24,24 @@ function referredToRole(sub, role) {
   return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending" && sub.authorityRef.requiredRole === role);
 }
 /** One definition of "referral" for the tab, its count and the row badge: an authority referral is needed or the status says Referral. Priority P1 is urgency, not a referral. */
-function isReferralCase(sub) { return !!sub && (authNeedsReferral(sub) || String(sub.statusText || "").includes("Referral")); }
+function isReferralCase(sub) { return !!sub && (authNeedsReferral(sub) || referralPending(sub) || String(sub.statusText || "").includes("Referral")); }
+/** A tracked referral that nobody has decided yet. */
+function referralPending(sub) { return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending"); }
+/** Badge beside the insured: "Referred to you" for the person who must decide, "Awaiting <name>" for everyone else. */
+function referralBadgeHtml(sub) {
+  if (referralPending(sub)) {
+    if (referredToRole(sub, currentUserRole)) return '<span class="badge badge-danger text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you</span>';
+    return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-hourglass-medium"></i> Awaiting ' + authEsc(authRoleOwnerName(sub.authorityRef.requiredRole)) + '</span>';
+  }
+  return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>';
+}
+/** Hours a pending referral has been waiting, as a short label. */
+function referralAgeLabel(ref) {
+  const t = Date.parse(String(ref && ref.raisedAt || "").replace(" ", "T"));
+  if (isNaN(t)) return "\u2014";
+  const h = Math.max(0, Math.round((Date.now() - t) / 3600000));
+  return h < 48 ? h + " h" : Math.round(h / 24) + " d";
+}
 function isMyCase(sub) { return sub.assignedTo === currentUserRole || referredToRole(sub, currentUserRole); }
 
 function renderRoleDashboard() {
@@ -79,6 +96,33 @@ function renderManagerDashboardHtml() {
   // Administrator persona only, not every manager-tier role that can see
   // this dashboard (Senior UW, CUO, Binding Ops also land here).
   const workloadCardsSection = "";
+
+  // Referrals: what is waiting on someone's decision, who has to decide it, and for how long.
+  const pendingRefs = liveSubmissions.filter(referralPending);
+  const decidedRefs = liveSubmissions.filter(s => s.authorityRef && s.authorityRef.status !== "pending");
+  const referralsSection = (pendingRefs.length || decidedRefs.length) ? `
+    <div class="card" id="referralOverviewCard">
+      <div class="card-header">
+        <h3><i class="ph ph-paper-plane-tilt"></i> Referrals (${pendingRefs.length} awaiting decision)</h3>
+        <span class="text-xs text-muted">${decidedRefs.length} decided</span>
+      </div>
+      <div class="card-body p-0">
+        ${pendingRefs.length ? `<div class="table-responsive"><table class="data-table">
+          <thead><tr><th>Submission</th><th>Insured</th><th>Referred to</th><th>Raised by</th><th>Waiting</th><th>Why</th><th></th></tr></thead>
+          <tbody>${pendingRefs.map(sub => {
+            const ref = sub.authorityRef;
+            return `<tr onclick="openCaseAtCurrentStep('${sub.id}')" style="cursor:pointer;">
+              <td><span class="badge badge-light font-mono">${sub.id}</span></td>
+              <td>${authEsc(sub.insured)}</td>
+              <td><strong>${authEsc(authRoleOwner(ref.requiredRole))}</strong></td>
+              <td>${authEsc(ref.raisedBy)}</td>
+              <td>${referralAgeLabel(ref)}</td>
+              <td class="text-xs">${authEsc(String(ref.note || "").slice(0, 110))}</td>
+              <td><button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button></td>
+            </tr>`;
+          }).join("")}</tbody></table></div>` : `<p class="text-sm text-muted" style="margin:12px 16px;">No referral is waiting for a decision.</p>`}
+      </div>
+    </div>` : "";
 
   // "Assigned to Me" — every manager-tier persona (Senior UW, CUO, Admin)
   // sees, right here on their own Assignment Dashboard, exactly the
@@ -143,6 +187,7 @@ function renderManagerDashboardHtml() {
   return `
     <div style="display:flex; flex-direction:column; gap:var(--space-5);">
       ${gettingStartedSection}
+      ${referralsSection}
       ${workloadCardsSection}
       ${myAssignedSection}
     </div>
@@ -154,22 +199,32 @@ function renderWorkerDashboardHtml() {
   const notStarted = mine.filter(s => (s.currentStep || 1) === 1 && (!s.completedSteps || s.completedSteps.length === 0));
   const inProgress = mine.filter(s => (s.currentStep || 1) > 1 && (s.currentStep || 1) < QUOTE_STEP);
   const readyToQuote = mine.filter(s => (s.currentStep || 1) >= QUOTE_STEP && (s.currentStep || 1) <= BIND_STEP);
+  const referredToMe = mine.filter(s => referredToRole(s, currentUserRole));
+  const awaitingDecision = mine.filter(s => referralPending(s) && !referredToRole(s, currentUserRole));
 
   // Single highest-priority item to act on next — a worker dashboard
   // surfaces ONE next action, not a table to triage themselves.
   const pOrder = { P1: 1, P2: 2, P3: 3, P4: 4 };
-  const next = mine.slice().sort((a, b) => (pOrder[a.priority] || 9) - (pOrder[b.priority] || 9))[0];
+  const next = (referredToMe.length ? referredToMe : mine).slice().sort((a, b) => (pOrder[a.priority] || 9) - (pOrder[b.priority] || 9))[0];
   const nextStepObj = next ? (WORKFLOW_STEPS.find(w => w.step === (next.currentStep || 1)) || WORKFLOW_STEPS[0]) : null;
 
   const nextActionCard = next ? `
     <div class="card mb-2" style="border-color:#93c5fd; background:#eff6ff;">
       <div class="card-body" style="display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
         <div>
-          <span class="text-xs text-muted"><i class="ph ph-arrow-right"></i> YOUR NEXT ACTION</span>
+          <span class="text-xs text-muted"><i class="ph ph-arrow-right"></i> ${referredToRole(next, currentUserRole) ? "REFERRED TO YOU: DECISION NEEDED" : "YOUR NEXT ACTION"}</span>
           <h3 style="margin:2px 0;">${next.insured} <code class="font-mono text-xs">${next.id}</code></h3>
           <span class="text-sm text-muted">${nextStepObj.title} — Stage ${stageOfStep(next.currentStep || 1)} of ${WORKFLOW_STAGES.length}</span>
         </div>
-        <button class="btn btn-primary" onclick="openCaseAtCurrentStep('${next.id}')"><i class="ph ph-arrow-right"></i> Continue Work</button>
+        <button class="btn btn-primary" onclick="openCaseAtCurrentStep('${next.id}')"><i class="ph ph-arrow-right"></i> ${referredToRole(next, currentUserRole) ? "Review & Decide" : "Continue Work"}</button>
+      </div>
+    </div>` : "";
+
+  const referredCard = referredToMe.length ? `
+    <div class="card mb-2" style="border-color:#fca5a5; background:#fef2f2;">
+      <div class="card-body">
+        <h3 style="margin:0 0 6px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you (${referredToMe.length})</h3>
+        ${referredToMe.map(r => `<div class="text-sm" style="margin:4px 0;"><strong>${authEsc(r.insured)}</strong> <code class="font-mono text-xs">${r.id}</code> from ${authEsc(String(r.authorityRef.raisedBy || "").split(" (")[0])}, ${referralAgeLabel(r.authorityRef)} ago: <span class="text-muted">${authEsc(String(r.authorityRef.note || "").slice(0, 120))}</span> <a href="#" onclick="openCaseAtCurrentStep('${r.id}'); return false;">Review &amp; decide</a></div>`).join("")}
       </div>
     </div>` : "";
 
@@ -185,6 +240,7 @@ function renderWorkerDashboardHtml() {
     </div>` : "";
 
   return `
+    ${referredCard}
     ${nextActionCard}
     ${noWorkYetCard}
     <div class="metrics-summary-bar">
@@ -192,6 +248,8 @@ function renderWorkerDashboardHtml() {
       <div class="metric-box"><span class="lbl"><i class="ph ph-circle"></i> Not Started</span><strong class="val text-muted">${notStarted.length}</strong></div>
       <div class="metric-box"><span class="lbl"><i class="ph ph-hourglass-medium text-warning"></i> In Progress</span><strong class="val text-warning">${inProgress.length}</strong></div>
       <div class="metric-box"><span class="lbl"><i class="ph ph-file-text text-primary"></i> Ready to Quote</span><strong class="val text-primary">${readyToQuote.length}</strong></div>
+      <div class="metric-box"><span class="lbl"><i class="ph ph-arrow-fat-line-right text-danger"></i> Referred to Me</span><strong class="val">${referredToMe.length}</strong></div>
+      <div class="metric-box"><span class="lbl"><i class="ph ph-hourglass-medium text-warning"></i> Awaiting a Decision</span><strong class="val">${awaitingDecision.length}</strong></div>
     </div>
   `;
 }
@@ -325,7 +383,7 @@ function renderSubmissionsTable() {
 
     const isReferral = isReferralCase(sub);
 
-    const actionBtn = (currentUserRole === "senior" && isReferral)
+    const actionBtn = (referredToRole(sub, currentUserRole) || (currentUserRole === "senior" && isReferral))
       ? `<button class="btn-action-view btn-action-referral" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-scales"></i> Review</button>`
       : `<button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button>`;
 
@@ -358,7 +416,7 @@ function renderSubmissionsTable() {
         </td>
         <td>
           <strong>${sub.insured}</strong>
-          ${isReferral ? '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>' : ''}
+          ${isReferral ? referralBadgeHtml(sub) : ''}
           <div class="text-secondary text-sm">FEIN: ${sub.fein || "—"} • Score: ${(typeof sub.priorityScore === "number") ? sub.priorityScore + "/100" : "Pending"}</div>
           <div class="qi-sub"><span class="badge badge-light">${sub.lobName}</span>${sub.underwriter ? ` <span class="text-xs text-muted"><i class="ph ph-user-circle"></i> ${sub.underwriter}</span>` : ''}</div>
         </td>

@@ -1,0 +1,94 @@
+<!-- Suite C22: one referral system. The Refer button names the person whose authority covers the risk and records a tracked referral; the case reads
+     "Awaiting <name>" for everyone else and "Referred to you" for that person; it counts on their board; the Head of Underwriting sees the referral list;
+     the decision panel follows the referral (not a fixed role); nothing on the screen names a fixed person. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(String(m)); };
+  function login(r){ el('loginUserSelect').value = r; el('loginPasswordInput').value = 'x'; submitLogin(); window.showToast = function(m){ toasts.push(String(m)); }; }
+  function mk(id, extra){
+    var s = { id: id, insured: 'Links Freight LLC', fein: '74-9842109', broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Trucking', carrier: 'Vikram & Sons',
+      address: '1 Main St, Dallas, TX 75201', dot: '3458211', mcNumber: 'MC-1', exposure: '$4,000,000', exposureVal: 4000000, authorityLimit: 4000000, currentStep: 6, completedSteps: [1, 2, 3, 4, 5], vehicles: [], drivers: [], losses: [],
+      docs: [], subjectivities: [], assignedTo: 'junior', priority: 'P2', receivedAt: '2026-10-22 09:00 AM', receivedTimestamp: Date.now(), decisionLog: [], effectiveDate: '2026-12-01', apiSourced: true };
+    for (var k in (extra || {})) s[k] = extra[k];
+    return s;
+  }
+  function rowText(id){ var r = [].filter.call(document.querySelectorAll('#submissionsTableBody tr'), function(x){ return x.innerText.indexOf(id) > -1; })[0]; return r ? r.innerText.replace(/\s+/g, ' ') : ''; }
+  (async function(){
+  try {
+    login('admin');
+    var A = mk('REF-1'); SUBMISSIONS_DATASET.push(A);
+    login('junior'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
+
+    // ---------- the Refer button names the real target
+    var btn = el('btnJuniorEscalate');
+    t('exactly one Refer button, and it names the person whose authority covers the risk', !!btn && document.querySelectorAll('#btnJuniorEscalate').length === 1 && /David Chen \(Senior Underwriter\)/.test(btn.innerText) && !/Marcus|CUO/.test(btn.innerText), btn && btn.innerText);
+    t('the note box is pre-filled from the real reasons, not a fixed paragraph', /Underwriter I authority/.test(el('juniorEscalationText').value) && /2,000,000/.test(el('juniorEscalationText').value));
+    t('the page names no fixed person in its labels', !/Marcus Vance|Sarah Jenkins/.test(el('referralCard').innerText.replace(/Refer to David Chen \(Senior Underwriter\)/g, '')), el('referralCard').innerText.slice(0, 200));
+
+    // ---------- raising it
+    el('juniorEscalationText').value = 'short';
+    submitJuniorEscalation();
+    t('a note under 10 characters is refused', !A.authorityRef);
+    el('juniorEscalationText').value = 'Please decide: the limit is above my authority';
+    submitJuniorEscalation();
+    t('one tracked referral is recorded, to the right role', !!A.authorityRef && A.authorityRef.status === 'pending' && A.authorityRef.requiredRole === 'senior_uw');
+    t('the case itself reads "Referral - awaiting David"', /Referral/.test(A.statusText) && /awaiting David Chen/.test(A.statusText), A.statusText);
+    t('the toast says where it went and no longer tells the user to find a header switch', /David Chen/.test(toasts[toasts.length - 1]) && !/header/i.test(toasts[toasts.length - 1]), toasts[toasts.length - 1]);
+    t('the sender sees where it stands, and cannot send it twice', /Referred to David Chen/.test(el('juniorActionBox').innerText) && !el('btnJuniorEscalate') && /Awaiting David/.test(el('referralStatusBadge').textContent));
+    submitJuniorEscalation();
+    t('a second send is refused', /already awaiting/.test(toasts[toasts.length - 1]));
+
+    // ---------- every board
+    showIntakePage();
+    t('the sender\'s queue row says "Awaiting David Chen"', /AWAITING DAVID CHEN/i.test(rowText('REF-1')), rowText('REF-1'));
+    t('the sender\'s board counts it as awaiting a decision', /Awaiting a Decision\s*1/.test(el('roleDashboardContainer').innerText.replace(/\s+/g, ' ')));
+    login('senior_uw'); showIntakePage();
+    t('the receiver\'s queue row says "Referred to you"', /REFERRED TO YOU/i.test(rowText('REF-1')), rowText('REF-1'));
+    var d = el('roleDashboardContainer').innerText.replace(/\s+/g, ' ');
+    t('the receiver\'s board has a Referred-to-you card with the sender and the note', /Referred to you \(1\)/.test(d) && /Sarah Jenkins/.test(d) && /Please decide/.test(d), d.slice(0, 200));
+    t('the receiver\'s next action is the referral, and the counter reads 1', /DECISION NEEDED/.test(d) && /Referred to Me\s*1/.test(d));
+    login('senior'); showIntakePage();
+    t('someone it was not sent to sees nothing about it', rowText('REF-1') === '' && /Referred to Me\s*0/.test(el('roleDashboardContainer').innerText.replace(/\s+/g, ' ')));
+    login('admin'); showIntakePage();
+    var m = el('roleDashboardContainer').innerText.replace(/\s+/g, ' ');
+    t('the Head of Underwriting sees the referral count and the list with who must decide', /Referrals \(1 awaiting decision\)/.test(m) && /David Chen \(Senior Underwriter\)/.test(m) && /REF-1/.test(m), m.slice(0, 260));
+    t('and the queue row says who it waits for', /AWAITING DAVID CHEN/i.test(rowText('REF-1')));
+    currentTableFilter = 'referral'; renderSubmissionsTable();
+    t('the Referrals tab includes it', /REF-1/.test(el('submissionsTableBody').innerText));
+    currentTableFilter = 'all';
+
+    // ---------- deciding: the panel follows the referral, not a fixed role
+    login('senior_uw'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
+    t('the person it was sent to gets the decision panel, with the sender and the note', getComputedStyle(el('seniorUWPanel')).display !== 'none' && /Sarah Jenkins/.test(el('primaryUWNoteAuthor').textContent) && /Please decide/.test(el('primaryUWNoteText').textContent));
+    t('its labels name the deciding role, not a fixed one', /Senior Underwriter authority/.test(el('btnSignOffApprove').innerText) && !/CUO/.test(el('btnSignOffApprove').innerText) && /Senior Underwriter/.test(el('seniorDecisionLabel').textContent));
+    el('seniorDecisionNote').value = '';
+    seniorUWAction('revise');
+    t('returning needs a reason and leaves the referral pending', A.authorityRef.status === 'pending');
+    el('seniorDecisionNote').value = 'Approved: loss history is clean and the limit is within my authority';
+    seniorUWAction('approve');
+    t('approving records it once, by the right person, and clears the case for pricing', A.authorityRef.status === 'approved' && /David Chen/.test(A.authorityRef.decidedBy) && A.statusText === 'Ready for Rating');
+    login('junior'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
+    t('the sender sees it approved, and by whom', /approved/i.test(el('juniorActionBox').innerText) && /David Chen/.test(el('juniorActionBox').innerText) && /Approved by David Chen/.test(el('referralStatusBadge').textContent));
+    login('senior'); showIntakePage();
+    t('the CUO is not shown a decision that was not theirs', rowText('REF-1') === '');
+
+    // ---------- a risk beyond every internal level goes to the carrier
+    var B = mk('REF-2', { exposureVal: 60000000, exposure: '$60,000,000', authorityLimit: 60000000 }); SUBMISSIONS_DATASET.push(B);
+    login('junior'); activeSubmissionId = B.id; selectSubmission(B.id, false); showWorkflowPage(AUTH_STEP);
+    t('beyond every level the button says it goes to the carrier', /Refer to the carrier/.test(el('btnJuniorEscalate').innerText), el('btnJuniorEscalate') && el('btnJuniorEscalate').innerText);
+
+    // ---------- in authority: no referral, and the text names the role
+    var C = mk('REF-3', { exposureVal: 1000000, exposure: '$1,000,000', authorityLimit: 1000000 }); SUBMISSIONS_DATASET.push(C);
+    activeSubmissionId = C.id; selectSubmission(C.id, false); showWorkflowPage(AUTH_STEP);
+    t('within authority: no button, and the message names the signed-in role and Subjectivities', !el('btnJuniorEscalate') && /Underwriter I authority/.test(el('juniorActionBox').innerText) && /Subjectivities/.test(el('juniorActionBox').innerText) && !/Screen 7/.test(el('juniorActionBox').innerText), el('juniorActionBox').innerText);
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

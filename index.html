@@ -941,36 +941,37 @@ run<!--
           <!-- Senior Underwriter Referral Desk & Underwriter Escalation Form -->
           <div class="card" id="referralCard">
             <div class="card-header">
-              <h3><i class="ph ph-user-check"></i> Step 13 - 14: Senior UW Referral & Sign-Off Desk</h3>
-              <span class="badge badge-info" id="referralStatusBadge">Sign-Off Complete (Ready for Pricing)</span>
+              <h3><i class="ph ph-user-check"></i> Referral & Sign-Off Desk</h3>
+              <span class="badge badge-light" id="referralStatusBadge">Not referred yet</span>
             </div>
             <div class="card-body">
-              <!-- Junior View Panel: When the Underwriter I is logged in -->
+              <!-- Referral panel: for whoever has to refer the risk, or is waiting on a decision -->
               <div id="juniorUWPanel">
                 <div class="referral-note">
                   <div class="note-author">
                     <i class="ph ph-chat-dots"></i> <strong>Underwriter Escalation Notes:</strong>
                   </div>
-                  <textarea class="form-control mt-2" id="juniorEscalationText" rows="3" placeholder="Enter notes and justification for Senior UW referral...">Risk exposure exceeds $2.0M Underwriter I authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</textarea>
+                  <textarea class="form-control mt-2" id="juniorEscalationText" rows="3" placeholder="Enter notes and justification for the referral..." oninput="this.dataset.auto=''"></textarea>
                 </div>
                 <div class="mt-3" id="juniorActionBox"><!-- filled by renderAuthorityScreen --></div>
               </div>
 
-              <!-- Senior View Panel: When Senior UW / CUO is logged in -->
+              <!-- Decision panel: for whoever has the authority to decide a pending referral -->
               <div class="u-hidden" id="seniorUWPanel">
                 <div class="referral-details-box">
                   <div class="referral-note" style="background: #f8fafc; border-left: 4px solid var(--primary); padding: 12px; border-radius: 4px;">
                     <div class="note-author">
-                      <i class="ph ph-user-tie text-primary"></i> <strong>Escalation from Primary UW (Sarah Jenkins):</strong>
+                      <i class="ph ph-user-tie text-primary"></i> <strong id="primaryUWNoteAuthor">Referral:</strong>
                     </div>
-                    <p id="primaryUWNoteText" class="mt-1 text-sm">Risk exposure exceeds $2.0M Underwriter I authority. Operations and safety metrics verified clean. Recommending approval with subjectivity on driver MVR verification.</p>
+                    <p id="primaryUWNoteText" class="mt-1 text-sm"></p>
                   </div>
 
                   <div class="senior-approval-panel mt-3">
-                    <label class="form-label"><strong>Executive CUO Decision & Authority Sign-off:</strong></label>
+                    <label class="form-label"><strong id="seniorDecisionLabel">Decision & authority sign-off:</strong></label>
+                    <textarea class="form-control" id="seniorDecisionNote" rows="2" placeholder="Decision note (10+ characters; required to return or decline)" style="margin-bottom:8px;"></textarea>
                     <div class="decision-actions" style="display: flex; gap: 8px; flex-wrap: wrap;">
                       <button class="btn btn-success" id="btnSignOffApprove" onclick="seniorUWAction('approve')">
-                        <i class="ph ph-signature"></i> Approve & Sign-Off (CUO Authority)
+                        <i class="ph ph-signature"></i> Approve & Sign-Off
                       </button>
                       <button class="btn btn-outline-warning" onclick="seniorUWAction('revise')">
                         <i class="ph ph-arrow-counter-clockwise"></i> Request Underwriter Revision
@@ -980,7 +981,7 @@ run<!--
                       </button>
                     </div>
                     <div class="signoff-stamp mt-3" id="signoffStamp">
-                      <i class="ph ph-stamp"></i> <strong>OFFICIALLY SIGNED OFF:</strong> Cleared for Pricing by Marcus Vance (Chief Underwriting Officer) • Ready for Phase 4
+                      <i class="ph ph-stamp"></i> <strong>SIGNED OFF</strong>
                     </div>
                   </div>
                 </div>
@@ -992,7 +993,7 @@ run<!--
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
           <div>
-            <strong>Phase 3 Flow Logic:</strong> If the risk exposure exceeds the primary underwriter's authority limit, it automatically routes to a Senior Underwriter. Once approved or cleared within limit, it transitions to <strong>Ready for Pricing</strong>.
+            <strong>Phase 3 Flow Logic:</strong> If the risk exposure exceeds the primary underwriter's authority limit, it is referred to the person whose authority covers it, and shows on their board as "Referred to you". Once approved or cleared within limit, it transitions to <strong>Ready for Pricing</strong>.
           </div>
         </div>
       </section>

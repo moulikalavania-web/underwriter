@@ -67,6 +67,10 @@ function authEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, func
 function authRoleLabel(r) { var c = typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[r] : null; return c ? c.title : r; }
 function authRoleIdent(r) { var c = typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[r] : null; return c ? c.name + " (" + c.title + ")" : String(r); }
 function authActor() { return authRoleIdent(currentUserRole); }
+/** Who a referral to this role goes to, by name ("David Chen (Senior Underwriter)"), or "the carrier" when no internal role covers the risk. */
+function authRoleOwner(r) { return r ? authRoleIdent(r) : "the carrier"; }
+/** The same person without the title ("David Chen"), for short labels such as "Awaiting David Chen". */
+function authRoleOwnerName(r) { var c = r && typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[r] : null; return c ? c.name : "the carrier"; }
 
 /** The figures authority is tested against. */
 function authMeasures(sub) {
@@ -225,6 +229,10 @@ function authRaiseCore(sub, note) {
   sub.authPreparedBy[authActor()] = true;
   sub.authorityRef = { status: "pending", requiredRole: a.requiredRole, raisedBy: authActor(), raisedAt: authNow(), note: note, reasons: a.own.reasons.slice(), measures: a.measures, history: ((sub.authorityRef && sub.authorityRef.history) || []).concat(sub.authorityRef ? [{ status: sub.authorityRef.status, decidedBy: sub.authorityRef.decidedBy, decidedAt: sub.authorityRef.decidedAt }] : []) };
   authLog(sub, "auth_referral_raised", "Referral raised to " + (a.requiredRole ? authRoleLabel(a.requiredRole) : "carrier (exceeds all internal authority)") + ": " + a.own.reasons.join("; ") + ". Note: " + note);
+  // The case says, wherever it is listed, who it is waiting for.
+  sub.statusText = "Referral — awaiting " + authRoleOwnerName(a.requiredRole);
+  sub.statusBadge = "badge-warning";
+  sub.isReferral = true;
   authPersist();
   return sub.authorityRef;
 }
@@ -255,6 +263,11 @@ function authDecideCore(sub, verb, note, quiet) {
     ref.status = "approved"; ref.approvedMeasures = { premium: m.premium, limit: m.limit };
   } else ref.status = verb === "return" ? "returned" : "declined";
   ref.decidedBy = me; ref.decidedAt = authNow(); ref.decisionNote = note || "";
+  var who = authRoleOwnerName(currentUserRole);
+  sub.isReferral = false;
+  if (verb === "approve") { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
+  else if (verb === "return") { sub.statusText = "Returned by " + who + " for revision"; sub.statusBadge = "badge-warning"; }
+  else { sub.statusText = "Authority referral declined by " + who; sub.statusBadge = "badge-danger"; }
   authLog(sub, verb === "approve" ? "auth_referral_approved" : "auth_referral_closed", (verb === "approve" ? "Referral approved within " + authRoleLabel(currentUserRole) + " authority at premium " + authMoney(m.premium) + ", limit " + authMoney(m.limit) + "." : "Referral " + (verb === "return" ? "returned for revision" : "declined") + ": " + note));
   authPersist();
   return { ok: true };
@@ -308,7 +321,7 @@ function renderAuthorityCard(sub) {
   var refHtml = "";
   if (ref) {
     var st = { pending: "badge-warning", approved: a.refStale ? "badge-danger" : "badge-success", returned: "badge-light", declined: "badge-danger" }[ref.status] || "badge-light";
-    refHtml = '<div class="text-xs" style="margin-top:8px;"><span class="badge ' + st + '">' + authEsc(ref.status === "approved" && a.refStale ? "approval no longer covers the risk" : ref.status) + '</span> Referred to ' + authEsc(ref.requiredRole ? authRoleLabel(ref.requiredRole) : "carrier") + ' by ' + authEsc(ref.raisedBy) + ' on ' + authEsc(ref.raisedAt) + '.<br><span class="text-muted">' + authEsc(ref.note) + '</span>' + (ref.decidedBy ? '<br>Decided by ' + authEsc(ref.decidedBy) + ' on ' + authEsc(ref.decidedAt) + (ref.decisionNote ? ': ' + authEsc(ref.decisionNote) : '') : '') + '</div>';
+    refHtml = '<div class="text-xs" style="margin-top:8px;"><span class="badge ' + st + '">' + authEsc(ref.status === "approved" && a.refStale ? "approval no longer covers the risk" : ref.status) + '</span> Referred to ' + authEsc(authRoleOwner(ref.requiredRole)) + ' by ' + authEsc(ref.raisedBy) + ' on ' + authEsc(ref.raisedAt) + '.<br><span class="text-muted">' + authEsc(ref.note) + '</span>' + (ref.decidedBy ? '<br>Decided by ' + authEsc(ref.decidedBy) + ' on ' + authEsc(ref.decidedAt) + (ref.decisionNote ? ': ' + authEsc(ref.decisionNote) : '') : '') + '</div>';
   }
   var actions = "";
   if (!bound) {
@@ -319,7 +332,7 @@ function renderAuthorityCard(sub) {
           : '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_decNote" class="form-control" style="width:280px;" placeholder="Decision note (required to return or decline)"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="authDecide(\'approve\')">Approve</button><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authDecide(\'return\')">Return</button><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authDecide(\'decline\')">Decline</button></div>';
       }
     } else if (!a.own.ok && !a.refValid && canEdit) {
-      actions = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_note" class="form-control" style="width:380px;" placeholder="Why this risk should be accepted (10+ characters)"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="authRaise()">Refer to ' + authEsc(a.requiredRole ? authRoleLabel(a.requiredRole) : "carrier") + '</button></div>';
+      actions = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_note" class="form-control" style="width:380px;" placeholder="Why this risk should be accepted (10+ characters)"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="authRaise()">Refer to ' + authEsc(authRoleOwner(a.requiredRole)) + '</button></div>';
     }
   }
 
@@ -384,40 +397,8 @@ function authGuardBind(source, subId) { return authGuard(source, subId ? authSub
   registerGuard("eSign", "underwriting authority", function () { return authGuardQuote("e-signature"); });
   registerGuard("issueQuote", "underwriting authority", function () { return authGuardQuote("issue quote"); });
   registerGuard("bind", "underwriting authority", function (a) { return authGuardBind("PAS bind", a[0]); });
-
-  // The existing "Refer to Senior" button now creates a tracked referral.
-  var origEsc = window.submitJuniorEscalation;
-  if (typeof origEsc === "function") {
-    window.submitJuniorEscalation = function () {
-      var sub = authActive(), txt = document.getElementById("juniorEscalationText");
-      var r = origEsc.apply(this, arguments);
-      try {
-        if (sub && !(sub.authorityRef && sub.authorityRef.status === "pending")) authRaiseCore(sub, (txt && txt.value.trim()) || "Risk exceeds authority; referred for sign-off from the Authority & Referral Desk.");
-        renderAuthorityCard(sub);
-      } catch (e) { console.warn("Referral record failed:", e); }
-      return r;
-    };
-  }
-  // The existing CUO sign-off button must pass the same tests as the card: authority, and not the preparer.
-  var origSenior = window.seniorUWAction;
-  if (typeof origSenior === "function") {
-    window.seniorUWAction = function (action) {
-      var sub = authActive();
-      if (action === "approve" && sub) {
-        var a = authAssess(sub, currentUserRole);
-        if (sub.authorityRef && sub.authorityRef.status === "pending") {
-          if (!authDecideCore(sub, "approve", "Sign-off at the Authority & Referral Desk.", false).ok) return;
-        } else if (!a.own.ok) {
-          showToast("⛔ This risk is beyond your authority: " + a.own.reasons.join("; ") + ".", "danger"); return;
-        } else if (authPreparers(sub).indexOf(authActor()) > -1 && sub.authorityRef) {
-          showToast("⛔ You prepared or referred this risk, so you cannot sign it off.", "danger"); return;
-        }
-        renderAuthorityCard(sub);
-      }
-      return origSenior.apply(this, arguments);
-    };
-  }
 })();
 
 window.authRaise = authRaise; window.authDecide = authDecide; window.authRecordCarrier = authRecordCarrier; window.authClearCarrier = authClearCarrier;
 window.renderAuthorityCard = renderAuthorityCard;
+window.authRoleOwner = authRoleOwner; window.authRoleOwnerName = authRoleOwnerName;

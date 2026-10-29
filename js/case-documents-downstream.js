@@ -1698,57 +1698,100 @@ function renderAuthorityScreen(sub) {
     }
   }
 
-  // Toggle Junior vs Senior Decision Panels
-  if (currentUserRole === "senior") {
+  // The panel follows the tracked referral (sub.authorityRef), not the signed-in role. Whoever has the authority to decide a pending
+  // referral, and did not prepare it, sees the decision panel; everyone else sees where the referral stands.
+  const m = authMeasures(sub);
+  const a = authAssess(sub, currentUserRole);
+  const ref = sub.authorityRef || null;
+  const pending = !!(ref && ref.status === "pending");
+  const canDecide = pending && authRoleCovers(currentUserRole, m).ok && hasPermission("authority", "approve") && authPreparers(sub).indexOf(authActor()) === -1;
+  const refBadge = document.getElementById("referralStatusBadge");
+  const setBadge = (cls, txt) => { if (refBadge) { refBadge.className = "badge " + cls; refBadge.textContent = txt; } };
+  const esc = authEsc;
+
+  if (canDecide) {
     if (juniorPanel) juniorPanel.style.display = "none";
-    if (seniorPanel) seniorPanel.style.display = "block";
-    if (noteText) {
-      noteText.innerHTML = `<strong>Escalation from Primary UW:</strong> Submission exposure of <strong>${sub.exposure}</strong> (${sub.lobName}) reviewed. Operations, safety scoring, and clean loss record verified. Executive referral sign-off requested.`;
-    }
+    if (seniorPanel) { seniorPanel.style.display = "block"; seniorPanel.classList.remove("u-hidden"); }
+    const author = document.getElementById("primaryUWNoteAuthor");
+    if (author) author.textContent = "Referred to you by " + ref.raisedBy + " on " + ref.raisedAt + ":";
+    if (noteText) noteText.textContent = ref.note;
+    const lbl = document.getElementById("seniorDecisionLabel");
+    if (lbl) lbl.textContent = "Decision & authority sign-off (" + authRoleLabel(currentUserRole) + "):";
+    const ok = document.getElementById("btnSignOffApprove");
+    if (ok) ok.innerHTML = '<i class="ph ph-signature"></i> Approve & Sign-Off (' + esc(authRoleLabel(currentUserRole)) + ' authority)';
+    const st = document.getElementById("signoffStamp");
+    if (st) st.style.display = "none";
+    setBadge("badge-warning", "Awaiting your decision");
   } else {
     if (juniorPanel) juniorPanel.style.display = "block";
     if (seniorPanel) seniorPanel.style.display = "none";
     const jBox = document.getElementById("juniorActionBox");
-    if (jBox) {
-      if (isExceeded) {
-        jBox.innerHTML = `
-          <div class="alert alert-warning p-2 mb-2 text-sm" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; margin-bottom: 8px;">
-            <i class="ph ph-warning"></i> <strong>Exceeds Authority:</strong> Submit escalation referral to Senior CUO (Marcus Vance) for executive review.
-          </div>
-          <button class="btn btn-warning" id="btnJuniorEscalate" onclick="submitJuniorEscalation()">
-            <i class="ph ph-paper-plane-tilt"></i> Refer to Senior — Marcus Vance (CUO)
-          </button>
-        `;
-      } else {
-        jBox.innerHTML = `
-          <div class="alert alert-success p-2 text-sm" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534;">
-            <i class="ph ph-check-circle"></i> <strong>Authority Clear:</strong> Submission is within your $2.0M Underwriter I limit. No referral needed. Proceed to Screen 7 (Rating Engine).
-          </div>
-        `;
+    const esc1 = document.getElementById("juniorEscalationText");
+    const noteWrap = esc1 ? esc1.closest(".referral-note") : null;
+    const showNoteBox = (on) => { if (noteWrap) noteWrap.style.display = on ? "block" : "none"; };
+    const targetName = a.requiredRole ? authRoleOwner(a.requiredRole) : "the carrier";
+    const last = ref && ref.status !== "pending" && !a.refValid
+      ? `<div class="text-xs text-muted" style="margin-bottom:8px;">Last referral: ${esc(ref.status)}${ref.decidedBy ? " by " + esc(ref.decidedBy) : ""}${ref.decisionNote ? " — " + esc(ref.decisionNote) : ""}.</div>` : "";
+    if (pending) {
+      showNoteBox(false);
+      const who = authRoleOwner(ref.requiredRole);
+      setBadge("badge-warning", "Awaiting " + authRoleOwnerName(ref.requiredRole));
+      if (jBox) jBox.innerHTML = `
+        <div class="alert alert-info p-2 text-sm" style="background:#f0f9ff; border:1px solid #bae6fd; border-radius:4px; color:#0369a1;">
+          <i class="ph ph-hourglass-medium"></i> <strong>Referred to ${esc(who)}.</strong> Sent by ${esc(ref.raisedBy)} on ${esc(ref.raisedAt)}. It shows on ${esc(authRoleOwnerName(ref.requiredRole))}'s board as "Referred to you", and nothing here moves until they decide.
+          <div class="text-xs" style="margin-top:4px;">Note sent: ${esc(ref.note)}</div>
+        </div>`;
+    } else if (a.refValid) {
+      showNoteBox(false);
+      setBadge("badge-success", "Approved by " + (ref.decidedBy || "").split(" (")[0]);
+      if (jBox) jBox.innerHTML = `
+        <div class="alert alert-success p-2 text-sm" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:4px; color:#166534;">
+          <i class="ph ph-check-circle"></i> <strong>Referral approved</strong> by ${esc(ref.decidedBy)} on ${esc(ref.decidedAt)}${ref.decisionNote ? ": " + esc(ref.decisionNote) : ""}. Continue to Subjectivities.
+        </div>`;
+    } else if (isExceeded) {
+      showNoteBox(true);
+      if (esc1 && (!esc1.value.trim() || esc1.dataset.auto === "1")) {
+        esc1.value = "Risk exceeds the " + authRoleLabel(currentUserRole) + " authority" + (a.own.reasons.length ? " (" + a.own.reasons.join("; ") + ")" : "") + ". Operations and safety metrics reviewed. Recommending approval.";
+        esc1.dataset.auto = "1";
       }
+      setBadge(ref ? "badge-warning" : "badge-light", ref ? "Referral " + ref.status : "Not referred yet");
+      if (jBox) jBox.innerHTML = `
+        ${last}
+        <div class="alert alert-warning p-2 mb-2 text-sm" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; margin-bottom: 8px;">
+          <i class="ph ph-warning"></i> <strong>Exceeds Authority:</strong> this risk needs ${esc(a.requiredRole ? authRoleLabel(a.requiredRole) : "a written exception from the carrier")}. Refer it to ${esc(targetName)}.
+        </div>
+        <button class="btn btn-warning" id="btnJuniorEscalate" onclick="submitJuniorEscalation()">
+          <i class="ph ph-paper-plane-tilt"></i> Refer to ${esc(targetName)}
+        </button>`;
+    } else {
+      showNoteBox(false);
+      setBadge("badge-success", "Within authority");
+      if (jBox) jBox.innerHTML = `
+        <div class="alert alert-success p-2 text-sm" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534;">
+          <i class="ph ph-check-circle"></i> <strong>Authority Clear:</strong> the risk is within your ${esc(authRoleLabel(currentUserRole))} authority (${esc(roleConfig.limitText)}). No referral needed. Continue to Subjectivities.
+        </div>`;
     }
   }
 }
 
+/** "Refer to ..." button: sends the case to the person whose authority covers it, as a tracked referral on the case. */
 function submitJuniorEscalation() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  const text = document.getElementById("juniorEscalationText")?.value || "Risk exposure exceeds authority. Recommending approval.";
-  if (sub) {
-    sub.statusText = "Senior Referral";
-    sub.statusBadge = "badge-warning";
-    sub.isReferral = true;
-  }
-  showToast("📤 Referral Request dispatched to Marcus Vance (CUO Desk)! Switch to Senior UW role from header to review & sign-off.", "warning");
+  if (!sub) return;
+  if (!hasPermission("authority", "edit")) { denyPermission("authority", "edit"); return; }
+  const a = authAssess(sub, currentUserRole);
+  if (a.own.ok) { showToast("The risk is within your authority; no referral is needed. (The test exposure buttons only change what this screen shows.)", "info"); return; }
+  if (sub.authorityRef && sub.authorityRef.status === "pending") { showToast("⛔ A referral is already awaiting decision.", "danger"); return; }
+  const text = ((document.getElementById("juniorEscalationText") || {}).value || "").trim();
+  if (text.length < 10) { showToast("⛔ Explain the referral for the approver (at least 10 characters).", "danger"); return; }
+  authRaiseCore(sub, text);
+  const toName = authRoleOwnerName(sub.authorityRef.requiredRole);
+  showToast("📤 Referred to " + authRoleOwner(sub.authorityRef.requiredRole) + ". It shows on " + toName + "'s board as \"Referred to you\" and on this case as \"Awaiting " + toName + "\".", "warning");
   renderSubmissionsTable();
+  renderRoleDashboard();
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
-  const jBox = document.getElementById("juniorActionBox");
-  if (jBox) {
-    jBox.innerHTML = `
-      <div class="alert alert-info p-2 text-sm" style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 4px; color: #0369a1;">
-        <i class="ph ph-hourglass-medium"></i> <strong>Referral Dispatched:</strong> Awaiting Marcus Vance's CUO Sign-Off. Switch to Senior UW persona from header to act as CUO.
-      </div>
-    `;
-  }
+  renderAuthorityScreen(sub);
+  if (typeof renderAuthorityCard === "function") renderAuthorityCard(sub);
 }
 
 // ============================================================================
