@@ -79,6 +79,8 @@
     var E2 = raw('SUB-C21-E2', 'Insured: Gamma Freight\nFEIN: 11-2223334\nBroker: Aon\nUS DOT: 7654321'); use(E2);
     clearanceAutoRun(E2, 'clearance');
     t('arriving at the legal checks reads the insured first, so they check a real name', E2.insured === 'Gamma Freight' && E2.sanctions && E2.sanctions.screens && E2.sanctions.screens.length === 1, E2.insured);
+    var ED = buildLocalNormalizationDraft(raw('SUB-C21-ED', 'Insured: Gamma Freight\nEffective Date: 11/01/2026\nUnit 1: 2022 Volvo VNL 760 - Stated Value $125,000\nDriver 1: Rahul Sharma, Age 34'));
+    t('a dated line followed by a numbered line ("Unit 1:") is not run together with it', ED.effectiveDate === '11/01/2026', String(ED.effectiveDate));
     var D = mk('SUB-C21-DIR', { rawEmailText: undefined }); delete D.rawEmailText;
     t('a case without an email has no quick read', triageQuickRead(D) === null);
 

@@ -82,7 +82,7 @@ function renderScopeOverviewHtml(roleConfig) {
       <p class="text-sm" style="margin:0;"><i class="ph ph-eye"></i> ${authEsc(roleConfig.limitText || "Read-only access")}. The cases you may see are listed in the queue below; none of them is assigned to you.</p>
     </div></div>
     <div class="metric-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:12px;">
-      ${box("ph-folders", "Cases in view", seen.length)}
+      ${box("ph-folders", "Cases in view (all products)", seen.length)}
       ${box("ph-hourglass", "Before quote", active)}
       ${box("ph-file-text", "Quoting or binding", quoting)}
       ${box("ph-seal-check", "Bound", bound)}
@@ -796,6 +796,14 @@ function selectSubmission(id, autoNavigate = false) {
   if (subId) subId.textContent = sub.id;
   
   if (lobSelect && currentLOBFilter !== "all" && lobSelect.value !== sub.lobKey) {
+    // A loaded product replaces the list with just that product; selecting a value that is not in the list would leave the box blank.
+    if (!Array.from(lobSelect.options).some(o => o.value === sub.lobKey)) {
+      const entry = (typeof LOB_CATALOG !== "undefined") ? LOB_CATALOG.find(l => l.key === sub.lobKey) : null;
+      const opt = document.createElement("option");
+      opt.value = sub.lobKey;
+      opt.textContent = entry ? entry.name : (sub.lobName || sub.lobKey);
+      lobSelect.appendChild(opt);
+    }
     lobSelect.value = sub.lobKey;
     currentLOBFilter = sub.lobKey;
   }

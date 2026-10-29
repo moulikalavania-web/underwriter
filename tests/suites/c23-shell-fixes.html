@@ -36,6 +36,13 @@
     login('admin');
     t('the Head of Underwriting still gets the assignment dashboard', el('intakeDashboardTitle').textContent === 'Assignment Dashboard' && /Priya Nair/.test(el('intakeDashboardSubtitle').textContent));
 
+    // ---------- the header product list while a product is loaded
+    login('admin');
+    var sel = el('lobSelect'); sel.innerHTML = '<option value="PRD-021" selected>PRD-021: Trucking_test</option>'; currentLOBFilter = 'PRD-021';
+    var tc = SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+    selectSubmission(tc.id, false);
+    t('opening a case whose product is not in the list adds it, so the box is not blank', sel.selectedIndex >= 0 && !!sel.options[sel.selectedIndex].text && sel.value === 'trucking', 'value=' + sel.value + ' text=' + (sel.options[sel.selectedIndex] || {}).text);
+
     t('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
   var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
