@@ -48,6 +48,13 @@
     var d3 = diConsolidate({ id: 'SUB-C24-3', lobKey: 'trucking', rawEmailText: '' }, [sources[2]]);
     t('with no ACORD form there is no ACORD summary', d3.acord === null);
 
+    // ---------- the covering email is not a document of its own kind
+    var em = { name: 'Email text', text: 'Attached: the ACORD 125, the MVRs and the loss runs.' + String.fromCharCode(10) + 'Unit 1: 2022 Volvo VNL 760 - Stated Value $125,000', kind: 'txt', label: 'Pasted email text', method: 'Direct text parsing', status: 'extracted', pages: [], notes: [] };
+    var dEm = diConsolidate({ id: 'SUB-C24-E', lobKey: 'trucking', rawEmailText: '' }, [em, { name: 'Loss_Runs_2023-2025.csv', text: 'Policy Year: 2024-2025; Claim Number: C-1; Description of Loss: Rear-end collision; Status: Open; Total Incurred: $42000', kind: 'csv', label: 'x', method: 'm', status: 'extracted', pages: [], notes: [], tables: [] }]);
+    t('a sentence in the email that mentions loss runs does not turn a vehicle line into a claim', dEm.lossHistory.length === 1 && dEm.lossHistory[0].claimNo === 'C-1' && dEm.lossHistory[0].sourceDocument === 'Loss_Runs_2023-2025.csv', JSON.stringify(dEm.lossHistory));
+    t('a loss run named with underscores is recognised', diLooksLikeLossRun({ name: 'Loss_Runs_2023-2025.csv', text: '' }) && diLooksLikeVehicleSchedule({ name: 'Vehicle_Schedule.xlsx', text: '' }) && !diLooksLikeLossRun(em));
+    t('the email is not read as an ACORD form either, and keeps its own label', !dEm.acord && dEm.sourceDocuments.filter(function(d){ return d.name === 'Email text'; })[0].label === 'Pasted email text');
+
     // ---------- the card on the extract and confirm steps
     var cs = clone(seedT); cs.id = 'SUB-C24-4'; cs.apiSourced = true; cs.acordRead = draft.acord;
     SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(cs); activeSubmissionId = cs.id;

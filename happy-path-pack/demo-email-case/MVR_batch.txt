@@ -1,0 +1,16 @@
+MOTOR VEHICLE RECORD
+
+Driver: Rahul Sharma
+License: TX 12345678
+Status: Valid
+Violations:
+- 03/12/2025 Speeding 25 mph over the limit (4 pts)
+- 06/02/2026 Improper lane change (2 pts)
+- 01/15/2020 Failure to signal
+
+Driver: Dana Ortiz
+License: OK 99887766
+Status: Suspended
+Violations:
+- 09/10/2025 DUI
+- 11/01/2025 At-fault accident

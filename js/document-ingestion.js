@@ -666,7 +666,8 @@ function diVehiclesFromTables(tables) {
 }
 
 function diLooksLikeVehicleSchedule(src) {
-  return /vehicle\s+schedule|schedule\s+of\s+(?:vehicles|values)|statement\s+of\s+values|\bSOV\b|fleet\s+schedule|unit\s+schedule|power\s+units/i.test(src.name + "\n" + String(src.text || "").split(/\n/).slice(0, 40).join("\n"));
+  if (src.name === "Email text") return false;
+  return /vehicle[\s_-]*schedule|schedule[\s_-]*of[\s_-]*(?:vehicles|values)|statement[\s_-]*of[\s_-]*values|(?:^|[^A-Za-z0-9])SOV(?![A-Za-z0-9])|fleet[\s_-]*schedule|unit[\s_-]*schedule|power[\s_-]*units/i.test(src.name + "\n" + String(src.text || "").split(/\n/).slice(0, 40).join("\n"));
 }
 
 /** One vehicle per line: "2022 Volvo VNL 760 VIN 4V4NC9EH5NN123456 $125,000". */
@@ -788,7 +789,9 @@ function diCombineVehicles(perDoc) {
 }
 
 function diLooksLikeLossRun(src) {
-  return /loss\s*-?\s*run|claims?\s+(?:history|report)|currently\s+valued/i.test(src.name + "\n" + String(src.text || "").split(/\n/).slice(0, 40).join("\n"));
+  // The pasted email is read for its own loss section elsewhere; a sentence in it that mentions "loss runs" does not make it one.
+  if (src.name === "Email text") return false;
+  return /loss[\s_-]*runs?|claims?[\s_-]*(?:history|report)|currently\s+valued/i.test(src.name + "\n" + String(src.text || "").split(/\n/).slice(0, 40).join("\n"));
 }
 
 /** Claim rows from a loss run laid out one claim per line, either as "Label: value; Label: value" (spreadsheets) or as running text with a year and an amount. */

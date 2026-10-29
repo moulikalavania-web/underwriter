@@ -298,7 +298,7 @@ function renderExtractSummary(sub) {
     window.diConsolidate = function (sub, sources) {
       const draft = origCons.apply(this, arguments);
       draft.docTypes = {};
-      (sources || []).forEach(s => { draft.docTypes[s.name] = recognizeDocument(s.name, s.text); });
+      (sources || []).forEach(s => { if (s.name !== "Email text") draft.docTypes[s.name] = recognizeDocument(s.name, s.text); });
       (draft.sourceDocuments || []).forEach(d => { if (draft.docTypes[d.name] && draft.docTypes[d.name].key !== "other") d.label = draft.docTypes[d.name].label; });
       return draft;
     };

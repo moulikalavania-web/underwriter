@@ -111,7 +111,7 @@ function readMvrSources(sources, asOf) {
   asOf = asOf || new Date();
   const docs = [], drivers = [];
   (sources || []).forEach(src => {
-    if (recognizeDocument(src.name, src.text).key !== "mvr") return;
+    if (src.name === "Email text" || recognizeDocument(src.name, src.text).key !== "mvr") return;
     let list = mvrFromTables(src.tables, asOf);
     if (!list.length) list = mvrFromText(src.text, asOf);
     if (!list.length) return;
@@ -190,7 +190,7 @@ function iftaFromText(text) {
 function readIftaSources(sources) {
   const reports = [];
   (sources || []).forEach(src => {
-    if (recognizeDocument(src.name, src.text).key !== "ifta") return;
+    if (src.name === "Email text" || recognizeDocument(src.name, src.text).key !== "ifta") return;
     let rows = iftaFromTables(src.tables);
     if (!rows.length) rows = iftaFromText(src.text);
     if (!rows.length) return;

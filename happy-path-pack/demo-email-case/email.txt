@@ -1,0 +1,26 @@
+Hi team,
+
+Please quote auto liability for Delta Haulers LLC, a for-hire dry-freight carrier based in Dallas, TX.
+
+Insured: Delta Haulers LLC
+FEIN: 74-9842109
+US DOT: 1234567
+MC Number: MC-445566
+Address: 1200 Commerce St, Dallas, TX 75202
+Broker: Marsh & McLennan Commercial Brokerage
+Contact: ops@delta.example
+Requested Limit: $1,000,000
+Effective Date: 11/01/2026
+Annual Mileage: 400000
+States Operated: TX, OK
+
+Unit 1: 2022 Volvo VNL 760 - Stated Value $125,000
+Unit 2: 2021 Freightliner Cascadia - Stated Value $98,000
+
+Driver 1: Rahul Sharma, Age 34, TX Class A license, 8 years CDL experience
+Driver 2: Dana Ortiz, Age 41, OK Class A license, 15 years CDL experience
+
+Attached: the ACORD 125, MVRs for both drivers, our IFTA report for Q3 and the loss runs.
+
+Thanks,
+Delta Haulers LLC

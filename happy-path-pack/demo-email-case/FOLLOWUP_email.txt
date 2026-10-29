@@ -1,0 +1,2 @@
+Re SUB-<id of the Delta case>: attaching the signed statement of values you asked for. Insured Delta Haulers LLC, FEIN 74-9842109.
+(Replace <id of the Delta case> with the real case id, then use this to show "attach to an open case" at triage.)

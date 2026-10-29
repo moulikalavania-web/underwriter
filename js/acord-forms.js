@@ -162,6 +162,7 @@ function acordRead(formId, text) {
 function acordReadSources(sources, draft) {
   const forms = [];
   (sources || []).forEach(src => {
+    if (src.name === "Email text") return;   // the covering email is not a form, even if it says "ACORD 125" in a sentence
     const t = recognizeDocument(src.name, src.text);
     const id = Object.keys(ACORD_FORMS).find(k => ACORD_FORMS[k].detect === t.key);
     if (!id) return;
