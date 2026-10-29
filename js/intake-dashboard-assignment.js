@@ -521,6 +521,7 @@ function assignSubmissionToUser(subId, roleKey) {
       notes: `Submission assigned to ${assigneeConfig.name} (${assigneeConfig.title}).`
     });
 
+    if (typeof notify === "function") notify(roleKey, { kind: "assignment", title: "Assigned to you: " + sub.insured, text: subId + " (" + sub.lobName + "), assigned by " + sub.assignedBy + ".", caseId: subId, key: "assign-" + subId + "-" + sub.assignedAt });
     showToast(`✅ ${subId} assigned to ${assigneeConfig.name}.`, "success");
   }
 

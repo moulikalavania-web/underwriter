@@ -1,0 +1,104 @@
+<!-- Suite C26: motor vehicle records and IFTA reports, read from the text or tables of the documents. MVR: violations by severity and age,
+     points and band per driver, matched against the driver list. IFTA: miles, gallons, mpg, state shares, and the comparison with the application. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var ASOF = new Date(2026, 9, 29);
+  var MVR = ['MOTOR VEHICLE RECORD', 'Driver: Rahul Sharma', 'License: TX 12345678', 'Status: Valid', 'Violations:',
+    '- 03/12/2025 Speeding 25 mph over the limit (4 pts)', '- 06/02/2026 Improper lane change (2 pts)', '- 01/15/2020 Failure to signal', '',
+    'Driver: Dana Ortiz', 'License: OK 99887766', 'Status: Suspended', 'Violations:', '- 09/10/2025 DUI', '- 11/01/2025 At-fault accident', '',
+    'Driver: Lee Park', 'License: TX 55556666', 'Status: Valid', 'No violations on record.'].join('\n');
+  var IFTA = ['IFTA QUARTERLY FUEL TAX REPORT  Q3 2026', 'Jurisdiction  Total Miles  Gallons', 'TX 60,000 miles 9,000 gal', 'OK 25,000 miles 4,000 gal', 'NM 15,000 miles 2,500 gal'].join('\n');
+  try {
+    login('senior_uw');
+
+    // ---------- MVR from text
+    var d = mvrFromText(MVR, ASOF);
+    t('three drivers are read, each with licence and status', d.length === 3 && d[0].name === 'Rahul Sharma' && d[0].license === '12345678' && d[0].state === 'TX' && d[0].status === 'Valid' && d[1].status === 'Suspended', JSON.stringify(d.map(function(x){ return x.name; })));
+    t('each violation keeps its date, wording and points, and is major or minor', d[0].violations.length === 3 && d[0].violations[0].severity === 'major' && d[0].violations[0].points === 4 && d[0].violations[1].severity === 'minor' && d[1].violations[0].severity === 'major' && /DUI/.test(d[1].violations[0].desc));
+    t('a violation older than 36 months is kept but does not count', d[0].violations[2].recent === false && d[0].violations[0].recent === true);
+    t('"no violations" gives an empty list, not a missing driver', d[2].violations.length === 0);
+    var src = [{ name: 'MVR_batch.txt', text: MVR, tables: [], kind: 'txt' }];
+    var r = readMvrSources(src, ASOF);
+    var by = {}; r.drivers.forEach(function(x){ by[x.name] = x; });
+    t('points: a recent major is 25 and a recent minor 8', by['Rahul Sharma'].major === 1 && by['Rahul Sharma'].minor === 1 && by['Rahul Sharma'].score === 33 && by['Rahul Sharma'].band === 'Medium', String(by['Rahul Sharma'].score));
+    t('a suspended licence, a DUI and an at-fault accident make a High driver', by['Dana Ortiz'].score === 25 + 20 + 40 + 8 - 8 + 0 || by['Dana Ortiz'].band === 'High', by['Dana Ortiz'].score + ' ' + by['Dana Ortiz'].band);
+    t('a clean record is Low with no points', by['Lee Park'].score === 0 && by['Lee Park'].band === 'Low');
+    t('a document that is not an MVR is not read as one', readMvrSources([{ name: 'notes.txt', text: 'Driver: Someone\nLicense: TX 1234567', tables: [] }], ASOF) === null);
+    var tbl = [{ rows: [['Driver', 'License', 'State', 'Status', 'Violation', 'Date', 'Points'], ['Ann Lee', 'D1234567', 'TX', 'Valid', 'Reckless driving', '04/01/2026', '6'], ['Ann Lee', 'D1234567', 'TX', 'Valid', 'Parking', '01/01/2024', '1'], ['Bo Kim', 'D7654321', 'TX', 'Valid', 'None', '', '']] }];
+    var rt = readMvrSources([{ name: 'MVR_reports.xlsx', text: 'Driver MVR', tables: tbl }], ASOF);
+    t('MVRs laid out as a table are read, one row per violation', rt.drivers.length === 2 && rt.drivers[0].violations.length === 2 && rt.drivers[0].violations[0].severity === 'major' && rt.drivers[1].violations.length === 0, JSON.stringify(rt.drivers.map(function(x){ return x.name + ':' + x.violations.length; })));
+
+    // ---------- MVR against the driver list
+    var s = clone(seedT); s.id = 'SUB-C26-1'; s.apiSourced = true; s.lobKey = 'trucking';
+    s.drivers = [{ given_name: 'Rahul', last_name: 'Sharma' }, { given_name: 'Dana', last_name: 'Ortiz' }, { given_name: 'Pat', last_name: 'Nolan' }];
+    s.mvrData = r;
+    var a = mvrAnalyze(s);
+    t('a listed driver with no MVR is called out, and so is an MVR for someone not listed', a.noMvr === 1 && a.notListed === 1 && a.flags.some(function(f){ return /No MVR was received for listed driver Pat Nolan/.test(f.text); }) && a.flags.some(function(f){ return /Lee Park, who is not on the driver list/.test(f.text); }));
+    t('a High driver and a licence that is not valid are flagged', a.high === 1 && a.flags.some(function(f){ return /Dana Ortiz is High risk/.test(f.text); }));
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id;
+    renderMvrAnalysis(s);
+    t('the card lists each driver with points and risk, and keeps a summary on the case', /Rahul Sharma/.test(el('mvrAnalysisContainer').innerHTML) && /High/.test(el('mvrAnalysisContainer').innerHTML) && s.mvrAnalysis.drivers === 3 && s.mvrAnalysis.high === 1);
+    delete s.mvrData; renderMvrAnalysis(s);
+    t('with no MVR read the card says not received, not clean', /Not received/.test(el('mvrAnalysisContainer').innerHTML));
+
+    // ---------- IFTA
+    var rows = iftaFromText(IFTA);
+    t('state rows are read from text: miles and gallons', rows.length === 3 && rows[0].state === 'TX' && rows[0].miles === 60000 && rows[0].gallons === 9000 && rows[2].state === 'NM');
+    var ri = readIftaSources([{ name: 'IFTA_Q3_2026.pdf', text: IFTA, tables: [] }]);
+    t('the quarter is taken from the report', ri.reports.length === 1 && /Q3 2026/.test(ri.reports[0].quarter), ri.reports[0].quarter);
+    var itbl = [{ rows: [['Jurisdiction', 'Total Miles', 'Taxable Miles', 'Gallons'], ['TX', '120,000', '118,000', '18,000'], ['LA', '40,000', '40,000', '6,200'], ['Total', '160,000', '', '24,200']] }];
+    var rt2 = readIftaSources([{ name: 'ifta-annual.xlsx', text: 'IFTA return', tables: itbl }]);
+    t('a table is read the same way and its total row is skipped', rt2.reports[0].rows.length === 2 && rt2.reports[0].rows[0].miles === 120000);
+    t('a document that is not an IFTA report is not read as one', readIftaSources([{ name: 'loss-run.txt', text: 'TX 60,000 miles', tables: [] }]) === null);
+    var f = clone(seedT); f.id = 'SUB-C26-2'; f.apiSourced = true; f.lobKey = 'trucking'; f.operationsProfile = { annual_mileage: 250000, states_operated: ['TX', 'OK'] };
+    f.iftaData = ri;
+    var ia = iftaAnalyze(f);
+    t('totals, gallons, mpg and the state shares', ia.miles === 100000 && ia.gallons === 15500 && Math.abs(ia.mpg - 6.45) < 0.01 && ia.states[0].state === 'TX' && Math.abs(ia.states[0].share - 0.6) < 1e-9 && ia.jurisdictions === 3);
+    t('one quarter is scaled to a year and says so', ia.annual === 400000 && ia.flags.some(function(x){ return /1 quarter\(s\) of IFTA were read/.test(x.text); }));
+    t('annual miles that disagree with the application by more than 15% are flagged', ia.flags.some(function(x){ return /states 250,000 annual miles but IFTA shows 400,000/.test(x.text); }));
+    t('a state with a real share of the miles that the application does not list is flagged', ia.flags.some(function(x){ return /NM carries 15% of the miles but is not among the states/.test(x.text); }));
+    f.operationsProfile.annual_mileage = 400000; f.operationsProfile.states_operated = ['TX', 'OK', 'NM'];
+    var ib = iftaAnalyze(f);
+    t('when they agree nothing is flagged but the one-quarter note', ib.flags.filter(function(x){ return x.level === 'warn'; }).length === 0);
+    f.iftaData = { reports: [{ document: 'x', quarter: 'Q1', rows: [{ state: 'TX', miles: 50000, gallons: 20000 }] }] };
+    t('fuel economy outside what heavy trucks do is questioned', iftaAnalyze(f).flags.some(function(x){ return /2\.5 mpg is outside/.test(x.text); }));
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(f); activeSubmissionId = f.id; f.iftaData = ri; f.operationsProfile.annual_mileage = 250000;
+    renderIftaAnalysis(f);
+    t('the card shows miles, mpg, jurisdictions, the states and the flags, and keeps a summary', /100,000/.test(el('iftaAnalysisContainer').innerHTML) && /6\.5/.test(el('iftaAnalysisContainer').innerHTML) && /NM/.test(el('iftaAnalysisContainer').innerHTML) && f.iftaAnalysis.states === 3);
+    delete f.iftaData; renderIftaAnalysis(f);
+    t('with no report the card says not received', /Not received/.test(el('iftaAnalysisContainer').innerHTML));
+
+    // ---------- through the document pipeline, and onto the case
+    var sub = { id: 'SUB-C26-3', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', rawEmailText: '', rawAttachments: [] };
+    var draft = diConsolidate(sub, [{ name: 'MVR_batch.txt', text: MVR, kind: 'txt', label: 'x', method: 'm', status: 'extracted', pages: [], notes: [], tables: [] }, { name: 'IFTA_Q3_2026.txt', text: IFTA, kind: 'txt', label: 'x', method: 'm', status: 'extracted', pages: [], notes: [], tables: [] }]);
+    t('reading the files gives the draft its MVR and IFTA results', draft.mvr && draft.mvr.drivers.length === 3 && draft.ifta && draft.ifta.reports[0].rows.length === 3);
+    t('and the file list names them', draft.docTypes['MVR_batch.txt'].key === 'mvr' && draft.docTypes['IFTA_Q3_2026.txt'].key === 'ifta');
+    var g = clone(seedT); g.id = 'SUB-C26-4'; g.apiSourced = true; g.rawEmailText = 'Insured: Delta\nFEIN: 74-9842109'; g.normalizationStatus = 'pending'; g.decisionLog = [];
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(g); activeSubmissionId = g.id; emailIngestionDraftBySubId = {}; emailIngestionDraftBySubId[g.id] = draft;
+    document.getElementById('normField_x') || 0;
+    try { applyNormalizedDataToSubmission(g.id); } catch (e) { /* the review form is not mounted in this suite */ }
+    t('confirming keeps both on the case', !!g.mvrData && g.mvrData.drivers.length === 3 && !!g.iftaData);
+
+    // ---------- the decision brief
+    var h = clone(seedT); h.id = 'SUB-C26-5'; h.apiSourced = true; h.lobKey = 'trucking'; h.appetiteRules = []; delete h.mvrData; delete h.iftaData;
+    var b0 = buildDecisionBrief(h), find = function(b, l){ return b.checks.filter(function(c){ return c.label === l; })[0]; };
+    t('with neither document the brief says so and does not pass them', find(b0, 'Driver records (MVR)').status === 'pending' && find(b0, 'Fleet mileage (IFTA)').status === 'pending');
+    h.mvrData = r; h.drivers = s.drivers; h.iftaData = ri; h.operationsProfile = { annual_mileage: 400000, states_operated: ['TX', 'OK', 'NM'] };
+    var b1 = buildDecisionBrief(h);
+    t('with them it carries their findings', find(b1, 'Driver records (MVR)').status === 'warn' && /High risk/.test(find(b1, 'Driver records (MVR)').detail) && find(b1, 'Fleet mileage (IFTA)').status === 'ok');
+    var p = clone(seedT); p.lobKey = 'property'; p.id = 'SUB-C26-6'; p.appetiteRules = [];
+    t('a property case has neither check', !find(buildDecisionBrief(p), 'Driver records (MVR)'));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p2 = document.createElement('pre'); p2.id = '__t'; p2.textContent = out.join('\n'); document.body.appendChild(p2);
+})();
+</script>

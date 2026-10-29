@@ -1,0 +1,112 @@
+<!-- Suite C25: the Confirm step shows only what needs a person (accepted fields are folded away but still applied), and each kind of message
+     at triage has its action: attach to an open case, attach to a policy and open Policy Changes, open the renewal pipeline or treat as new,
+     discard with a reason. Nothing is deleted. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function raw(id, text, files, over){
+    var s = { id: id, receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true,
+      insured: '(Pending — See Raw Email)', fein: 'PENDING', dot: null, mcNumber: null, broker: '(Pending Extraction)', email: '', address: '(Pending)', normalizationStatus: 'pending',
+      decisionLog: [], currentStep: 1, completedSteps: [], docs: [], vehicles: [], drivers: [], losses: [], rawEmailText: text, rawAttachments: files || [] };
+    for (var k in (over || {})) s[k] = over[k];
+    return s;
+  }
+  function mk(id, over){ var s = clone(seedT); s.id = id; s.apiSourced = true; s.decisionLog = []; s.currentStep = 5; s.completedSteps = [1, 2, 3, 4]; ['pasSync', 'sanctions', 'producerCheck', 'marketClearance'].forEach(function(k){ delete s[k]; }); for (var k in (over || {})) s[k] = over[k]; return s; }
+  function use(list){ SUBMISSIONS_DATASET.length = 0; list.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = list[0].id; }
+  var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+  (async function(){
+  try {
+    login('admin');
+
+    // ---------- Confirm: what needs a person
+    var good = 'Insured: Delta Haulers LLC\nFEIN: 74-9842109\nUS DOT: 1234567\nAddress: 1200 Commerce St, Dallas, TX 75202\nBroker: Marsh & McLennan Commercial Brokerage\nContact: ops@delta.example\nRequested Limit: $1,000,000\nEffective Date: 11/01/2026';
+    var C = raw('SUB-C25-C', good); use([C]); emailIngestionDraftBySubId = {};
+    var draft = buildLocalNormalizationDraft(C); draft.validation = diValidate(draft, draft); emailIngestionDraftBySubId[C.id] = draft;
+    currentWorkflowStep = CONFIRM_STEP; CONFIRM_SHOW_ALL = false;
+    renderIngestionReviewDirect(C, el('rawEmailCaptureContainer'));
+    var rows = Array.prototype.slice.call(document.querySelectorAll('#emailDigestReviewContainer .email-digest-field-row[data-issue]'));
+    var need = rows.filter(function(r){ return r.getAttribute('data-issue'); }).map(function(r){ return r.querySelector('input').id.replace('normField_', ''); });
+    t('every field of the review is classified', rows.length === 9, rows.length + ' rows');
+    t('a field with a value, read cleanly, is accepted and folded away', rows.filter(function(r){ return !r.getAttribute('data-issue'); }).every(function(r){ return r.classList.contains('ws-accepted-hidden'); }));
+    t('only what is blank or flagged stays in view (the MC number is not in the email)', need.indexOf('mcNumber') > -1 && need.indexOf('insured') === -1 && need.indexOf('fein') === -1 && rows.filter(function(r){ return !r.classList.contains('ws-accepted-hidden'); }).length === need.length, need.join());
+    t('the bar says how many need the person and how many are accepted', /need/.test(el('confirmExceptionBar').innerText) && /accepted/.test(el('confirmExceptionBar').innerText) && new RegExp(need.length + ' field').test(el('confirmExceptionBar').innerText), el('confirmExceptionBar').innerText.slice(0, 160));
+    t('a section whose fields are all accepted is folded away too', Array.prototype.slice.call(document.querySelectorAll('#emailDigestReviewContainer .email-digest-section')).filter(function(s){ return s.querySelector('.email-digest-field-grid') && !s.classList.contains('ws-accepted-hidden'); }).every(function(s){ return s.querySelector('.email-digest-field-row:not(.ws-accepted-hidden)'); }));
+    toggleAcceptedFields();
+    t('Show all brings every field back', document.querySelectorAll('#emailDigestReviewContainer .ws-accepted-hidden').length === 0 && /Show only what needs me/.test(el('confirmExceptionBar').innerText));
+    toggleAcceptedFields();
+    t('and the button folds them again', document.querySelectorAll('#emailDigestReviewContainer .email-digest-field-row.ws-accepted-hidden').length === rows.length - need.length);
+    t('folded fields keep their values, so they are still applied', el('normField_insured').value === 'Delta Haulers LLC' && el('normField_fein').value === '74-9842109');
+    el('normField_mcNumber').value = 'MC-123456'; handleNormFieldEdit('mcNumber', el('normField_mcNumber')); confirmApplyView(C.id);
+    t('a field the person has edited stays in view', !el('normField_mcNumber').closest('.email-digest-field-row').classList.contains('ws-accepted-hidden'));
+    // low confidence, a conflict and a validation message all put a field in front of the person
+    var d2 = clone(draft); d2.fields_confidence.address = 'low'; d2.conflicts = [{ field: 'dot', label: 'DOT Number', kept: { value: '1', document: 'a' }, others: [{ value: '2', document: 'b' }] }]; d2.fein = '12345'; d2.validation = diValidate(d2, d2);
+    t('low confidence, a conflict and a failed check each send a field to the person', confirmFieldIssue('address', d2, d2.address) === 'read with low confidence' && confirmFieldIssue('dot', d2, d2.dot) === 'documents disagree' && confirmFieldIssue('fein', d2, d2.fein) === 'flagged by a check' && confirmFieldIssue('mcNumber', d2, '') === 'not found' && confirmFieldIssue('insured', d2, d2.insured) === '');
+
+    // ---------- triage: follow-up to an open case
+    login('senior_uw');
+    var open = mk('SUB-C25-OPEN', { insured: 'Delta Haulers LLC', fein: '74-9842109', broker: 'Aon' });
+    var f = raw('SUB-C25-F', 'Re SUB-C25-OPEN: loss runs attached. Insured Delta Haulers LLC FEIN 74-9842109', [{ name: 'loss-runs.pdf', type: 'application/pdf', size: 2048, base64: btoa('x') }]);
+    use([f, open]); activeSubmissionId = f.id;
+    renderTriageCard(f);
+    t('a follow-up offers to attach to the case it names', /Attach to SUB-C25-OPEN/.test(el('triageContainer').innerHTML));
+    toasts.length = 0; var ok = triageAttachTo('SUB-C25-OPEN');
+    t('attaching puts the files and the email text on that case', ok && open.rawAttachments.some(function(x){ return x.name === 'loss-runs.pdf'; }) && open.followUpEmails.length === 1 && /loss runs attached/.test(open.followUpEmails[0].text) && open.docs.some(function(d){ return d.name === 'loss-runs.pdf'; }));
+    t('both cases say what happened, in their logs', open.decisionLog.some(function(d){ return d.decision === 'triage_message_attached'; }) && f.decisionLog.some(function(d){ return d.decision === 'triage_merged'; }));
+    t('the message is closed as merged, not deleted', f.lifecycleStatus === 'merged' && f.mergedInto === 'SUB-C25-OPEN' && /Merged into SUB-C25-OPEN/.test(f.statusText) && SUBMISSIONS_DATASET.indexOf(f) > -1);
+    renderTriageCard(f);
+    t('a merged case shows its status and no buttons', /Merged into SUB-C25-OPEN/.test(el('triageContainer').innerText) && !/Attach to/.test(el('triageContainer').innerHTML));
+    t('a case that is itself merged or declined cannot take another message', (function(){ var g = raw('SUB-C25-G', 'x'); use([g, f]); activeSubmissionId = g.id; var r = triageAttachTo('SUB-C25-F'); return r === false; })());
+    var bound = mk('SUB-C25-BOUND', { lifecycleStatus: 'declined' }); var h = raw('SUB-C25-H', 'x'); use([h, bound]); activeSubmissionId = h.id;
+    t('nor can a declined case', triageAttachTo('SUB-C25-BOUND') === false && !h.lifecycleStatus);
+
+    // ---------- triage: same producer, same insured
+    var prev = mk('SUB-C25-PREV', { insured: 'Gamma Freight', fein: '11-2223334', broker: 'Aon' });
+    var again = raw('SUB-C25-AGAIN', 'Insured: Gamma Freight\nFEIN: 11-2223334\nBroker: Aon\n\nPlease quote auto liability for 10 vehicles.');
+    use([again, prev]); activeSubmissionId = again.id; triageQuickRead(again); renderTriageCard(again);
+    t('the same producer sending the same insured again offers to attach it to the earlier case', /Same producer, same insured: attach to SUB-C25-PREV/.test(el('triageContainer').innerHTML));
+    var other = raw('SUB-C25-OTHER', 'Insured: Gamma Freight\nFEIN: 11-2223334\nBroker: Marsh & McLennan Commercial Brokerage\nPlease quote auto liability.');
+    use([other, prev]); activeSubmissionId = other.id; triageQuickRead(other); renderTriageCard(other);
+    t('a different producer is a market conflict and gets no attach button', !/attach to SUB-C25-PREV/.test(el('triageContainer').innerHTML) && /market conflict/.test(el('triageContainer').innerHTML));
+
+    // ---------- triage: a change to a policy
+    var pol = mk('SUB-C25-POL', { insured: 'Links Freight', pasSync: { status: 'success', policyNumber: 'CAT-2026-100001' } });
+    var en = raw('SUB-C25-EN', 'Policy number CAT-2026-100001: please add a vehicle effective next week.', [{ name: 'vehicle.pdf', type: 'application/pdf', size: 900, base64: btoa('x') }]);
+    use([en, pol]); activeSubmissionId = en.id; renderTriageCard(en);
+    t('a change request names the policy and offers to attach it and open Policy Changes', /Attach to policy CAT-2026-100001 and open Policy Changes/.test(el('triageContainer').innerHTML) && triagePolicyCase(en) === pol);
+    triageOpenPolicy();
+    t('doing so attaches it and opens that case at the Bind step', pol.followUpEmails.length === 1 && en.lifecycleStatus === 'merged' && activeSubmissionId === 'SUB-C25-POL' && currentWorkflowStep === BIND_STEP, activeSubmissionId + ' ' + currentWorkflowStep);
+    var en2 = raw('SUB-C25-EN2', 'Policy number ZZZ-0000-999: please add a vehicle.'); use([en2, pol]); activeSubmissionId = en2.id; renderTriageCard(en2); toasts.length = 0; triageOpenPolicy();
+    t('a policy number no case holds is refused', /No bound policy/.test(el('triageContainer').innerText) && toasts.some(function(m){ return /No bound policy/.test(m); }) && !en2.lifecycleStatus);
+
+    // ---------- triage: a renewal
+    var rn = raw('SUB-C25-RN', 'Please renew our expiring policy for Delta Haulers, FEIN 74-9842109.'); use([rn]); renderTriageCard(rn);
+    t('a renewal offers the pipeline and "treat as new business"', /Open the renewal pipeline/.test(el('triageContainer').innerHTML) && /Treat as new business/.test(el('triageContainer').innerHTML));
+    triageTreatAsNew();
+    t('treating it as new is the person\'s call and is logged', triageClassify(rn).kind === 'new_submission' && rn.decisionLog.some(function(d){ return d.decision === 'triage_override'; }) && /New submission/.test(el('triageContainer').innerHTML));
+    triageOpenRenewals();
+    t('the pipeline button opens the renewal pipeline', quoteIntelActiveTab === 'pipeline');
+
+    // ---------- triage: not a submission
+    var ns = raw('SUB-C25-NS', 'Lunch on Friday? The usual place.'); use([ns]); showWorkflowPage(CLEARANCE_STEP); renderTriageCard(ns);
+    t('a message that is not a submission offers to discard it', /Discard/.test(el('triageContainer').innerHTML) && !!el('triageDiscardWhy'));
+    toasts.length = 0; el('triageDiscardWhy').value = 'too short'; triageDiscard();
+    t('a reason of 10 characters is needed', !ns.lifecycleStatus && toasts.some(function(m){ return /at least 10/.test(m); }));
+    el('triageDiscardWhy').value = 'Personal message, nothing to do with insurance.'; triageDiscard();
+    t('then it is discarded, kept in the queue with the reason and the log', ns.lifecycleStatus === 'discarded' && /Discarded/.test(ns.statusText) && /Personal message/.test(ns.discardReason) && ns.decisionLog.some(function(d){ return d.decision === 'triage_discarded'; }) && SUBMISSIONS_DATASET.indexOf(ns) > -1);
+    t('the log knows how to show the new decisions', ['triage_message_attached', 'triage_merged', 'triage_override', 'triage_discarded'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+    currentUserRole = 'assistant'; var ns2 = raw('SUB-C25-NS2', 'Lunch?'); use([ns2]); toasts.length = 0; el('loginUserSelect').value = 'assistant';
+    t('anyone who may check completeness may act on a message', hasPermission('completeness', 'edit') === true);
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+  })();
+})();
+</script>

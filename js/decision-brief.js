@@ -48,6 +48,16 @@ function buildDecisionBrief(sub) {
     const sa = analyzeSov(sub, sov), warn = sa.flags.filter(f => f.level === "warn");
     checks.push(warn.length ? dbCheck("Statement of values", "warn", warn.slice(0, 2).map(f => f.text).join(" ")) : dbCheck("Statement of values", "ok", sa.count + " item(s), " + anUsd(sa.total) + " in total."));
   }
+  if ((sub.lobKey || "trucking") === "trucking") {
+    if (sub.mvrData && typeof mvrAnalyze === "function") {
+      const ma = mvrAnalyze(sub), mw = ma.flags.filter(f => f.level === "warn");
+      checks.push(mw.length ? dbCheck("Driver records (MVR)", "warn", mw.slice(0, 2).map(f => f.text).join(" ")) : dbCheck("Driver records (MVR)", "ok", ma.drivers + " driver(s), no major violation in the last 36 months."));
+    } else checks.push(dbCheck("Driver records (MVR)", "pending", "No MVR was read. Ask the producer for one for every driver."));
+    if (sub.iftaData && typeof iftaAnalyze === "function") {
+      const ia = iftaAnalyze(sub), iw = ia.flags.filter(f => f.level === "warn");
+      checks.push(iw.length ? dbCheck("Fleet mileage (IFTA)", "warn", iw.slice(0, 2).map(f => f.text).join(" ")) : dbCheck("Fleet mileage (IFTA)", "ok", Math.round(ia.miles).toLocaleString("en-US") + " miles across " + ia.jurisdictions + " jurisdiction(s)."));
+    } else checks.push(dbCheck("Fleet mileage (IFTA)", "pending", "No IFTA report was read, so mileage and states rest on the application."));
+  }
   checks.push(dbCheck("Registry verification (FMCSA, NHTSA, DMV)", "pending", "No registry is connected, so these were not checked by the system. Verify with the source."));
   checks.push(dbCheck("Placement", "info", (sub.placementType || "surplus") === "surplus" ? "Surplus lines: diligent search, tax and licensed broker are handled at the Surplus Lines step." : "Admitted placement."));
   try {
@@ -106,7 +116,7 @@ function renderDecisionBrief(sub) {
   const b = buildDecisionBrief(sub), k = DB_KINDS[b.recommendation], ap = b.appetite;
   const tile = (title, big, small) => `<div><div class="ws-small text-muted">${title}</div><div style="font-size:24px; font-weight:700;">${big}</div><div class="ws-small text-muted">${small}</div></div>`;
   box.innerHTML = `<div class="card">
-    <div class="card-header"><h3><i class="ph ph-clipboard-text"></i> Decision Brief</h3><span class="badge ${k.badge}"><i class="ph ${k.icon}"></i> Suggested: ${k.label}</span></div>
+    <div class="card-header"><h3><i class="ph ph-clipboard-text"></i> Decision Brief</h3><span><button class="btn btn-outline btn-sm" onclick="openAcordPrefill()"><i class="ph ph-file-text"></i> ACORD forms</button> <span class="badge ${k.badge}"><i class="ph ${k.icon}"></i> Suggested: ${k.label}</span></span></div>
     <div class="card-body">
       <p class="text-sm" style="margin:0 0 10px;"><strong>${wsEsc(sub.insured)}</strong> <span class="text-muted">${wsEsc(sub.id)} · ${wsEsc(sub.lobName || "")}</span><br>${wsEsc(b.reasons.join(" "))}</p>
       <div style="display:flex; gap:28px; flex-wrap:wrap; margin-bottom:12px;">

@@ -92,6 +92,10 @@
     </div>
 
     <div class="header-right">
+      <!-- Notifications: referrals to me, decisions on mine, assignments, SLA reminders (js/notifications.js) -->
+      <button type="button" class="btn-sidebar-toggle" id="btnNotifications" onclick="toggleNotificationPanel()" title="Notifications" aria-label="Notifications" style="position:relative;">
+        <i class="ph ph-bell"></i><span id="notifBadge" class="badge badge-danger" style="display:none; position:absolute; top:-5px; right:-5px; font-size:10px; padding:1px 5px; min-width:16px; justify-content:center;">0</span>
+      </button>
       <!-- Active Case Workflow Nav Button — quick-resume access to whichever
            submission workflow is currently active, kept in sync by
            updateActiveCaseHeaders(); highlighted while the workflow page
@@ -512,6 +516,9 @@
         <!-- Step 3 (Extract): which files were read, how, and what came out (js/workflow-steps.js) -->
         <div id="extractSummaryContainer" data-views="extract"></div>
 
+        <!-- ACORD forms found among the documents, and the prefill button (js/acord-forms.js) -->
+        <div id="acordReadContainer" data-views="extract confirm"></div>
+
         <div id="rawEmailCaptureContainer" data-views="confirm"></div>
 
         <!-- OCR Extraction Visualizer — hidden until AI normalization has
@@ -788,6 +795,8 @@
 
         <!-- Loss run analysis and statement of values (js/submission-analysis.js) -->
         <div id="lossRunAnalysisContainer" class="mt-4"></div>
+        <div id="mvrAnalysisContainer" class="mt-4"></div>
+        <div id="iftaAnalysisContainer" class="mt-4"></div>
         <div id="sovContainer" class="mt-4"></div>
       </section>
 
@@ -1119,6 +1128,8 @@
           </div>
         </div>
         <div id="policyIssuanceContainer"></div>
+        <!-- MCS-90 endorsement and the BMC-91 / 91X filing (js/federal-filings.js) -->
+        <div id="federalFilingsContainer" class="mt-3"></div>
       </section>
 
       </div> <!-- /workflow-screens-wrapper -->
@@ -2872,5 +2883,10 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/workflow-steps.js"></script>
   <script src="js/submission-analysis.js"></script>
   <script src="js/decision-brief.js"></script>
+  <script src="js/driver-fleet-docs.js"></script>
+  <script src="js/federal-filings.js"></script>
+  <script src="js/acord-forms.js"></script>
+  <script src="js/step-actions.js"></script>
+  <script src="js/notifications.js"></script>
 </body>
 </html>

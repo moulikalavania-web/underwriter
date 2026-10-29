@@ -1,0 +1,103 @@
+<!-- Suite C27: the federal filings that follow the bind of a motor carrier policy. MCS-90: attached to a bound policy at no less than the
+     statutory minimum, signed for the insurer. BMC-91 / 91X: filed by the insurer, recorded, then seen on FMCSA's record. BMC-35: notice of
+     cancellation, effective 30 days or more after it is filed. Each step is refused when it is out of order. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function iso(d){ return d.toISOString().slice(0, 10); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return iso(d); }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.dot = '3194022'; s.mcNumber = 'MC-881924'; s.decisionLog = []; s.federalFilings = null; s.docs = [];
+    delete s.pasSync; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function setv(id, v){ var e = el(id); if (!e) throw new Error('missing field ' + id); e.value = v; }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  try {
+    login('senior_uw');
+
+    // ---------- before the bind
+    var A = mk('SUB-C27-A'); use(A);
+    renderFederalFilings(A);
+    t('before the bind the card says the filings follow it and offers nothing', /follow the bind/.test(el('federalFilingsContainer').innerText) && !el('ff_mcsLimit'));
+    toasts.length = 0; ffAttachMcs90();
+    t('attaching an MCS-90 before the bind is refused', /Bind first/.test(last()) && !A.federalFilings.mcs90);
+    toasts.length = 0; ffRecordFiling();
+    t('so is recording a filing', /follows the bind/.test(last()) && !A.federalFilings.bmc91);
+    var prop = clone(seedT); prop.id = 'SUB-C27-P'; prop.lobKey = 'property'; use(prop); renderFederalFilings(prop);
+    t('a property case has no federal filings card', el('federalFilingsContainer').innerHTML === '');
+
+    // ---------- bound: the MCS-90
+    var B = mk('SUB-C27-B', { pasSync: { status: 'success', policyNumber: 'CAT-2026-100777', syncedAt: iso(new Date()) + ' 09:00', effectiveDate: plus(0) } }); use(B);
+    renderFederalFilings(B);
+    var st0 = ffStatus(B);
+    t('bound: both items open, the filing due 5 days after the bind', st0.bound && st0.mcs90 === 'not_attached' && st0.bmc91 === 'not_filed' && st0.due === plus(5) && !st0.overdue && !st0.complete);
+    t('the card offers the MCS-90 with the statutory minimum and the filing form', !!el('ff_mcsLimit') && el('ff_mcsLimit').value === '750000' && !!el('ff_form') && !!el('ff_ref'));
+    setv('ff_mcsLimit', '500000'); setv('ff_mcsSigner', 'Dana Whitfield'); toasts.length = 0; ffAttachMcs90();
+    t('a limit below the statutory minimum is refused', /at least the statutory minimum for this case, \$750,000/.test(last()) && !B.federalFilings.mcs90);
+    setv('ff_mcsLimit', '1000000'); setv('ff_mcsSigner', 'Dan'); toasts.length = 0; ffAttachMcs90();
+    t('so is a signer with no real name', /name of the person who signs/.test(last()) && !B.federalFilings.mcs90);
+    var noDot = mk('SUB-C27-ND', { dot: null, pasSync: B.pasSync }); use(noDot); renderFederalFilings(noDot); setv('ff_mcsLimit', '1000000'); setv('ff_mcsSigner', 'Dana Whitfield'); toasts.length = 0; ffAttachMcs90();
+    t('a case with no USDOT number cannot have one', /USDOT number is needed/.test(last()));
+    use(B); renderFederalFilings(B); setv('ff_mcsLimit', '1000000'); setv('ff_mcsSigner', 'Dana Whitfield'); toasts.length = 0; ffAttachMcs90();
+    var m = B.federalFilings.mcs90;
+    t('a good one attaches: limit, signer, policy, time and person are kept', !!m && m.limit === 1000000 && m.signer === 'Dana Whitfield' && m.policyNumber === 'CAT-2026-100777' && !!m.attachedAt && /David Chen/.test(m.attachedBy));
+    t('it is logged, the endorsement is added to the case documents, and the card shows it', B.decisionLog.some(function(d){ return d.decision === 'ff_mcs90_attached'; }) && B.docs.some(function(d){ return /MCS-90/.test(d.name); }) && /Attached/.test(el('federalFilingsContainer').innerText) && /\$1,000,000/.test(el('federalFilingsContainer').innerText));
+    t('the endorsement text names the policy, the insured, USDOT and the limit', /CAT-2026-100777/.test(ffMcs90Html(B)) && /3194022/.test(ffMcs90Html(B)) && /\$1,000,000/.test(ffMcs90Html(B)) && /Template for review/.test(ffMcs90Html(B)));
+    toasts.length = 0; ffAttachMcs90();
+    t('a second attach is not done twice', /already attached/.test(last()));
+
+    // ---------- the filing
+    setv('ff_form', 'BMC-91X'); setv('ff_filedOn', plus(1)); setv('ff_ref', 'L&I-5521'); toasts.length = 0; ffRecordFiling();
+    t('a filing dated in the future is refused', /cannot be in the future/.test(last()) && !B.federalFilings.bmc91);
+    setv('ff_filedOn', plus(-3)); toasts.length = 0; ffRecordFiling();
+    t('so is one dated before the bind', /before the policy was bound/.test(last()));
+    setv('ff_filedOn', plus(0)); setv('ff_ref', 'x'); toasts.length = 0; ffRecordFiling();
+    t('so is one with no reference', /reference/.test(last()));
+    setv('ff_ref', 'L&I-5521'); toasts.length = 0; ffRecordFiling();
+    var b = B.federalFilings.bmc91;
+    t('a good filing is recorded with form, date, reference and person', !!b && b.form === 'BMC-91X' && b.filedOn === plus(0) && b.ref === 'L&I-5521' && !b.onRecordOn && B.decisionLog.some(function(d){ return d.decision === 'ff_bmc91_filed'; }));
+    t('the card now asks for the date it shows on FMCSA\'s record', /Filed, not yet seen on record/.test(el('federalFilingsContainer').innerText) && !!el('ff_onRecordOn'));
+    t('and the case is not complete until it is', ffStatus(B).bmc91 === 'filed' && !ffStatus(B).complete);
+    setv('ff_onRecordOn', plus(-1)); toasts.length = 0; ffConfirmOnRecord();
+    t('a date before the filing is refused', /cannot be on record before it was filed/.test(last()) && !b.onRecordOn);
+    setv('ff_onRecordOn', plus(0)); toasts.length = 0; ffConfirmOnRecord();
+    t('the filing is then on record, and the case is complete', b.onRecordOn === plus(0) && ffStatus(B).complete && /On record/.test(el('federalFilingsContainer').innerText) && /Complete/.test(el('federalFilingsContainer').innerText));
+
+    // ---------- an overdue filing
+    var C = mk('SUB-C27-C', { pasSync: { status: 'success', policyNumber: 'CAT-2026-100888', syncedAt: plus(-10) + ' 09:00' } }); use(C); renderFederalFilings(C);
+    var sc = ffStatus(C);
+    t('a filing not made within 5 days of the bind is overdue by the days late', sc.overdue && sc.daysLate === 5 && /Filing overdue by 5 day/.test(el('federalFilingsContainer').innerText), JSON.stringify(sc));
+
+    // ---------- the notice of cancellation
+    use(B); renderFederalFilings(B);
+    setv('ff_cancelFiledOn', plus(0)); setv('ff_cancelEffective', plus(10)); setv('ff_cancelWhy', 'Insured moved its cover to another carrier'); toasts.length = 0; ffRecordCancellation();
+    t('a cancellation effective in under 30 days is refused, with the earliest date', /no sooner than 30 days after it is filed \(earliest /.test(last()) && !B.federalFilings.cancel);
+    setv('ff_cancelEffective', plus(30)); setv('ff_cancelWhy', 'short'); toasts.length = 0; ffRecordCancellation();
+    t('a reason under 10 characters is refused', /at least 10 characters/.test(last()));
+    setv('ff_cancelWhy', 'Insured moved its cover to another carrier'); toasts.length = 0; ffRecordCancellation();
+    t('a notice of 30 days or more is recorded and logged', !!B.federalFilings.cancel && B.federalFilings.cancel.effective === plus(30) && B.decisionLog.some(function(d){ return d.decision === 'ff_bmc35_filed'; }) && /takes effect/.test(el('federalFilingsContainer').innerText));
+    var D = mk('SUB-C27-D', { pasSync: { status: 'success', policyNumber: 'CAT-2026-100999', syncedAt: iso(new Date()) + ' 09:00' } }); use(D); renderFederalFilings(D); toasts.length = 0; ffRecordCancellation();
+    t('with nothing on record there is nothing to cancel', /no filing on record to cancel/.test(last()) || !el('ff_cancelFiledOn'));
+
+    // ---------- who may
+    login('assistant'); use(D); renderFederalFilings(D); setv('ff_mcsLimit', '1000000'); setv('ff_mcsSigner', 'Dana Whitfield'); toasts.length = 0; ffAttachMcs90();
+    t('someone without approval on binders cannot attach or file', !D.federalFilings.mcs90 && toasts.some(function(x){ return /permission|not allowed|⛔/i.test(x); }), last());
+    t('the log knows how to show the new decisions', ['ff_mcs90_attached', 'ff_bmc91_filed', 'ff_bmc91_on_record', 'ff_bmc35_filed'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+
+    // ---------- on the Policy Issuance step
+    login('senior_uw'); use(B); goToWorkflowStep(BIND_STEP); goToWorkflowStep(ISSUANCE_STEP);
+    t('the card is on the Policy Issuance page', currentWorkflowStep === ISSUANCE_STEP && !!el('federalFilingsContainer').closest('#screen-10') && /Federal filings/.test(el('federalFilingsContainer').innerText));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

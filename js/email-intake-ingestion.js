@@ -740,7 +740,7 @@ function dewrapEmailProse(raw) {
     if (i === lines.length - 1) break;
     const trimmedCur = line.trim();
     const trimmedNext = lines[i + 1].trim();
-    const nextIsBulletOrLabel = /^(?:[-*•]|\d+[.)])\s/.test(trimmedNext) || /^[A-Za-z][A-Za-z0-9 /]{1,40}:/.test(trimmedNext);
+    const nextIsBulletOrLabel = /^(?:[-*•]|\d+[.)])\s/.test(trimmedNext) || /^[A-Za-z][A-Za-z0-9 \/#.&()'-]{1,40}:/.test(trimmedNext);
     const curEndsSentence = /[.!?:;]$/.test(trimmedCur);
     if (trimmedCur === "" || trimmedNext === "" || nextIsBulletOrLabel || curEndsSentence) {
       out += "\n";

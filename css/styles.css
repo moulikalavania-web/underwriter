@@ -8442,3 +8442,5 @@ body.has-bottom-footer .app-layout {
 .bottom-workflow-footer.u-hidden { display: none; }
 /* The header select is light text on a dark field; its dropdown list took the light text on a light popup, so the product list looked empty. */
 .app-header select option { background: var(--color-shell-accent); color: #F7F8FA; }
+/* Confirm step: fields that were read cleanly are folded away until asked for (js/step-actions.js). */
+.ws-accepted-hidden { display: none !important; }

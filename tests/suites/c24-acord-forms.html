@@ -1,0 +1,90 @@
+<!-- Suite C24: ACORD forms. A recognised ACORD 125, 126, 127 or 140 is read field by field from its text (label and value on one line, or on two);
+     what is found fills the empty case fields and conflicts are listed; premises on a 140 become the statement of values. The same forms are
+     prefilled from the case, each field marked Filled or Confirm, with a trucking supplement. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var A125 = ['ACORD 125  COMMERCIAL INSURANCE APPLICATION', 'AGENCY NAME: Marsh & McLennan Commercial Brokerage', 'NAME (FIRST NAMED INSURED) AND MAILING ADDRESS',
+    'Delta Haulers LLC', 'MAILING ADDRESS: 1200 Commerce St, Dallas, TX 75202', 'FEIN OR SOC SEC #: 74-9842109', 'NAICS: 484121', 'BUSINESS PHONE: 214-555-0100',
+    'E-MAIL ADDRESS: ops@delta.example', 'PROPOSED EFF DATE: 11/01/2026', 'PROPOSED EXP DATE: 11/01/2027', 'DESCRIPTION OF OPERATIONS', 'Long-haul dry freight', 'PRIOR CARRIER: Acme Mutual'].join('\n');
+  var A126 = ['ACORD 126  COMMERCIAL GENERAL LIABILITY SECTION', 'EACH OCCURRENCE: $1,000,000', 'GENERAL AGGREGATE: $2,000,000', 'PRODUCTS-COMPLETED OPERATIONS AGGREGATE: $2,000,000',
+    'COVERAGE BASIS: Occurrence', 'HAZARD CLASSIFICATION CODE: 61217'].join('\n');
+  var A140 = ['ACORD 140  PROPERTY SECTION', 'PREMISES 1', 'STREET ADDRESS: 10 Main St, Houston TX', 'CONSTRUCTION TYPE: Masonry', 'YEAR BUILT: 1998', 'SPRINKLER: Yes',
+    'BUILDING AMOUNT: $1,000,000', 'CONTENTS AMOUNT: $200,000', 'BUSINESS INCOME: $100,000', 'PREMISES 2', 'STREET ADDRESS: 22 Oak Ave, Dallas TX', 'CONSTRUCTION TYPE: Frame',
+    'YEAR BUILT: 2005', 'BUILDING AMOUNT: $2,000,000', 'CONTENTS AMOUNT: $300,000'].join('\n');
+  try {
+    login('admin');
+
+    // ---------- reading a form
+    var r = acordRead('125', A125);
+    t('an ACORD 125 is read: applicant under its label line, address, FEIN, NAICS, e-mail, dates', r.found.applicant && r.found.applicant.value === 'Delta Haulers LLC' && r.found.address.value === '1200 Commerce St, Dallas, TX 75202' && r.found.fein.value === '74-9842109' && r.found.naics.value === '484121' && r.found.email.value === 'ops@delta.example' && r.found.effective.value === '11/01/2026' && r.found.expiration.value === '11/01/2027', JSON.stringify(Object.keys(r.found)));
+    t('the agency and the operations description are found, one on the label line and one under it', r.found.agency.value === 'Marsh & McLennan Commercial Brokerage' && r.found.operations.value === 'Long-haul dry freight');
+    t('what the form does not carry is listed, not invented', r.missing.indexOf('SIC code') > -1 && !r.found.sic && r.missing.indexOf('Entity type') > -1);
+    var r6 = acordRead('126', A126);
+    t('an ACORD 126 gives the limits and the coverage basis', r6.found.occurrence.value === '$1,000,000' && r6.found.aggregate.value === '$2,000,000' && r6.found.products.value === '$2,000,000' && r6.found.basis.value === 'Occurrence' && r6.found.hazard.value === '61217');
+    var r140 = acordRead('140', A140);
+    t('an ACORD 140 is split into premises with their values', r140.premises.length === 2 && r140.premises[0].found.address.value === '10 Main St, Houston TX' && r140.premises[1].found.building.value === '$2,000,000' && r140.premises[0].found.sprinkler.value === 'Yes', JSON.stringify(r140.premises.map(function(p){ return p.no; })));
+    t('a label found twice takes the first; a value is not taken from another label', acordFindValue('NAME: A\nNAME: B', ['NAME']).value === 'A' && acordFindValue('PHONE:\nE-MAIL: x@y.z', ['PHONE']) === null);
+
+    // ---------- through the document pipeline
+    var sources = [{ name: 'ACORD_125_Delta.txt', text: A125, kind: 'txt', label: 'x', method: 'Direct text parsing', status: 'extracted', pages: [], notes: [] },
+      { name: 'ACORD_140_property.txt', text: A140, kind: 'txt', label: 'x', method: 'Direct text parsing', status: 'extracted', pages: [], notes: [] },
+      { name: 'notes.txt', text: 'Insured: Delta Haulers Inc\nFEIN: 74-9842109', kind: 'txt', label: 'x', method: 'Direct text parsing', status: 'extracted', pages: [], notes: [] }];
+    var sub = { id: 'SUB-C24-1', lobKey: 'property', lobName: 'Commercial Property', rawEmailText: '', rawAttachments: [] };
+    var draft = diConsolidate(sub, [sources[0], sources[1]]);
+    t('the draft picks up the named insured, FEIN, address, contact and dates from the form', draft.insured === 'Delta Haulers LLC' && draft.fein === '74-9842109' && draft.address === '1200 Commerce St, Dallas, TX 75202' && draft.email === 'ops@delta.example' && draft.effectiveDate === '11/01/2026' && draft.expirationDate === '11/01/2027', [draft.insured, draft.fein, draft.effectiveDate].join(' / '));
+    t('and says which document and form each came from', draft.fieldSources.insured.document === 'ACORD_125_Delta.txt' && /ACORD 125/.test(draft.fieldSources.insured.method));
+    t('premises on the 140 become the statement of values', !!draft.sov && draft.sov.kind === 'locations' && draft.sov.rows.length === 2 && draft.sov.rows[0].tiv === 1300000 && draft.sov.rows[1].building === 2000000);
+    t('the draft carries a summary of each form read, with what is missing', draft.acord.forms.length === 2 && draft.acord.forms[0].form === '125' && draft.acord.forms[1].premises === 2 && draft.acord.forms[0].missing.length > 0);
+    var d2 = diConsolidate({ id: 'SUB-C24-2', lobKey: 'trucking', rawEmailText: '' }, [sources[2], sources[0]]);
+    t('when two documents disagree the first is kept and the difference is listed', d2.insured === 'Delta Haulers Inc' && d2.conflicts.some(function(c){ return c.field === 'insured' && c.others[0].value === 'Delta Haulers LLC' && c.others[0].document === 'ACORD_125_Delta.txt'; }), JSON.stringify(d2.conflicts.map(function(c){ return c.field; })));
+    var d3 = diConsolidate({ id: 'SUB-C24-3', lobKey: 'trucking', rawEmailText: '' }, [sources[2]]);
+    t('with no ACORD form there is no ACORD summary', d3.acord === null);
+
+    // ---------- the card on the extract and confirm steps
+    var cs = clone(seedT); cs.id = 'SUB-C24-4'; cs.apiSourced = true; cs.acordRead = draft.acord;
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(cs); activeSubmissionId = cs.id;
+    emailIngestionDraftBySubId = {}; emailIngestionDraftBySubId[cs.id] = draft;
+    renderAcordRead(cs);
+    t('the card lists each form, its fields and what is not on it, and offers the prefill', /ACORD 125, Commercial Insurance Application/.test(el('acordReadContainer').innerHTML) && /Delta Haulers LLC/.test(el('acordReadContainer').innerHTML) && /Not on the form/.test(el('acordReadContainer').innerHTML) && /Prefill ACORD forms/.test(el('acordReadContainer').innerHTML));
+    emailIngestionDraftBySubId = {}; cs.acordRead = null; renderAcordRead(cs);
+    t('with none found the card says so', /No ACORD 125, 126, 127 or 140 was found/.test(el('acordReadContainer').innerHTML));
+    var shown = [];
+    ['extract', 'confirm', 'ingest', 'clearance'].forEach(function(v){ var st = WORKFLOW_STEPS.filter(function(w){ return w.view === v; })[0]; applyWorkflowView(st, cs); shown.push(v + ':' + !el('acordReadContainer').classList.contains('wf-view-off')); });
+    t('the card shows on Extract and Confirm only', shown.join() === 'extract:true,confirm:true,ingest:false,clearance:false', shown.join());
+
+    // ---------- prefill
+    var P = clone(seedT); P.id = 'SUB-C24-5'; P.apiSourced = true; P.insured = 'Delta Haulers LLC'; P.fein = '74-9842109'; P.address = '1200 Commerce St, Dallas, TX 75202';
+    P.broker = 'Marsh & McLennan Commercial Brokerage'; P.email = 'ops@delta.example'; P.effectiveDate = '11/01/2026'; delete P.expirationDate; P.priorCarrier = undefined;
+    P.operationsProfile = { annual_mileage: 1200000, operating_radius: 500, states_operated: ['TX', 'OK'], hazmat_operations: 'No' };
+    var pf = acordPrefill(P, '125');
+    var row = function(f, label){ var out2 = null; f.sections.forEach(function(s){ s.rows.forEach(function(x){ if (x.label === label) out2 = x; }); }); return out2; };
+    t('prefill fills what the case has', row(pf, 'Applicant (first named insured)').state === 'filled' && row(pf, 'Applicant (first named insured)').value === 'Delta Haulers LLC' && row(pf, 'FEIN').value === '74-9842109' && row(pf, 'Proposed effective date').state === 'filled');
+    t('and marks what it does not have as Confirm, with who to ask', row(pf, 'Proposed expiration date').state === 'confirm' && row(pf, 'Proposed expiration date').ask === 'Broker' && row(pf, 'Prior carrier').state === 'confirm' && pf.confirm === pf.total - pf.filled && pf.confirm > 0);
+    var ps = acordPrefill(P, 'TRK');
+    t('the trucking supplement reads the operations profile', row(ps, 'Annual mileage').value === '1,200,000' && row(ps, 'States operated').value === 'TX, OK' && row(ps, 'Hazmat operations').value === 'No' && row(ps, 'Commodities hauled').state === 'confirm');
+    var Q = clone(seedT); Q.id = 'SUB-C24-6'; Q.lobKey = 'property'; Q.sov = draft.sov;
+    var p140 = acordPrefill(Q, '140');
+    t('a 140 is prefilled once per premises from the statement of values', p140.sections.length === 2 && p140.sections[0].title === 'Premises 1' && p140.sections[0].rows[0].value === '10 Main St, Houston TX' && p140.sections[1].rows.filter(function(x){ return x.label === 'Building amount'; })[0].value === '$2,000,000');
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(P); activeSubmissionId = P.id;
+    openAcordPrefill('125');
+    t('the pop-up opens on the form with its tabs, the count to confirm, and the trucking forms', getComputedStyle(el('acordPrefillModal')).display !== 'none' && /to confirm/.test(el('acordPrefillBody').innerText) && /ACORD 127/.test(el('acordPrefillTabs').innerText) && /Trucking supplement/.test(el('acordPrefillTabs').innerText));
+    showAcordPrefillTab('TRK');
+    t('another tab shows its form and notes that it was prefilled', /Carrier supplement: trucking/.test(el('acordPrefillBody').innerText) && !!P.acordPrefilled.TRK);
+    closeAcordPrefill();
+    t('it can be closed', getComputedStyle(el('acordPrefillModal')).display === 'none');
+    renderDecisionBrief(P);
+    t('the Decision Brief has the button', /openAcordPrefill/.test(el('decisionBriefContainer').innerHTML));
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>

@@ -229,6 +229,8 @@ function authRaiseCore(sub, note) {
   sub.authPreparedBy[authActor()] = true;
   sub.authorityRef = { status: "pending", requiredRole: a.requiredRole, raisedBy: authActor(), raisedAt: authNow(), note: note, reasons: a.own.reasons.slice(), measures: a.measures, history: ((sub.authorityRef && sub.authorityRef.history) || []).concat(sub.authorityRef ? [{ status: sub.authorityRef.status, decidedBy: sub.authorityRef.decidedBy, decidedAt: sub.authorityRef.decidedAt }] : []) };
   authLog(sub, "auth_referral_raised", "Referral raised to " + (a.requiredRole ? authRoleLabel(a.requiredRole) : "carrier (exceeds all internal authority)") + ": " + a.own.reasons.join("; ") + ". Note: " + note);
+  sub.authorityRef.raisedByRole = currentUserRole;
+  if (typeof notify === "function") notify(a.requiredRole || "admin", { kind: "referral", title: (a.requiredRole ? "Referred to you: " : "Referred to the carrier: ") + sub.insured, text: String(note || ""), caseId: sub.id, key: "ref-" + sub.id + "-" + sub.authorityRef.raisedAt });
   // The case says, wherever it is listed, who it is waiting for.
   sub.statusText = "Referral — awaiting " + authRoleOwnerName(a.requiredRole);
   sub.statusBadge = "badge-warning";
@@ -268,6 +270,7 @@ function authDecideCore(sub, verb, note, quiet) {
   if (verb === "approve") { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
   else if (verb === "return") { sub.statusText = "Returned by " + who + " for revision"; sub.statusBadge = "badge-warning"; }
   else { sub.statusText = "Authority referral declined by " + who; sub.statusBadge = "badge-danger"; }
+  if (typeof notify === "function" && ref.raisedByRole) notify(ref.raisedByRole, { kind: "decision", title: (verb === "approve" ? "Approved" : verb === "return" ? "Returned" : "Declined") + " by " + who + ": " + sub.insured, text: String(note || (verb === "approve" ? "Sign-off given." : "")), caseId: sub.id, key: "dec-" + sub.id + "-" + ref.decidedAt });
   authLog(sub, verb === "approve" ? "auth_referral_approved" : "auth_referral_closed", (verb === "approve" ? "Referral approved within " + authRoleLabel(currentUserRole) + " authority at premium " + authMoney(m.premium) + ", limit " + authMoney(m.limit) + "." : "Referral " + (verb === "return" ? "returned for revision" : "declined") + ": " + note));
   authPersist();
   return { ok: true };

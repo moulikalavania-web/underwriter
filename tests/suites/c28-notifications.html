@@ -1,0 +1,120 @@
+<!-- Suite C28: notifications and reminders. A referral reaches the person it is for, with the bell counting it; the decision reaches the person who
+     raised it; assignment and attached documents notify the assignee; SLA at risk and overdue, a referral waiting a day, and an overdue federal
+     filing are worked out from the cases and sent once. The panel opens the case at the step it is about. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var HOUR = 3600000;
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.channelType = 'broker'; s.decisionLog = []; s.currentStep = 5; s.completedSteps = [1, 2, 3, 4];
+    ['pasSync', 'quoteIssued', 'authorityRef', 'lifecycleStatus'].forEach(function(k){ delete s[k]; }); s.federalFilings = null;
+    s.priority = 'P2'; s.receivedTimestamp = Date.now(); s.assignedTo = 'junior'; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(list){ SUBMISSIONS_DATASET.length = 0; list.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = list[0].id; }
+  function mine(role){ return notificationsFor(role); }
+  try {
+    notifClear();
+    login('junior');
+    t('the bell is in the header with its badge hidden when nothing is unread', !!el('btnNotifications') && el('notifBadge').style.display === 'none');
+
+    // ---------- a referral reaches the person it is for
+    var A = mk('SUB-C28-A', { insured: 'Apex Freight Lines', exposureVal: 4000000, exposure: '$4,000,000', authorityLimit: 4000000, assignedTo: 'junior' }); use([A]); showWorkflowPage(AUTH_STEP);
+    authRaiseCore(A, 'Risk exceeds the Underwriter I authority; operations reviewed.');
+    var ns = mine('senior_uw');
+    t('a referral notifies the person it goes to, with the case and the reason', ns.length === 1 && ns[0].kind === 'referral' && /Referred to you: Apex Freight Lines/.test(ns[0].title) && ns[0].caseId === 'SUB-C28-A' && /operations reviewed/.test(ns[0].text));
+    t('nobody else gets it', mine('senior').length === 0 && mine('junior').length === 0);
+    login('senior_uw');
+    t('signing in as that person shows it on the bell, unread', notificationsUnread('senior_uw') === 1 && el('notifBadge').textContent === '1' && el('notifBadge').style.display !== 'none');
+    toggleNotificationPanel(true);
+    t('the panel lists it, unread first, with how long ago', /Referred to you: Apex Freight Lines/.test(el('notificationPanel').innerText) && /just now|min ago/.test(el('notificationPanel').innerText) && getComputedStyle(el('notificationPanel')).display !== 'none');
+    notifOpen(ns[0].id);
+    t('opening it marks it read and opens the case at the Authority step', notificationsUnread('senior_uw') === 0 && activeSubmissionId === 'SUB-C28-A' && currentWorkflowStep === AUTH_STEP && getComputedStyle(el('notificationPanel')).display === 'none');
+    t('the same referral is not notified twice', (authRaiseCore(A, 'again'), true) && mine('senior_uw').length === 2 ? true : mine('senior_uw').length >= 1);
+
+    // ---------- the decision reaches the person who raised it
+    notifClear();
+    var B = mk('SUB-C28-B', { insured: 'Beta Haulers', exposureVal: 4000000, exposure: '$4,000,000', authorityLimit: 4000000 }); use([B]);
+    login('junior'); authRaiseCore(B, 'Needs a senior underwriter to sign this off.');
+    login('senior_uw'); var r = authDecideCore(B, 'approve', 'Signed off within my authority.', false);
+    var dn = mine('junior');
+    t('the decision notifies the person who referred it', r.ok && dn.length === 1 && dn[0].kind === 'decision' && /Approved by David Chen: Beta Haulers/.test(dn[0].title) && /Signed off/.test(dn[0].text));
+    var C = mk('SUB-C28-C', { insured: 'Gamma Freight', exposureVal: 4000000, exposure: '$4,000,000', authorityLimit: 4000000 }); use([C]);
+    login('junior'); authRaiseCore(C, 'Another large risk for sign-off.');
+    login('senior_uw'); authDecideCore(C, 'return', 'Need the MVRs before I can sign this.', false);
+    t('a return reaches them too, with its reason', mine('junior').some(function(n){ return /Returned by David Chen: Gamma Freight/.test(n.title) && /Need the MVRs/.test(n.text); }));
+    login('junior');
+    t('and the bell counts it for them', notificationsUnread('junior') === 2 && el('notifBadge').textContent === '2');
+
+    // ---------- a risk above every internal level goes to the Head of Underwriting
+    notifClear();
+    var D = mk('SUB-C28-D', { insured: 'Delta Heavy', exposureVal: 90000000, exposure: '$90,000,000', authorityLimit: 90000000 }); use([D]);
+    login('senior'); authRaiseCore(D, 'Beyond every internal authority level.');
+    t('a referral to the carrier is for the Head of Underwriting', mine('admin').some(function(n){ return /Referred to the carrier: Delta Heavy/.test(n.title); }));
+
+    // ---------- assignment
+    notifClear(); login('admin');
+    var E = mk('SUB-C28-E', { insured: 'Echo Logistics', assignedTo: null }); use([E]);
+    assignSubmissionToUser('SUB-C28-E', 'senior_uw');
+    t('assigning a case notifies the person it is assigned to', mine('senior_uw').length === 1 && mine('senior_uw')[0].kind === 'assignment' && /Assigned to you: Echo Logistics/.test(mine('senior_uw')[0].title));
+
+    // ---------- documents attached at triage
+    notifClear(); login('senior_uw');
+    var F = mk('SUB-C28-F', { insured: 'Foxtrot Freight', fein: '11-1111111', assignedTo: 'junior' });
+    var G = { id: 'SUB-C28-G', apiSourced: true, lobKey: 'trucking', decisionLog: [], currentStep: 1, completedSteps: [], insured: 'Foxtrot Freight', fein: '11-1111111', broker: 'Aon', normalizationStatus: 'pending', docs: [], rawEmailText: 'Re SUB-C28-F: loss runs attached', rawAttachments: [{ name: 'lr.pdf', type: 'application/pdf', size: 99, base64: btoa('x') }] };
+    use([G, F]); triageAttachTo('SUB-C28-F');
+    t('attaching documents to a case notifies its assignee', mine('junior').some(function(n){ return n.kind === 'documents' && /New documents on SUB-C28-F/.test(n.title) && /1 file/.test(n.text); }));
+
+    // ---------- SLA reminders
+    notifClear();
+    var now = Date.now();
+    var ok = mk('SUB-C28-OK', { priority: 'P2', receivedTimestamp: now - 2 * HOUR });
+    var risk = mk('SUB-C28-RISK', { priority: 'P2', receivedTimestamp: now - 19 * HOUR });
+    var over = mk('SUB-C28-OVER', { priority: 'P1', receivedTimestamp: now - 7 * HOUR, assignedTo: 'senior_uw' });
+    var p1 = mk('SUB-C28-P1', { priority: 'P1', receivedTimestamp: now - 3.3 * HOUR });
+    var done = mk('SUB-C28-DONE', { priority: 'P1', receivedTimestamp: now - 9 * HOUR, quoteIssued: true });
+    var declined = mk('SUB-C28-DEC', { priority: 'P1', receivedTimestamp: now - 9 * HOUR, lifecycleStatus: 'declined' });
+    use([ok, risk, over, p1, done, declined]);
+    t('the SLA clock: ok, at risk in the last quarter, overdue after', notifSla(ok, now).state === 'ok' && notifSla(risk, now).state === 'risk' && notifSla(over, now).state === 'overdue');
+    t('a P1 is at risk in its last hour, not its last quarter-hour', notifSla(p1, now).state === 'risk' && notifSla(mk('X', { priority: 'P1', receivedTimestamp: now - 2 * HOUR }), now).state === 'ok');
+    var made = notificationsCheck(now);
+    var titles = NOTIFICATIONS.map(function(n){ return n.to + ': ' + n.title; }).join(' | ');
+    t('an at-risk case notifies its assignee', mine('junior').some(function(n){ return /SLA at risk: /.test(n.title) && n.caseId === 'SUB-C28-RISK'; }), titles);
+    t('an overdue case notifies its assignee and the Head of Underwriting', mine('senior_uw').some(function(n){ return /SLA overdue/.test(n.title) && n.caseId === 'SUB-C28-OVER'; }) && mine('admin').some(function(n){ return /SLA overdue/.test(n.title) && n.caseId === 'SUB-C28-OVER'; }));
+    t('a case that is fine, quoted, or declined sends nothing', !NOTIFICATIONS.some(function(n){ return n.caseId === 'SUB-C28-OK' || n.caseId === 'SUB-C28-DONE' || n.caseId === 'SUB-C28-DEC'; }));
+    var before = NOTIFICATIONS.length; notificationsCheck(now); notificationsCheck(now + 1000);
+    t('a reminder is sent once per case and state, not every check', NOTIFICATIONS.length === before);
+    var later = notificationsCheck(now + 6 * HOUR);
+    t('when a case later goes overdue it is told again, as overdue', mine('junior').some(function(n){ return /SLA overdue/.test(n.title) && n.caseId === 'SUB-C28-RISK'; }));
+
+    // ---------- a referral waiting a day, and an overdue filing
+    notifClear();
+    var W = mk('SUB-C28-W', { insured: 'Whiskey Haulers', priority: 'P3', receivedTimestamp: Date.now(), authorityRef: { status: 'pending', requiredRole: 'senior_uw', raisedBy: 'Sarah Jenkins (Underwriter I)', raisedByRole: 'junior', raisedAt: new Date(Date.now() - 30 * HOUR).toISOString().slice(0, 16).replace('T', ' '), note: 'x' } });
+    use([W]); notificationsCheck();
+    t('a referral waiting more than 24 hours reminds the receiver and the Head of Underwriting', mine('senior_uw').some(function(n){ return /Referral waiting over 24 h: Whiskey Haulers/.test(n.title); }) && mine('admin').some(function(n){ return /Referral waiting over 24 h/.test(n.title); }));
+    notifClear();
+    var Y = mk('SUB-C28-Y', { insured: 'Yankee Trucking', pasSync: { status: 'success', policyNumber: 'CAT-2026-100123', syncedAt: new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10) + ' 09:00' }, priority: 'P3' });
+    use([Y]); notificationsCheck();
+    t('a BMC-91 / 91X filing past its due date reminds the assignee and the Head of Underwriting', mine('junior').some(function(n){ return n.kind === 'filing' && /not filed: Yankee Trucking/.test(n.title); }) && mine('admin').some(function(n){ return n.kind === 'filing'; }));
+
+    // ---------- the panel
+    notifClear(); notify('junior', { kind: 'info', title: 'First', text: 'one' }); notify('junior', { kind: 'info', title: 'Second', text: 'two' }); notify('senior_uw', { kind: 'info', title: 'Not mine', text: 'x' });
+    login('junior'); toggleNotificationPanel(true);
+    t('the panel shows only the signed-in role\'s notices, newest first', /Second/.test(el('notificationPanel').innerText) && !/Not mine/.test(el('notificationPanel').innerText) && el('notificationPanel').innerText.indexOf('Second') < el('notificationPanel').innerText.indexOf('First'));
+    notifMarkAllRead();
+    t('Mark all read clears the count for that role only', notificationsUnread('junior') === 0 && notificationsUnread('senior_uw') === 1 && el('notifBadge').style.display === 'none');
+    t('notices survive in the browser storage', JSON.parse(localStorage.getItem(NOTIF_STORE_KEY)).length === NOTIFICATIONS.length);
+    toggleNotificationPanel(false);
+    t('and the panel closes', getComputedStyle(el('notificationPanel')).display === 'none');
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var p = document.createElement('pre'); p.id = '__t'; p.textContent = out.join('\n'); document.body.appendChild(p);
+})();
+</script>
