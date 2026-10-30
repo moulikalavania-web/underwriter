@@ -14,41 +14,6 @@
  */
 
 // ----------------------------------------------------------------------------
-// RECONCILIATION — never silently overwrite; flag matches vs conflicts.
-// Only runs when NHTSA data was actually found for this VIN.
-// ----------------------------------------------------------------------------
-function reconcileVehicleFields(vehicle, nhtsa) {
-  const rows = [];
-  const fieldDefs = [
-    { key: "year", label: "Year" },
-    { key: "make", label: "Make" },
-    { key: "model", label: "Model" },
-    { key: "vehicle_type", label: "Vehicle Type" },
-  ];
-  fieldDefs.forEach(f => {
-    const submitted = vehicle[f.key];
-    const enriched = nhtsa[f.key];
-    let status;
-    if (submitted === undefined || submitted === null || submitted === "") status = "enriched";
-    else if (enriched === undefined || enriched === null) status = "submitted";
-    else if (String(submitted).trim().toLowerCase() === String(enriched).trim().toLowerCase()) status = "verified";
-    else status = "conflict";
-    rows.push({ label: f.label, submitted: submitted || "—", enriched: enriched || "—", status });
-  });
-  rows.push({ label: "VIN", submitted: vehicle.vin || "—", enriched: nhtsa.vin, status: vehicle.vin ? "verified" : "enriched" });
-  rows.push({ label: "Body Class", submitted: "—", enriched: nhtsa.body_class, status: "enriched" });
-  return rows;
-}
-
-// Confidence = how many of the 3 sources actually had data for this VIN —
-// an honest measure of "how much of this vehicle's data was actually
-// found," not a fabricated field-accuracy score.
-function computeConfidence(nhtsaMatched, fmcsaMatched, dmvMatched) {
-  const matched = [nhtsaMatched, fmcsaMatched, dmvMatched].filter(Boolean).length;
-  return Math.round((matched / 3) * 100);
-}
-
-// ----------------------------------------------------------------------------
 // RENDER — Screen 4 "Vehicle Data Enrichment" section
 // ----------------------------------------------------------------------------
 function renderVehicleEnrichment(sub) {
@@ -249,8 +214,6 @@ function applyEnrichmentToSubmission(subId, idx, conflictChoice) {
   showToast(`✅ Verified data applied to ${sub.id} — Unit ${idx + 1}.`, "success");
 }
 
-window.reconcileVehicleFields = reconcileVehicleFields;
-window.computeConfidence = computeConfidence;
 window.renderVehicleEnrichment = renderVehicleEnrichment;
 window.toggleVehicleEnrichDetail = toggleVehicleEnrichDetail;
 window.applyEnrichmentToSubmission = applyEnrichmentToSubmission;

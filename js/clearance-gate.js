@@ -31,7 +31,7 @@ function clearanceChecks(sub) {
   } else if (!producerAllowsBind(p.status)) {
     const noRegistry = p.status === "not_found" && typeof PRODUCER_REGISTRY !== "undefined" && PRODUCER_REGISTRY.length === 0;
     const label = noRegistry ? "No registry loaded" : (PRODUCER_STATE_UI[p.status] || {}).label || p.status;
-    out.producer = { ok: false, label, detail: noRegistry ? "No licensing registry is loaded; an approver must record a verified lookup." : "The producer is not verified for this state and carrier." };
+    out.producer = { ok: false, label, detail: noRegistry ? "No licensing registry is loaded; an approver must record a verified lookup." : p.status === "cannot_determine" ? "The state of the customer's business was not found on the case or in the email. Set it on the Producer Licence card below." : "The producer is not verified for this state and carrier." };
   } else {
     out.producer = { ok: true, label: p.status === "not_applicable" ? "Not applicable (direct)" : "Verified", detail: "" };
   }

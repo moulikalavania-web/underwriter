@@ -1,0 +1,180 @@
+<!-- Suite C35: AI governance. The rule-based reader is a registered model on an approved use case; every reading is kept (use case, model and version, what it read and produced as
+     fingerprints, confidence, time, status), a person's review of it is kept, a quote is refused while a mandatory review is pending, and a model that is not approved is refused, including a connected
+     OCR service. A model is proposed, evaluated and approved by someone else; a prompt version is evaluated and approved by someone other than its author. The reading itself is still rules. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 4; s.documentExtractions = [];
+    ['pasSync', 'quoteIssued', 'dataObservations', 'dataDiscrepancies', 'dataResolutions', 'aiExecutionIds', 'authorityRef'].forEach(function(k){ delete s[k]; });
+    s.assignedTo = 'senior_uw'; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function doc(name, text){ return { name: name, kind: 'pdf', label: 'PDF', method: 'PDF text extraction', status: 'extracted', text: text, pages: [], notes: [] }; }
+  var APP = 'Business Name: Links Freight LLC\nFEIN: 74-9842109\nUS DOT: 1234567';
+  var EV = { evaluationType: 'pre_release', datasetRef: 'carrier test set v1', metricCode: 'field_accuracy', value: 0.95, threshold: 0.9 };
+  try {
+    aiReset();
+    // ---------- what ships
+    var rules = ai.model('MDL-RULES'), ocr = ai.model('MDL-OCR');
+    t('the rule-based reader ships as an approved model, and says what it is', rules.status === 'approved' && rules.provider === 'internal' && rules.builtIn === true && rules.modelVersion === AI_RULES_VERSION && /Built-in rule engine/.test(rules.approvedBy) && rules.requiresPrompt === false);
+    t('an OCR service slot exists and is not approved', ocr.status === 'proposed' && ocr.provider === 'external' && ocr.riskTier === 'high');
+    t('document extraction is a registered use case with mandatory human review', ai.useCase('document_extraction').decisionImpact === 'automated_with_review' && ai.useCase('document_extraction').humanReview.mandatory === true && ai.useCase('document_extraction').humanReview.confidenceThreshold === 0.9 && ai.useCase('document_extraction').modelId === 'MDL-RULES');
+    t('the gate lets the reader run, refuses an unknown use case, and refuses OCR until its model is approved', aiGate('document_extraction').ok && !aiGate('nonsense').ok && /not registered/.test(aiGate('nonsense').reasons[0]) && !aiGate('ocr_reading').ok && /is proposed, not approved/.test(aiGate('ocr_reading').reasons[0]));
+
+    // ---------- every reading is kept
+    login('senior_uw'); var S = mk('SUB-C35-S'); use(S);
+    var draft = diConsolidate(S, [doc('application.pdf', APP)]);
+    var ex = AI.executions[AI.executions.length - 1];
+    t('a reading is kept as a run: use case, model and version, what it read and made, confidence, time and status', ex.id === 'AX-1' && ex.useCaseCode === 'document_extraction' && ex.modelId === 'MDL-RULES' && ex.modelVersion === '2026.1' && ex.status === 'succeeded' && /^[0-9a-f]+:\d+$/.test(ex.inputHash) && /^[0-9a-f]+:\d+$/.test(ex.outputHash) && typeof ex.confidence === 'number' && ex.confidence > 0 && ex.latencyMs >= 0 && ex.relatedEntityId === 'SUB-C35-S' && ex.inputReference === 'application.pdf');
+    t('tokens and cost are not metered for rules, and say so', ex.tokensIn === null && ex.tokensOut === null && ex.costAmount === 0);
+    t('the draft and the case know which run produced them', draft.aiExecutionId === ex.id && S.aiExecutionIds.join() === ex.id);
+    t('the values read are tied to the run', S.dataObservations.filter(function(o){ return o.sourceType === 'DOCUMENT'; }).length > 0 && S.dataObservations.filter(function(o){ return o.sourceType === 'DOCUMENT'; }).every(function(o){ return o.aiExecutionId === ex.id; }));
+    var again = mk('SUB-C35-S2'); diConsolidate(again, [doc('application.pdf', APP)]); var ex2 = AI.executions[AI.executions.length - 1];
+    t('the same documents give the same fingerprints', ex2.inputHash === ex.inputHash && ex2.outputHash === ex.outputHash && ex2.id === 'AX-2');
+    var chg = mk('SUB-C35-S3'); diConsolidate(chg, [doc('application.pdf', APP.replace('1234567', '7654321'))]);
+    t('different documents give different ones', AI.executions[AI.executions.length - 1].inputHash !== ex.inputHash && AI.executions[AI.executions.length - 1].outputHash !== ex.outputHash);
+    t('a mandatory review makes the run wait for a person', ex.reviewRequired === true && ex.reviewStatus === 'pending' && aiPending(S).length === 1);
+    t('confidence is the mean of what the reader was sure of', (function(){ var f = draft.fields_confidence, v = Object.keys(f).map(function(k){ return AI_CONF[f[k]]; }); return Math.abs(ex.confidence - Math.round(v.reduce(function(a, b){ return a + b; }, 0) / v.length * 1000) / 1000) < 0.0001; })());
+
+    // ---------- the review
+    var nq = toasts.length, gq = GUARD_REGISTRY.issueQuote.guards.filter(function(g){ return g.name === 'AI output reviewed'; })[0];
+    t('the quote is refused while the reading has not been reviewed, and the refusal is logged', gq.check([]) === false && toasts.slice(nq).some(function(m){ return /has not been reviewed by a person/.test(m); }) && S.decisionLog.some(function(d){ return d.decision === 'ai_review_blocked' && /AX-1/.test(d.notes); }));
+    t('so is opening the e-signature step', GUARD_REGISTRY.eSign.guards.some(function(g){ return g.name === 'AI output reviewed'; }) && GUARD_REGISTRY.eSign.guards.filter(function(g){ return g.name === 'AI output reviewed'; })[0].check([]) === false);
+    t('the decision brief says a reading awaits review', buildDecisionBrief(S).checks.some(function(c){ return c.label === 'AI governance' && c.status === 'fail' && /await a person's review/.test(c.detail); }));
+    renderAiReview(S);
+    t('the Confirm step shows how the documents were read: the rule-based reader, its confidence and that review is pending', el('aiReviewContainer') && /How the documents were read/.test(el('aiReviewContainer').innerText) && /not a language model/.test(el('aiReviewContainer').innerText) && /document-reader-rules 2026\.1/.test(el('aiReviewContainer').innerText) && /Pending/i.test(el('aiReviewContainer').innerText) && /Awaiting your review/.test(el('aiReviewContainer').innerText));
+    emailIngestionDraftBySubId[S.id] = draft;
+    var f = document.createElement('div'); f.id = 'c35_form'; f.innerHTML = '<input id="normField_insured" value="Links Freight LLC"><input id="normField_fein" value="74-9842109"><input id="normField_dot" value="1234567">'; document.body.appendChild(f);
+    applyNormalizedDataToSubmission(S.id);
+    var rv = AI.reviews[AI.reviews.length - 1];
+    t('confirming with nothing changed is the review: accepted, by whoever confirmed', rv && rv.executionId === 'AX-1' && rv.decision === 'accepted' && rv.changes.length === 0 && /David Chen/.test(rv.reviewer) && ex.reviewStatus === 'reviewed' && ex.reviewIds.join() === rv.id && aiPending(S).length === 0);
+    t('the quote is then not held back by the reading', gq.check([]) === true);
+    t('the brief says it was reviewed', buildDecisionBrief(S).checks.some(function(c){ return c.label === 'AI governance' && c.status === 'ok' && /reviewed by a person/.test(c.detail); }));
+    // a person who changes a value at Confirm modifies the reading
+    var M = mk('SUB-C35-M'); use(M); var dm = diConsolidate(M, [doc('application.pdf', APP)]); emailIngestionDraftBySubId[M.id] = dm;
+    document.getElementById('normField_insured').value = 'Links Haulage Partners'; applyNormalizedDataToSubmission(M.id);
+    var rm = AI.reviews[AI.reviews.length - 1];
+    t('confirming with a change is modified, and says what changed', rm.decision === 'modified' && rm.changes.length === 1 && rm.changes[0].field === 'insured' && rm.changes[0].to === 'Links Haulage Partners' && AI.executions.filter(function(x){ return x.relatedEntityId === 'SUB-C35-M'; })[0].reviewStatus === 'reviewed');
+    document.body.removeChild(f);
+    // a person can also review by hand
+    var H = mk('SUB-C35-H'); use(H); diConsolidate(H, [doc('application.pdf', APP)]); var hx = AI.executions[AI.executions.length - 1];
+    login('admin'); t('someone who may not edit completeness cannot review by hand', aiReview(hx.id, { decision: 'accepted' }).error === 'permission'); login('senior_uw');
+    t('a decision must be one of accepted, modified, rejected, overridden; reject and override need a reason; modified needs the changes', aiReview(hx.id, { decision: 'maybe' }).error === 'decision' && aiReview(hx.id, { decision: 'rejected', reason: 'no' }).error === 'reason' && aiReview(hx.id, { decision: 'overridden', reason: '' }).error === 'reason' && aiReview(hx.id, { decision: 'modified' }).error === 'changes' && aiReview('AX-999', { decision: 'accepted' }).error === 'none' && hx.reviewStatus === 'pending');
+    var rj = aiReview(hx.id, { decision: 'rejected', reason: 'The scan was for another insured entirely.' });
+    t('a rejection with a reason is kept', rj.ok && rj.review.decision === 'rejected' && /another insured/.test(rj.review.reason) && hx.reviewStatus === 'reviewed');
+
+    // ---------- policy refuses what is not approved
+    login('compliance'); var RT = ai.model('MDL-RULES'); var rr = aiSetModelStatus('MDL-RULES', 'retired', 'no'); t('retiring a model needs a reason', rr.error === 'reason' && RT.status === 'approved');
+    t('only a person who may approve can retire it', (function(){ login('senior_uw'); var r = aiSetModelStatus('MDL-RULES', 'retired', 'The reader is being replaced by a newer version.'); login('compliance'); return r.error === 'permission' && RT.status === 'approved'; })());
+    aiSetModelStatus('MDL-RULES', 'restricted', 'Under review after an accuracy complaint.'); var B = mk('SUB-C35-B'); use(B); login('senior_uw');
+    var db = diConsolidate(B, [doc('application.pdf', APP)]), bx = AI.executions[AI.executions.length - 1];
+    t('with the model restricted, nothing is read: the run is kept as refused by policy, with why', bx.status === 'blocked_by_policy' && /restricted, not approved/.test(bx.reasons[0]) && db.aiBlocked && !db.insured && db.needs_review === true && /Nothing was read/.test(db.review_reasons[0]) && B.aiExecutionIds.indexOf(bx.id) > -1);
+    t('the brief shows the refusal', buildDecisionBrief(B).checks.some(function(c){ return c.label === 'AI governance' && c.status === 'fail' && /refused by policy/.test(c.detail); }));
+    t('a refused run is not a review that was waiting', bx.reviewRequired === false && aiPending(B).length === 0);
+    login('compliance'); RT.status = 'proposed'; RT.proposedByKey = 'someone else'; var ap = aiApproveModel('MDL-RULES', 'Back in service.'); t('a built-in internal model needs no evaluation to be approved again', ap.ok && RT.status === 'approved'); login('senior_uw');
+
+    // ---------- registering and approving a model
+    login('junior'); t('someone who may not edit review rules cannot register a model', aiRegisterModel({ provider: 'azure_openai', modelName: 'gpt-x', modelVersion: '1', capability: 'extraction', riskTier: 'medium' }).error === 'permission');
+    login('admin');
+    var bad = aiRegisterModel({ provider: 'mystery', modelName: '', modelVersion: '', capability: 'magic', riskTier: 'tiny' });
+    t('a model needs a known provider, a name, a version, a capability and a risk tier', bad.error === 'invalid' && bad.errors.length === 5);
+    var rm1 = aiRegisterModel({ provider: 'azure_openai', modelName: 'extract-gpt', modelVersion: '2026-03', capability: 'extraction', riskTier: 'medium', requiresPrompt: true, deploymentRef: 'azure/eu/extract' });
+    var M1 = rm1.model;
+    t('a registered model is proposed, with who proposed it', rm1.ok && M1.id === 'MDL-1' && M1.status === 'proposed' && M1.builtIn === false && /Head/.test(M1.proposedBy) && M1.requiresPrompt === true);
+    t('the same model and version cannot be registered twice', aiRegisterModel({ provider: 'azure_openai', modelName: 'extract-gpt', modelVersion: '2026-03', capability: 'extraction', riskTier: 'medium' }).errors[0] === 'That model and version are already registered.');
+    login('compliance'); t('it cannot be approved before it is evaluated', aiApproveModel(M1.id, '').error === 'no_evaluation');
+    login('admin'); var fe = aiEvaluate(Object.assign({ modelId: M1.id }, EV, { value: 0.82 }));
+    t('an evaluation records the metric against its threshold and whether it passed', fe.ok && fe.evaluation.passed === false && fe.evaluation.metricValue === 0.82 && fe.evaluation.threshold === 0.9 && fe.evaluation.datasetRef === 'carrier test set v1');
+    login('compliance'); t('a failed evaluation stops approval', aiApproveModel(M1.id, '').error === 'failed_evaluation');
+    login('admin'); aiEvaluate(Object.assign({ modelId: M1.id }, EV, { value: 0.96 }));
+    t('a rate is judged the other way: at or below the threshold passes', aiEvaluate({ modelId: M1.id, evaluationType: 'regression', datasetRef: 'd', metricCode: 'hallucination_rate', value: 0.02, threshold: 0.05 }).evaluation.passed === true && aiEvaluate({ modelId: M1.id, evaluationType: 'bias', datasetRef: 'd', metricCode: 'disparity', value: 0.2, threshold: 0.1 }).evaluation.passed === false);
+    t('evaluations need a data set, a metric, numbers, a known type and a registered model', aiEvaluate({ modelId: M1.id, evaluationType: 'pre_release', datasetRef: '', metricCode: 'x', value: 1, threshold: 1 }).error === 'dataset' && aiEvaluate({ modelId: M1.id, evaluationType: 'pre_release', datasetRef: 'd', metricCode: '', value: 1, threshold: 1 }).error === 'metric' && aiEvaluate({ modelId: M1.id, evaluationType: 'pre_release', datasetRef: 'd', metricCode: 'm', value: 'x', threshold: 1 }).error === 'numbers' && aiEvaluate({ modelId: M1.id, evaluationType: 'vibes', datasetRef: 'd', metricCode: 'm', value: 1, threshold: 1 }).error === 'type' && aiEvaluate({ modelId: 'MDL-99', evaluationType: 'pre_release', datasetRef: 'd', metricCode: 'm', value: 1, threshold: 1 }).error === 'model');
+    t('the proposer cannot approve their own model', (function(){ var key = M1.proposedByKey; M1.proposedByKey = azName('compliance'); login('compliance'); var r = aiApproveModel(M1.id, ''); M1.proposedByKey = key; return r.error === 'self'; })());
+    login('senior_uw'); t('someone who may not approve cannot', aiApproveModel(M1.id, '').error === 'permission');
+    login('compliance'); var am = aiApproveModel(M1.id, 'Tested on the carrier set.');
+    t('a different person approves it once the latest pre-release evaluation passed', am.ok && M1.status === 'approved' && /Robert Okafor/.test(M1.approvedBy) && aiApproveModel(M1.id, '').error === 'status');
+
+    // ---------- use cases
+    login('admin');
+    var u0 = aiRegisterUseCase({ code: 'Bad Code', modelId: 'MDL-99', decisionImpact: 'whatever', riskTier: 'tiny', humanReview: { mandatory: 'yes', confidenceThreshold: 4 } });
+    t('a use case needs a code, a registered model, an impact, a risk tier and a review policy', u0.error === 'invalid' && u0.errors.length >= 5);
+    t('a duplicate code is refused', aiRegisterUseCase({ code: 'document_extraction', modelId: M1.id, decisionImpact: 'advisory', riskTier: 'low', humanReview: { mandatory: false, confidenceThreshold: 0.5 } }).errors.some(function(e){ return /already registered/.test(e); }));
+    t('a fully automated use case cannot be high risk or sit on a high-risk model', aiRegisterUseCase({ code: 'auto_ocr', modelId: 'MDL-OCR', decisionImpact: 'automated', riskTier: 'medium', humanReview: { mandatory: false, confidenceThreshold: 0.5 } }).errors.some(function(e){ return /cannot sit on a high-risk model/.test(e); }) && aiRegisterUseCase({ code: 'auto_hi', modelId: M1.id, decisionImpact: 'automated', riskTier: 'high', humanReview: { mandatory: false, confidenceThreshold: 0.5 } }).errors.some(function(e){ return /cannot sit on a high-risk model/.test(e); }));
+    t('automated with review means the review is mandatory', aiRegisterUseCase({ code: 'rev_x', modelId: M1.id, decisionImpact: 'automated_with_review', riskTier: 'medium', humanReview: { mandatory: false, confidenceThreshold: 0.5 } }).errors.some(function(e){ return /review is mandatory/.test(e); }));
+    var uc = aiRegisterUseCase({ code: 'loss_run_summary', modelId: M1.id, decisionImpact: 'advisory', riskTier: 'medium', humanReview: { mandatory: false, confidenceThreshold: 0.85 }, moduleCode: 'INTAKE' });
+    t('a valid use case is registered and active', uc.ok && uc.useCase.status === 'active' && uc.useCase.humanReview.confidenceThreshold === 0.85);
+
+    // ---------- prompts
+    t('a model that takes a prompt is refused until an approved prompt version is bound to it', !aiGate('loss_run_summary').ok && /No approved prompt version exists for loss_run_summary on extract-gpt/.test(aiGate('loss_run_summary').reasons[0]));
+    var pr = aiAddPrompt({ useCaseCode: 'loss_run_summary', code: 'LRS-SYSTEM', purpose: 'Summarise a loss run' });
+    t('a prompt needs a registered use case and a code', aiAddPrompt({ useCaseCode: 'nope', code: 'x' }).error === 'use_case' && aiAddPrompt({ useCaseCode: 'loss_run_summary', code: '' }).error === 'code' && pr.ok);
+    var pv1 = aiAddPromptVersion(pr.prompt.id, { modelId: M1.id, template: 'Summarise the claims in {{document}} as JSON.', parameters: { temperature: 0, maxTokens: 800 }, outputSchema: { type: 'object' } });
+    t('a prompt version is numbered, tied to a model, fingerprinted, and a draft', pv1.ok && pv1.version.versionNo === 1 && pv1.version.status === 'draft' && /^[0-9a-f]+:\d+$/.test(pv1.version.templateHash) && pv1.version.parameters.temperature === 0 && aiAddPromptVersion(pr.prompt.id, { modelId: 'MDL-99', template: 'x' }).error === 'model' && aiAddPromptVersion(pr.prompt.id, { modelId: M1.id, template: '  ' }).error === 'template');
+    login('compliance'); t('it is not approved without an evaluation', aiApprovePromptVersion(pv1.version.id).error === 'no_evaluation');
+    login('admin'); aiEvaluate({ modelId: M1.id, promptVersionId: pv1.version.id, evaluationType: 'pre_release', datasetRef: 'prompt set', metricCode: 'field_error_rate', value: 0.01, threshold: 0.05 });
+    t('the author cannot approve their own prompt', aiApprovePromptVersion(pv1.version.id).error === 'permission' && (function(){ login('compliance'); var key = pv1.version.authorKey; pv1.version.authorKey = azName('compliance'); var r = aiApprovePromptVersion(pv1.version.id); pv1.version.authorKey = key; return r.error === 'self'; })());
+    var apv = aiApprovePromptVersion(pv1.version.id);
+    t('someone else approves it once its evaluation passed, and it can then run', apv.ok && pv1.version.status === 'approved' && aiGate('loss_run_summary').ok && aiGate('loss_run_summary').prompt.id === pv1.version.id);
+    login('admin'); var pv2 = aiAddPromptVersion(pr.prompt.id, { modelId: M1.id, template: 'Summarise the claims in {{document}} as JSON; list large losses first.' });
+    aiEvaluate({ modelId: M1.id, promptVersionId: pv2.version.id, evaluationType: 'regression', datasetRef: 'prompt set', metricCode: 'field_accuracy', value: 0.97, threshold: 0.9 }); login('compliance'); aiApprovePromptVersion(pv2.version.id);
+    t('approving a newer version retires the one before it', pv2.version.versionNo === 2 && pv2.version.status === 'approved' && pv1.version.status === 'retired' && aiGate('loss_run_summary').prompt.id === pv2.version.id);
+
+    // ---------- OCR through governance
+    var calls = 0; var provider = async function(name, bytes, kind){ calls++; return { text: 'Business Name: Scan Co', confidence: 0.88, tokensIn: 120, tokensOut: 40, cost: 0.004 }; };
+    var bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    aiReset(); login('senior_uw');
+    (async function(){
+      try {
+        var r0 = await aiGovernOcrCall(provider, 'scan.png', bytes, 'png');
+        t('an OCR service whose model is not approved is not called: the run is kept as refused', r0 === null && calls === 0 && AI.executions[AI.executions.length - 1].status === 'blocked_by_policy' && /ocr-service unspecified is proposed, not approved/.test(AI.executions[AI.executions.length - 1].reasons[0]) && AI.executions[AI.executions.length - 1].relatedEntityId === 'scan.png');
+        login('admin'); aiEvaluate({ modelId: 'MDL-OCR', evaluationType: 'pre_release', datasetRef: 'scan set', metricCode: 'field_accuracy', value: 0.93, threshold: 0.9 }); login('compliance'); var ao = aiApproveModel('MDL-OCR', 'Evaluated on the scan set.'); login('senior_uw');
+        var r1 = await aiGovernOcrCall(provider, 'scan.png', bytes, 'png'), ox = AI.executions[AI.executions.length - 1];
+        t('once approved it is called, and what it reports is kept: confidence, tokens, cost and time', ao.ok && r1 && r1.text === 'Business Name: Scan Co' && calls === 1 && ox.status === 'succeeded' && ox.confidence === 0.88 && ox.tokensIn === 120 && ox.tokensOut === 40 && ox.costAmount === 0.004 && ox.latencyMs >= 0 && ox.modelId === 'MDL-OCR' && ox.inputHash !== ox.outputHash);
+        t('a reading below the review threshold needs review, as does any run of a mandatory use case', ox.reviewRequired === true && ox.reviewStatus === 'pending');
+        var bad = async function(){ throw new Error('service down'); }; var threw = false; try { await aiGovernOcrCall(bad, 'scan2.png', bytes, 'png'); } catch (e) { threw = e.message === 'service down'; }
+        t('a service that fails is recorded as failed, and the failure still reaches the caller', threw && AI.executions[AI.executions.length - 1].status === 'failed' && AI.executions[AI.executions.length - 1].reasons[0] === 'service down');
+        var O = mk('SUB-C35-O', { rawAttachments: [{ name: 'scan.png' }] });
+        t('a case finds the runs of its own files, and they wait for its review', aiSubExecutions(O).some(function(x){ return x.id === ox.id; }) && aiPending(O).length === 1 && aiPending(O)[0].id === ox.id);
+        // the real ingestion path
+        aiReset(); window.DOCUMENT_OCR_PROVIDER = provider; var png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1]);
+        calls = 0; var refused = await diProcessFile('scan.png', 'image/png', png, null, 0);
+        t('through document ingestion a file needing OCR is left unread, and says AI governance refused it', refused[0].status === 'needs_ocr' && /refused by AI governance/.test(refused[0].method) && /has not approved its model/.test(refused[0].notes.join(' ')) && calls === 0);
+        ai.model('MDL-OCR').status = 'approved'; var read = await diProcessFile('scan.png', 'image/png', png, null, 0);
+        t('and once the model is approved it is read, with its run kept', read[0].status === 'extracted' && /OCR/.test(read[0].method) && calls === 1 && AI.executions.some(function(x){ return x.useCaseCode === 'ocr_reading' && x.status === 'succeeded'; }));
+        delete window.DOCUMENT_OCR_PROVIDER;
+
+        // ---------- evaluation of the rules
+        aiReset(); login('admin');
+        var ge = aiRunGoldenEvaluation('MDL-RULES');
+        t('the rule-based reader is evaluated on a built-in golden set and its field accuracy kept', ge.ok && ge.evaluation.metricCode === 'field_accuracy' && ge.evaluation.metricValue === 1 && ge.evaluation.passed === true && /built-in golden set \(2 documents, 6 fields\)/.test(ge.evaluation.datasetRef) && aiRunGoldenEvaluation('MDL-OCR').error === 'model');
+        t('a golden evaluation that falls under its threshold fails', aiRunGoldenEvaluation('MDL-RULES', 1.01).evaluation.passed === false);
+
+        // ---------- the screens
+        login('senior_uw'); aiReset(); var U = mk('SUB-C35-U'); use(U); diConsolidate(U, [doc('application.pdf', APP)]);
+        login('admin'); switchQuoteIntelTab('ai'); var tx = el('aiGovernanceRoot').innerText;
+        t('the AI Governance tab shows models, use cases and runs, and says no language model is connected', !!el('qiTabAi') && el('qiPanelAi').style.display === 'block' && /AI governance: models, use cases, runs and review/.test(tx) && /No language model and no OCR service is connected/.test(tx) && /document-reader-rules 2026\.1/.test(tx) && /document_extraction/.test(tx) && /ocr-service/.test(tx) && /Recent runs/.test(tx) && /AX-1/.test(tx));
+        t('the use case table counts runs and reviews', /1 of 1 reviewed|0 of 1 reviewed/.test(tx) && /Mandatory 90%/.test(tx));
+        aiUiGolden('MDL-RULES'); t('the golden evaluation runs from the page', AI.evaluations.length === 1 && /field_accuracy 1 vs 0\.9/.test(el('aiGovernanceRoot').innerText));
+        el('ai_kind').value = 'model'; el('ai_json').value = JSON.stringify({ provider: 'anthropic', modelName: 'claude-x', modelVersion: '1', capability: 'extraction', riskTier: 'medium' }); aiUiRegister();
+        t('a model is registered from the page and shown as proposed', AI.models.some(function(m){ return m.modelName === 'claude-x' && m.status === 'proposed'; }) && /claude-x/.test(el('aiGovernanceRoot').innerText));
+        el('ai_json').value = '{nope'; var nj = toasts.length; aiUiRegister(); t('text that is not JSON is refused', toasts.slice(nj).some(function(m){ return /not valid JSON/.test(m); }));
+        switchQuoteIntelTab('versions'); t('the panel is hidden again on another tab', el('qiPanelAi').style.display === 'none' && !el('qiTabAi').classList.contains('active'));
+        t('the audit action is labelled', !!AUDIT_ACTION_META.ai_review_blocked);
+      } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+      try { aiReset(); } catch (e) { /* nothing to reset */ }
+      if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+      var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+    })();
+    return;
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  var pre0 = document.createElement('pre'); pre0.id = '__t'; pre0.textContent = out.join('\n'); document.body.appendChild(pre0);
+})();
+</script>

@@ -10,6 +10,7 @@ Files in this folder (all plain text, so the prototype reads them without OCR):
 | `IFTA_Q3_2026.txt` | One quarter of IFTA miles and gallons. |
 | `Loss_Runs_2023-2025.csv` | Two claims, one still open. |
 | `FOLLOWUP_email.txt`, `NOT_A_SUBMISSION.txt` | For the triage actions (see step 6). |
+| `producer_registry_DEMO.csv`, `sanctions_watchlist_DEMO.csv` | Invented licensing registry and watchlist. Load them in Step 2 (as Marcus Vance, who holds the approval) so both legal checks pass. |
 
 ## Click path (sign in as the Head of Underwriting, Priya Nair, to import; then as David Chen, Senior Underwriter)
 

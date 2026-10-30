@@ -1,0 +1,331 @@
+<!-- Suite C33: Product Studio. A carrier's base version and an MGU's override version that stores only the changes the carrier allowed; shared limit groups with erosion categories
+     and a state group that replaces the all-states group; availability by state with required-but-rejectable coverage (Texas UM/UIM); releases that are compiled, validated, tested,
+     simulated, approved by someone else, published, superseded, rolled back and retired; quotes record the release and are refused when its rules are broken. With nothing published
+     nothing changes. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var TODAY = new Date().toISOString().slice(0, 10);
+  function cov(code, name, av){ return { code: code, name: name, availability: av || 'optional' }; }
+  function st(id, c, j, av, rej, form, vid){ return { id: id, versionId: vid || 'PV-1', coverageCode: c, jurisdiction: j, availability: av, rejectionAllowed: !!rej, rejectionFormRef: form || '', from: '2026-01-01', to: null }; }
+  function opt(id, c, g, set, j, type, amt, def){ return { id: id, coverageCode: c, groupId: g, optionSetCode: set, jurisdiction: j, limitType: type, amount: amt, currency: 'USD', isDefault: !!def, versionId: 'PV-1' }; }
+  function doc(){ return {
+    productId: 'PRD-TRK', name: 'Commercial Trucking', ownerTenantId: 'T-CAR-VIK', jurisdictions: ['TX', 'OH', 'CA'],
+    versions: [
+      { id: 'PV-1', kind: 'base', versionNo: 1, from: '2026-01-01', to: '2037-12-31', status: 'draft',
+        coverages: [cov('BI', 'Bodily Injury Liability', 'mandatory'), cov('PD', 'Property Damage Liability', 'mandatory'), cov('PHYS', 'Physical Damage'), cov('UMUIM', 'UM/UIM'), cov('CARGO', 'Motor Truck Cargo'), cov('HIRED', 'Hired Auto'), cov('GL', 'General Liability')],
+        uwRules: [{ id: 'UW-AGE', name: 'Maximum fleet age', type: 'refer', threshold: 15, active: true }],
+        ratingFactors: [{ code: 'BASE', name: 'Base rate', multiplier: 1 }] },
+      { id: 'PV-2', kind: 'override', baseVersionId: 'PV-1', ownerTenantId: 'T-MGU', versionNo: 1, from: '2026-01-01', to: '2037-12-31', status: 'draft', overrides: [] }],
+    permissions: [
+      { id: 'P1', baseVersionId: 'PV-1', targetType: 'coverage', targetRef: 'HIRED', allowedActions: ['remove'], min: null, max: null, requiresCarrierApproval: false, requiresFiling: false },
+      { id: 'P2', baseVersionId: 'PV-1', targetType: 'coverage', targetRef: '*', allowedActions: ['make_required'], min: null, max: null, requiresCarrierApproval: true, requiresFiling: false },
+      { id: 'P3', baseVersionId: 'PV-1', targetType: 'limit', targetRef: 'CARGO', allowedActions: ['restrict'], min: 100000, max: 250000, requiresCarrierApproval: false, requiresFiling: false },
+      { id: 'P4', baseVersionId: 'PV-1', targetType: 'factor', targetRef: 'BASE', allowedActions: ['adjust'], min: 0.9, max: 1.1, requiresCarrierApproval: true, requiresFiling: true },
+      { id: 'P5', baseVersionId: 'PV-1', targetType: 'uw_rule', targetRef: 'UW-AGE', allowedActions: ['tighten', 'disable'], min: 5, max: 15, requiresCarrierApproval: false, requiresFiling: false }],
+    limitGroups: [
+      { id: 'G1', versionId: 'PV-1', code: 'G-CSL', limitType: 'csl', limitBasis: 'per_accident', parentGroupId: null, jurisdiction: null, from: '2026-01-01', to: null },
+      { id: 'G2', versionId: 'PV-1', code: 'G-CSL', limitType: 'csl', limitBasis: 'per_accident', parentGroupId: null, jurisdiction: 'TX', from: '2026-01-01', to: null },
+      { id: 'G3', versionId: 'PV-1', code: 'G-HIRED', limitType: 'sublimit', limitBasis: 'per_accident', parentGroupId: 'G1', jurisdiction: null, from: '2026-01-01', to: null },
+      { id: 'G4', versionId: 'PV-1', code: 'G-GEN', limitType: 'aggregate', limitBasis: 'per_term', parentGroupId: null, jurisdiction: null, from: '2026-01-01', to: null },
+      { id: 'G5', versionId: 'PV-1', code: 'G-PCO', limitType: 'aggregate', limitBasis: 'per_term', parentGroupId: null, jurisdiction: null, from: '2026-01-01', to: null }],
+    groupCoverages: [
+      { id: 'M1', groupId: 'G1', coverageCode: 'BI', erosionCategory: null }, { id: 'M2', groupId: 'G1', coverageCode: 'PD', erosionCategory: null },
+      { id: 'M3', groupId: 'G2', coverageCode: 'BI', erosionCategory: null }, { id: 'M4', groupId: 'G2', coverageCode: 'PD', erosionCategory: null },
+      { id: 'M5', groupId: 'G3', coverageCode: 'HIRED', erosionCategory: null },
+      { id: 'M6', groupId: 'G4', coverageCode: 'GL', erosionCategory: 'premises_operations' }, { id: 'M7', groupId: 'G5', coverageCode: 'GL', erosionCategory: 'products_completed_operations' }],
+    limitOptions: [
+      opt('O1', null, 'G1', 'CSL-1M', null, 'csl', 1000000, true), opt('O2', null, 'G1', 'CSL-2M', null, 'csl', 2000000, false),
+      opt('O3', null, 'G2', 'CSL-TX-750', 'TX', 'csl', 750000, true), opt('O4', null, 'G2', 'CSL-TX-1M', 'TX', 'csl', 1000000, false),
+      opt('O5', null, 'G3', 'CSL-1M', null, 'sublimit', 250000, true),
+      opt('O6', null, 'G4', 'GL-STD', null, 'aggregate', 2000000, true), opt('O7', null, 'G5', 'GL-STD', null, 'aggregate', 1000000, true),
+      opt('O8', 'UMUIM', null, null, null, 'per_occurrence', 100000, true), opt('O9', 'UMUIM', null, null, null, 'per_occurrence', 250000, false),
+      opt('O10', 'UMUIM', null, null, 'TX', 'per_occurrence', 300000, true), opt('O11', 'UMUIM', null, null, 'TX', 'per_occurrence', 500000, false),
+      opt('O12', 'CARGO', null, null, null, 'per_occurrence', 100000, true), opt('O13', 'CARGO', null, null, null, 'per_occurrence', 250000, false)],
+    coverageStates: [
+      st('S1', 'BI', null, 'required'), st('S2', 'PD', null, 'required'), st('S3', 'PHYS', null, 'available'), st('S4', 'UMUIM', null, 'available'), st('S5', 'CARGO', null, 'available'), st('S6', 'HIRED', null, 'available'), st('S7', 'GL', null, 'available'),
+      st('S8', 'UMUIM', 'TX', 'required', true, 'TX-UM-REJ'), st('S9', 'UMUIM', 'OH', 'required', false, ''), st('S10', 'HIRED', 'CA', 'not_available')],
+    testSuites: [{ id: 'TS-1', name: 'Regression', cases: [
+      { name: 'Texas needs UM/UIM unless rejected', input: { state: 'TX', coverages: ['BI', 'PD'] }, expected: { required: ['BI', 'PD', 'UMUIM'], missingRequired: ['UMUIM'] } },
+      { name: 'A signed rejection satisfies it', input: { state: 'TX', coverages: ['BI', 'PD'], rejections: { UMUIM: true } }, expected: { missingRequired: [], rejected: ['UMUIM'] } },
+      { name: 'Ohio needs it and cannot be rejected', input: { state: 'OH', coverages: ['BI', 'PD'], rejections: { UMUIM: true } }, expected: { missingRequired: ['UMUIM'] } },
+      { name: 'Hired auto is not sold in California', input: { state: 'CA', coverages: ['BI', 'PD', 'HIRED'] }, expected: { notAvailable: ['HIRED'], issuesContain: ['not available'] } },
+      { name: 'Not offered in New York', input: { state: 'NY', coverages: ['BI'] }, expected: { offered: false } },
+      { name: 'Texas UM/UIM default limit', input: { state: 'TX', coverages: ['BI', 'PD', 'UMUIM'] }, expected: { defaults: { UMUIM: 300000 }, optionAmounts: { UMUIM: [300000, 500000] } } }] }]
+  }; }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 9;
+    ['pasSync', 'quoteIssued', 'authorityRef', 'releaseId', 'coverageRejections', 'limitBuckets', 'limitTxns', 'limitSets', 'insuredInfo', 'canonicalJson', 'productId', 'renewalOf', 'agreementId', 'program', 'discretionaryPricing'].forEach(function(k){ delete s[k]; });
+    s.address = '9 Elm Road, Dallas, TX 75201'; s.channelType = 'broker'; s.productId = 'PRD-TRK'; s.assignedTo = 'senior_uw'; s.discretionaryPricing = { finalPremium: 100000, basePremium: 100000 };
+    s.coverageRows = [{ id: 'COV-1', code: 'BI', line: 'Bodily Injury Liability', limit: '$1,000,000', ded: '$0' }, { id: 'COV-2', code: 'PD', line: 'Property Damage Liability', limit: '$1,000,000', ded: '$0' }];
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; (Array.isArray(s) ? s : [s]).forEach(function(x){ SUBMISSIONS_DATASET.push(x); }); activeSubmissionId = (Array.isArray(s) ? s[0] : s).id; }
+  function load(d){ login('senior_uw'); var r = psLoadProduct(d || doc()); return r.ok; }
+  function publish(vid, scope, suite){ // author senior_uw, approver senior
+    login('senior_uw'); var c = psCreateRelease('PRD-TRK', vid, scope || { jurisdiction: null }, ''); if (!c.ok) return c;
+    var r = c.release; psRunTests(r.id, suite || 'TS-1'); psSimulate(r.id, null, []);
+    login('senior'); var a = psApproveRelease(r.id, 'ok'); if (!a.ok) return a; var p = psPublish(r.id); return p.ok ? { ok: true, release: r } : p;
+  }
+  function issuesOf(d, vid){ return psValidateVersion(d, vid || 'PV-1').map(function(i){ return i.check + ': ' + i.message; }); }
+  function hasIssue(d, re, vid){ return issuesOf(d, vid).some(function(m){ return re.test(m); }); }
+  function prodOf(d){ var p = clone(d); return p; }
+  try {
+    psReset();
+    // ---------- loading
+    login('junior'); t('an Underwriter I cannot load a product configuration', psLoadProduct(doc()).error === 'permission' && !psProduct('PRD-TRK'));
+    login('senior_uw');
+    var bad = doc(); bad.versions[1].baseVersionId = 'PV-9'; bad.versions[0].coverages.push(cov('BI', 'Dup')); bad.versions.push({ id: 'PV-1', kind: 'base', coverages: [] }); bad.permissions[0].allowedActions = ['explode'];
+    var br = psLoadProduct(bad);
+    t('a document with a wrong shape is refused, naming what is wrong', br.error === 'invalid' && br.errors.some(function(e){ return /its base PV-9 is not a base version/.test(e); }) && br.errors.some(function(e){ return /Coverage BI is listed twice/.test(e); }) && br.errors.some(function(e){ return /Version PV-1: the id is used twice/.test(e); }) && br.errors.some(function(e){ return /Permission P1: the actions for coverage are remove, make_required/.test(e); }));
+    t('a valid document loads as a draft and nothing is live', load() && !!psProduct('PRD-TRK') && psProduct('PRD-TRK').versions[0].status === 'draft' && PS.releases.length === 0);
+    var D = psProduct('PRD-TRK');
+
+    // ---------- the effective configuration and the overrides
+    var eff0 = psEffective(D, 'PV-2');
+    t('an override version with no overrides is the base', eff0.coverages.length === 7 && eff0.applied.length === 0 && eff0.baseVersionId === 'PV-1' && eff0.versionId === 'PV-2');
+    var o1 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'HIRED', action: 'remove' });
+    t('an override the carrier allowed, and that needs no approval, is applied at once', o1.ok && o1.override.approvalStatus === 'approved' && o1.override.id === 'OVR-1' && psEffective(D, 'PV-2').coverages.map(function(c){ return c.code; }).indexOf('HIRED') === -1 && psEffective(D, 'PV-2').coverageStates.every(function(s){ return s.coverageCode !== 'HIRED'; }));
+    t('what was removed is dropped with its states, options and group memberships', psEffective(D, 'PV-2').groupCoverages.every(function(m){ return m.coverageCode !== 'HIRED'; }));
+    var r2 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'CARGO', action: 'remove' });
+    t('an override the carrier did not allow is refused, with why', r2.error === 'invalid' && /The carrier has not allowed remove on coverage CARGO/.test(r2.errors[0]));
+    t('so is an action that does not belong to the target, and a target that is not in the base', psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'HIRED', action: 'adjust' }).errors[0] === 'A coverage override is remove or make_required, not adjust.' && /is not in the base version/.test(psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'NOPE', action: 'remove' }).errors[0]));
+    t('a value outside the carrier\'s range is refused, and so is no value', psAddOverride('PRD-TRK', 'PV-2', { targetType: 'limit', targetRef: 'CARGO', action: 'restrict', value: 50000 }).errors.some(function(e){ return /below the 100000 the carrier allows/.test(e); }) && psAddOverride('PRD-TRK', 'PV-2', { targetType: 'limit', targetRef: 'CARGO', action: 'restrict', value: 900000 }).errors.some(function(e){ return /above the 250000/.test(e); }) && psAddOverride('PRD-TRK', 'PV-2', { targetType: 'limit', targetRef: 'CARGO', action: 'restrict' }).errors[0] === 'Give the value as a number.');
+    var o3 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'limit', targetRef: 'CARGO', action: 'restrict', value: 150000 });
+    t('a restricted limit takes the larger options away and keeps a default', o3.ok && psOptionsFor(psEffective(D, 'PV-2'), 'CARGO', 'TX').map(function(o){ return o.amount; }).join() === '100000' && psOptionsFor(psEffective(D, 'PV-2'), 'CARGO', 'TX')[0].isDefault);
+    var o4 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'factor', targetRef: 'BASE', action: 'adjust', value: 0.95 });
+    var o5 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'PHYS', action: 'make_required' });
+    var o6 = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'uw_rule', targetRef: 'UW-AGE', action: 'tighten', value: 10 });
+    t('overrides the carrier must approve wait, and do not apply yet', o4.override.approvalStatus === 'pending' && o5.override.approvalStatus === 'pending' && psEffective(D, 'PV-2').pending.join() === 'OVR-3,OVR-4' && psEffective(D, 'PV-2').ratingFactors[0].multiplier === 1 && psEffective(D, 'PV-2').coverages.filter(function(c){ return c.code === 'PHYS'; })[0].availability === 'optional');
+    t('a tighter rule applies at once', psEffective(D, 'PV-2').uwRules[0].threshold === 10 && psEffective(D, 'PV-2').applied.indexOf('OVR-5') > -1);
+    login('junior'); t('only someone who may approve can decide', psDecideOverride('PRD-TRK', 'PV-2', 'OVR-3', 'approved', '').error === 'permission');
+    login('senior_uw'); t('the person who added an override, who may propose but not approve, cannot decide it', psDecideOverride('PRD-TRK', 'PV-2', 'OVR-3', 'approved', '').error === 'permission');
+    login('senior');
+    t('rejecting needs a reason, and the override is then closed', psDecideOverride('PRD-TRK', 'PV-2', 'OVR-4', 'rejected', 'no').error === 'reason' && psDecideOverride('PRD-TRK', 'PV-2', 'OVR-4', 'rejected', 'The carrier will not make this required.').ok && psVersion(D, 'PV-2').overrides[3].approvalStatus === 'rejected' && psDecideOverride('PRD-TRK', 'PV-2', 'OVR-4', 'approved', '').error === 'decided');
+    var od = psDecideOverride('PRD-TRK', 'PV-2', 'OVR-3', 'approved', '');
+    t('approving applies it: the rating factor is multiplied', od.ok && psEffective(D, 'PV-2').ratingFactors[0].multiplier === 0.95 && psVersion(D, 'PV-2').overrides[2].decidedBy.indexOf('Marcus Vance') > -1);
+    t('an override file cannot approve its own overrides', (function(){ var d2 = doc(); d2.versions[1].overrides = [{ id: 'OVR-1', targetType: 'factor', targetRef: 'BASE', action: 'adjust', value: 0.9, approvalStatus: 'approved' }]; login('senior_uw'); var r = psLoadProduct(d2); return r.ok && psVersion(psProduct('PRD-TRK'), 'PV-2').overrides[0].approvalStatus === 'pending'; })());
+    t('a decision already made on an unchanged override survives a reload', (function(){ load(); var d3 = clone(psProduct('PRD-TRK')); d3.versions[1].overrides = [{ id: 'OVR-7', targetType: 'factor', targetRef: 'BASE', action: 'adjust', value: 0.9 }]; psLoadProduct(d3); login('senior'); var dd = psDecideOverride('PRD-TRK', 'PV-2', 'OVR-7', 'approved', ''); login('senior_uw'); var again = clone(psProduct('PRD-TRK')); var r = psLoadProduct(again); return dd.ok && r.ok && psVersion(psProduct('PRD-TRK'), 'PV-2').overrides[0].approvalStatus === 'approved'; })());
+    load(); D = psProduct('PRD-TRK'); // back to a clean draft
+    var baseNow = clone(doc()); baseNow.versions[0].coverages[0].name = 'Bodily Injury Liability (revised)'; baseNow.versions[1].overrides = [{ id: 'OVR-1', targetType: 'coverage', targetRef: 'HIRED', action: 'remove' }]; login('senior_uw'); psLoadProduct(baseNow);
+    t('a revision of the base reaches the override version by itself', psEffective(psProduct('PRD-TRK'), 'PV-2').coverages[0].name === 'Bodily Injury Liability (revised)' && psEffective(psProduct('PRD-TRK'), 'PV-2').coverages.length === 6);
+    load(); D = psProduct('PRD-TRK');
+
+    // ---------- validation of a version
+    t('the example configuration has no blocking issue', psValidateVersion(D, 'PV-1').filter(function(i){ return i.blocking; }).length === 0, issuesOf(D).join(' | '));
+    var v1 = doc(); v1.coverageStates = v1.coverageStates.filter(function(s){ return s.id !== 'S3'; });
+    t('a coverage with no all-states availability row is refused', hasIssue(Object.assign({}, v1, { versions: v1.versions }), /Physical Damage has no all-states availability row/));
+    var v2 = doc(); v2.coverageStates.find(function(s){ return s.id === 'S8'; }).rejectionFormRef = '';
+    t('a rejectable coverage must name its rejection form', hasIssue(v2, /UM\/UIM can be rejected in writing in TX but names no rejection form/));
+    var v3 = doc(); v3.coverageStates.push(st('S11', 'PHYS', 'NY', 'available')); v3.coverageStates.push(st('S12', 'UMUIM', 'TX', 'available'));
+    t('an availability row for a state the product is not sold in, and two rows for one state, are refused', hasIssue(v3, /is set for NY, a state the product is not offered in/) && hasIssue(v3, /UM\/UIM: two availability rows for TX overlap/));
+    var g1 = doc(); g1.groupCoverages = g1.groupCoverages.filter(function(m){ return m.id !== 'M7'; }); g1.groupCoverages.push({ id: 'M8', groupId: 'G5', coverageCode: 'GL', erosionCategory: 'premises_operations' });
+    t('a coverage in two groups of one type needs a different erosion category in each', hasIssue(g1, /GL is in groups G-GEN and G-PCO of the same limit type/) && !hasIssue(doc(), /GL is in groups/));
+    var g1b = doc(); g1b.groupCoverages.find(function(m){ return m.id === 'M7'; }).erosionCategory = null; g1b.groupCoverages.find(function(m){ return m.id === 'M6'; }).erosionCategory = null;
+    t('without any category it is also refused', hasIssue(g1b, /without an erosion category/));
+    var g2 = doc(); g2.groupCoverages.push({ id: 'M9', groupId: 'G3', coverageCode: 'BI', erosionCategory: null });
+    t('a coverage in a group and in its ancestor is refused: it would erode twice', hasIssue(g2, /BI is in group G-HIRED and its ancestor G-CSL; erosion flows up the hierarchy, so it would erode twice/));
+    var g3 = doc(); g3.limitGroups[3].parentGroupId = 'G9'; g3.limitGroups[0].parentGroupId = 'G3';
+    t('a parent that is not in the version, and a hierarchy that loops, are refused', hasIssue(g3, /the parent G9 is not in this version/) && hasIssue(g3, /the hierarchy loops back on itself/));
+    var g4 = doc(); g4.limitGroups[2].from = '2020-01-01'; g4.limitGroups[0].to = '2030-01-01'; g4.limitGroups[2].to = null;
+    t('a child group\'s period must lie within its parent\'s', hasIssue(g4, /Group G-HIRED: its period must lie within its parent's/));
+    var o_1 = doc(); o_1.limitOptions[0].limitType = 'aggregate'; o_1.limitOptions[1].coverageCode = 'BI'; o_1.limitOptions[2].jurisdiction = null;
+    t('an option must match its group\'s type, name a coverage or a group (not both), and a state group accepts only its own state', hasIssue(o_1, /Option O1 is aggregate but its group G-CSL is csl/) && hasIssue(o_1, /Option O2 names either a coverage or a group, exactly one/) && hasIssue(o_1, /Option O3: a state group accepts only its own state's options/));
+    var o_2 = doc(); o_2.limitOptions.find(function(o){ return o.id === 'O7'; }).currency = 'EUR';
+    t('an option set that mixes currencies is refused', hasIssue(o_2, /Option set GL-STD mixes currencies/) && !hasIssue(doc(), /mixes currencies/));
+    var o_3 = doc(); o_3.limitOptions.push(opt('O20', null, 'G3', 'SET-X', null, 'sublimit', 300000, false), opt('O21', null, 'G1', 'SET-X', null, 'csl', 200000, false)); o_3.limitOptions.forEach(function(o){ if (o.id === 'O20' || o.id === 'O21') o.isDefault = false; });
+    t('within a set a child group\'s limit cannot be more than its parent\'s', hasIssue(o_3, /Option set SET-X: G-HIRED \(\$300,000\) is more than its parent group \(\$200,000\)/));
+    var d_1 = doc(); d_1.limitOptions.find(function(o){ return o.id === 'O9'; }).isDefault = true; d_1.limitOptions.find(function(o){ return o.id === 'O12'; }).isDefault = false; d_1.limitOptions.find(function(o){ return o.id === 'O13'; }).isDefault = false;
+    t('each coverage and state needs exactly one default limit', hasIssue(d_1, /Coverage UMUIM has 2 default limit options; it needs exactly one/) && hasIssue(d_1, /Coverage CARGO has 0 default limit options/));
+    var d_2 = doc(); d_2.limitOptions = d_2.limitOptions.filter(function(o){ return o.coverageCode !== 'UMUIM'; });
+    t('a required coverage with no limit options has no default limit', hasIssue(d_2, /Coverage UMUIM is required in TX but has no limit options/));
+    var m_1 = doc(); m_1.groupCoverages.push({ id: 'M10', groupId: 'G1', coverageCode: 'ZZZ', erosionCategory: null });
+    t('a group listing a coverage that does not exist is refused', hasIssue(m_1, /Group G-CSL lists ZZZ/));
+    var f_1 = doc(); f_1.versions[1].overrides = [{ id: 'OVR-1', targetType: 'factor', targetRef: 'BASE', action: 'adjust', value: 0.95, approvalStatus: 'approved' }];
+    t('an override the carrier must file, with no filing recorded, blocks the version', hasIssue(f_1, /missing_filing: The carrier must file adjust on BASE before this version can go live/, 'PV-2'));
+    f_1.versions[1].overrides[0].filingRef = 'SERFF-123'; t('and not once the filing is recorded', !hasIssue(f_1, /missing_filing/, 'PV-2'));
+
+    // ---------- evaluating a configuration for a state
+    var C = psEffective(D, 'PV-1');
+    var tx = psEvaluate(C, { state: 'TX', coverages: ['BI', 'PD'] });
+    t('in Texas UM/UIM is required, and missing', tx.required.indexOf('UMUIM') > -1 && tx.missingRequired.join() === 'UMUIM' && /UM\/UIM is required in TX unless the insured rejects it in writing on TX-UM-REJ/.test(tx.issues[0]));
+    t('a recorded written rejection satisfies it', psEvaluate(C, { state: 'TX', coverages: ['BI', 'PD'], rejections: { UMUIM: true } }).missingRequired.length === 0 && psEvaluate(C, { state: 'TX', coverages: ['BI', 'PD'], rejections: { UMUIM: true } }).rejected.join() === 'UMUIM');
+    t('in Ohio it is required and cannot be rejected', psEvaluate(C, { state: 'OH', coverages: ['BI', 'PD'], rejections: { UMUIM: true } }).missingRequired.join() === 'UMUIM');
+    t('elsewhere it is only available', psEvaluate(C, { state: 'CA', coverages: ['BI', 'PD'] }).required.indexOf('UMUIM') === -1 && psEvaluate(C, { state: null, coverages: ['BI', 'PD'] }).missingRequired.length === 0);
+    t('a coverage not available in a state cannot be selected there', psEvaluate(C, { state: 'CA', coverages: ['BI', 'PD', 'HIRED'] }).issues.some(function(i){ return /Hired Auto is not available in CA/.test(i); }) && psEvaluate(C, { state: 'TX', coverages: ['BI', 'PD', 'HIRED', 'UMUIM'] }).issues.length === 0);
+    t('a state the product is not sold in is not offered', psEvaluate(C, { state: 'NY', coverages: ['BI'] }).offered === false);
+    t('the state\'s own limit options replace the all-states ones', psEvaluate(C, { state: 'TX', coverages: [] }).defaults.UMUIM === 300000 && psEvaluate(C, { state: 'OH', coverages: [] }).defaults.UMUIM === 100000 && psEvaluate(C, { state: 'TX', coverages: [] }).optionAmounts.UMUIM.join() === '300000,500000');
+    t('a limit that is not one of those offered is an issue', psEvaluate(C, { state: 'TX', coverages: ['UMUIM'], limits: [{ coverage: 'UMUIM', amount: 150000 }] }).issues.some(function(i){ return /UM\/UIM limit \$150,000 is not one of the limits offered in TX \(\$300,000, \$500,000\)/.test(i); }) && !psEvaluate(C, { state: 'TX', coverages: ['BI', 'PD', 'UMUIM'], limits: [{ coverage: 'UMUIM', amount: 500000 }] }).issues.length);
+
+    // ---------- limit groups at run time: buckets and erosion
+    var relProbe = { id: 'REL-X', config: C };
+    var Lc = mk('SUB-C33-L'); use(Lc);
+    t('a state group replaces the all-states group of the same code', psGroupsFor(C, 'TX').filter(function(g){ return g.code === 'G-CSL'; }).map(function(g){ return g.id; }).join() === 'G2' && psGroupsFor(C, 'OH').filter(function(g){ return g.code === 'G-CSL'; }).map(function(g){ return g.id; }).join() === 'G1');
+    var bk = psIssueBuckets(Lc, relProbe, { state: 'TX' }); var bcsl = bk.filter(function(b){ return b.code === 'G-CSL'; })[0];
+    t('at issue each group becomes a bucket with its default option, its coverages and their erosion categories', bk.length === 4 && bcsl.amount === 750000 && bcsl.memberships.map(function(m){ return m.coverageCode; }).join() === 'BI,PD' && bk.filter(function(b){ return b.code === 'G-GEN'; })[0].memberships[0].erosionCategory === 'premises_operations' && bk.filter(function(b){ return b.code === 'G-HIRED'; })[0].parentBucketId === bcsl.id);
+    var bkOH = psIssueBuckets(mk('SUB-C33-LO'), relProbe, { state: 'OH' }); t('in Ohio the all-states group is the bucket, at its own default', bkOH.filter(function(b){ return b.code === 'G-CSL'; })[0].amount === 1000000);
+    var bk2 = psIssueBuckets(Lc, relProbe, { state: 'TX', sets: { 'G-CSL': 'CSL-TX-1M' } }); t('a chosen option set sets the amounts, together', bk2.filter(function(b){ return b.code === 'G-CSL'; })[0].amount === 1000000 && bk2.filter(function(b){ return b.code === 'G-CSL'; })[0].optionSetCode === 'CSL-TX-1M');
+    psIssueBuckets(Lc, relProbe, { state: 'TX', sets: {} }); var cs = Lc.limitBuckets.filter(function(b){ return b.code === 'G-CSL'; })[0];
+    var e1 = psErode(Lc, { coverageCode: 'BI', amount: 600000, occurrenceKey: 'OCC-1', claimId: 'CL-1' });
+    t('a loss erodes the shared bucket, and the transaction is numbered with what is left', e1.ok && e1.payable === 600000 && e1.excess === 0 && Lc.limitTxns.length === 1 && Lc.limitTxns[0].sequenceNo === 1 && Lc.limitTxns[0].availableAfter === 150000 && psAvailable(Lc, cs, 'OCC-1') === 150000);
+    var e2 = psErode(Lc, { coverageCode: 'PD', amount: 300000, occurrenceKey: 'OCC-1', claimId: 'CL-1' });
+    t('a second coverage draws on the same bucket, and nothing goes below zero: the rest is excess', e2.ok && e2.payable === 150000 && e2.excess === 150000 && Lc.limitTxns[1].sequenceNo === 2 && Lc.limitTxns[1].availableAfter === 0 && psAvailable(Lc, cs, 'OCC-1') === 0);
+    t('a new accident gets the limit again, because the basis is per accident', psAvailable(Lc, cs, 'OCC-2') === 750000 && psErode(Lc, { coverageCode: 'BI', amount: 100000, occurrenceKey: 'OCC-2' }).payable === 100000);
+    var h1 = psErode(Lc, { coverageCode: 'HIRED', amount: 400000, occurrenceKey: 'OCC-3' });
+    t('a sublimit loss is capped by the sublimit, then erodes its parent too', h1.ok && h1.payable === 250000 && h1.excess === 150000 && h1.buckets.length === 2 && psAvailable(Lc, cs, 'OCC-3') === 500000);
+    t('a loss with no group is refused, and so is a bad amount', psErode(Lc, { coverageCode: 'CARGO', amount: 1000 }).error === 'no_bucket' && psErode(Lc, { coverageCode: 'BI', amount: 0 }).error === 'amount');
+    var gl1 = psErode(Lc, { coverageCode: 'GL', amount: 100000 });
+    t('a coverage in two same-type groups cannot erode until the category says which', gl1.error === 'category_required' && /more than one aggregate group/.test(gl1.detail));
+    var gl2 = psErode(Lc, { coverageCode: 'GL', erosionCategory: 'products_completed_operations', amount: 300000 }), gen = Lc.limitBuckets.filter(function(b){ return b.code === 'G-GEN'; })[0], pco = Lc.limitBuckets.filter(function(b){ return b.code === 'G-PCO'; })[0];
+    t('with the category, only that aggregate is eroded', gl2.ok && psAvailable(Lc, pco) === 700000 && psAvailable(Lc, gen) === 2000000);
+    var gl3 = psErode(Lc, { coverageCode: 'GL', erosionCategory: 'premises_operations', amount: 500000 });
+    t('and the other category erodes the other', gl3.ok && psAvailable(Lc, gen) === 1500000 && psAvailable(Lc, pco) === 700000);
+    var rev = psReverseErosion(Lc, gl2.txns[0].id);
+    t('a reversal gives it back once, as a new row, and the original is not edited', rev.ok && rev.reversal.reversesId === gl2.txns[0].id && psAvailable(Lc, pco) === 1000000 && Lc.limitTxns.filter(function(x){ return x.id === gl2.txns[0].id; })[0].consumed === 300000 && psReverseErosion(Lc, gl2.txns[0].id).error === 'already' && psReverseErosion(Lc, rev.reversal.id).error === 'is_reversal');
+
+    // ---------- releases
+    t('a release needs a version and a sensible scope', psCreateRelease('PRD-TRK', 'PV-9', {}, '').error === 'version' && psCreateRelease('PRD-TRK', 'PV-1', { jurisdiction: 'NY' }, '').errors[0] === 'The product is not offered in NY.' && psCreateRelease('PRD-TRK', 'PV-1', { from: '2026-05-01', to: '2026-01-01' }, '').errors.some(function(e){ return /ends before it starts/.test(e); }) && psCreateRelease('PRD-TRK', 'PV-1', { businessType: 'both', from: 'soon' }, '').errors[0] === 'The scope starts on a date (yyyy-mm-dd).');
+    login('junior'); t('an Underwriter I cannot compile one', psCreateRelease('PRD-TRK', 'PV-1', {}, '').error === 'permission');
+    login('senior_uw'); var cr = psCreateRelease('PRD-TRK', 'PV-1', { jurisdiction: null }, 'first release'); var R1 = cr.release;
+    t('compiling makes a draft with the resolved configuration, its fingerprint and its issues', cr.ok && R1.id === 'REL-1' && R1.status === 'draft' && R1.releaseNo === 1 && R1.config.coverages.length === 7 && psVerifyRelease(R1) && Object.isFrozen(R1.config) && R1.issues.filter(function(i){ return i.blocking; }).length === 0 && R1.statusHistory.length === 1);
+    t('the release cannot be changed, and an altered one fails its fingerprint', (function(){ try { R1.config.coverages[0].name = 'x'; } catch (e) { /* strict */ } return R1.config.coverages[0].name === 'Bodily Injury Liability' && psVerifyRelease(R1); })() && !psVerifyRelease(Object.assign({}, R1, { config: Object.assign({}, clone(R1.config), { name: 'Changed' }) })));
+    var ap0 = (function(){ login('senior'); var r = psApproveRelease(R1.id, ''); login('senior_uw'); return r; })();
+    t('a release is not approved before it has been tested and simulated', ap0.error === 'status');
+    var rt = psRunTests(R1.id, 'TS-1');
+    t('the regression suite runs against the compiled configuration, case by case', rt.ok && rt.run.passed === 6 && rt.run.failed === 0 && R1.status === 'testing' && R1.testRunIds.length === 1 && rt.run.manifestHash === R1.manifestHash);
+    t('a missing suite, an empty suite, and a release in the wrong status are refused', psRunTests(R1.id, 'NOPE').error === 'suite' && (function(){ var d = clone(psProduct('PRD-TRK')); d.testSuites.push({ id: 'TS-E', name: 'Empty', cases: [] }); psLoadProduct(d); return psRunTests(R1.id, 'TS-E').error === 'empty'; })());
+    var ap1 = (function(){ login('senior'); var r = psApproveRelease(R1.id, ''); login('senior_uw'); return r; })();
+    t('it is not approved without a simulation', ap1.error === 'not_ready' && ap1.problems.some(function(p){ return /no simulation has been run/.test(p); }));
+    var sm0 = psSimulate(R1.id, null, []);
+    t('a simulation records how many cases it touches, with no baseline for a first release', sm0.ok && sm0.simulation.baselineReleaseId === null && sm0.simulation.policyCount === 0 && sm0.simulation.changePct === 0);
+    t('the author cannot approve their own release', psApproveRelease(R1.id, '').error === 'permission');
+    login('admin'); t('even a person who may approve cannot approve what they made', (function(){ var c2 = psCreateRelease('PRD-TRK', 'PV-1', { jurisdiction: 'OH' }, ''); psRunTests(c2.release.id, 'TS-1'); psSimulate(c2.release.id, null, []); var r = psApproveRelease(c2.release.id, ''); PS.releases.pop(); return r.error === 'self'; })());
+    login('junior'); t('someone without approval permission cannot approve', psApproveRelease(R1.id, '').error === 'permission');
+    login('senior'); var ap2 = psApproveRelease(R1.id, 'Reviewed against the filing.');
+    t('with tests passed, a simulation and no blocking issue, someone else approves it', ap2.ok && R1.status === 'approved' && /Marcus Vance/.test(R1.approval.by) && R1.statusHistory.map(function(h){ return h.status; }).join() === 'draft,testing,approved');
+    t('it cannot be published by anyone who may not, and only once approved', (function(){ login('junior'); var r = psPublish(R1.id); login('senior'); return r.error === 'permission'; })());
+    var pub = psPublish(R1.id);
+    t('publishing puts it in force', pub.ok && R1.status === 'published' && /Marcus Vance/.test(R1.publishedBy) && pub.superseded.length === 0 && psReleaseFor(mk('X')).id === R1.id);
+    t('a version a release stands on cannot be changed: it must be a new version', (function(){ login('senior_uw'); var d = clone(psProduct('PRD-TRK')); d.versions[0].coverages[0].name = 'Changed'; var r = psLoadProduct(d); return r.error === 'released' && r.release === R1.id && r.version === 'PV-1' && psProduct('PRD-TRK').versions[0].coverages[0].name === 'Bodily Injury Liability'; })());
+    t('an override can still be added to a version no release stands on (the override version here), but not to one that is released', (function(){ var r = psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'HIRED', action: 'remove' }); return r.ok === true; })());
+
+    var rPV2 = psCreateRelease('PRD-TRK', 'PV-2', { jurisdiction: 'OH' }, ''); psRunTests(rPV2.release.id, 'TS-1');
+    t('once a release is being tested on an override version, overrides cannot be added to it or decided', psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'HIRED', action: 'remove' }).error === 'released' && psAddOverride('PRD-TRK', 'PV-2', { targetType: 'coverage', targetRef: 'HIRED', action: 'remove' }).release === rPV2.release.id);
+    PS.releases = PS.releases.filter(function(r){ return r.id !== rPV2.release.id; });
+
+    // ---------- a candidate with blocking issues
+    login('senior_uw'); var blk = clone(psProduct('PRD-TRK')); blk.versions.push({ id: 'PV-3', kind: 'base', versionNo: 2, from: '2026-01-01', to: '2037-12-31', status: 'draft', coverages: blk.versions[0].coverages.map(clone), uwRules: [], ratingFactors: [{ code: 'BASE', name: 'Base rate', multiplier: 1.05 }] });
+    ['coverageStates', 'limitOptions'].forEach(function(k){ clone(blk[k]).forEach(function(x){ if (x.versionId === 'PV-1') { var y = clone(x); y.id = x.id + 'b'; y.versionId = 'PV-3'; blk[k].push(y); } }); });
+    clone(blk.limitGroups).forEach(function(g){ var n = clone(g); n.id = g.id + 'b'; n.versionId = 'PV-3'; if (n.parentGroupId) n.parentGroupId = n.parentGroupId + 'b'; blk.limitGroups.push(n); });
+    clone(blk.groupCoverages).forEach(function(m){ var n = clone(m); n.id = m.id + 'b'; n.groupId = m.groupId + 'b'; blk.groupCoverages.push(n); });
+    clone(blk.limitOptions).filter(function(o){ return o.groupId && o.versionId === 'PV-1'; }).forEach(function(o){ var n = clone(o); n.id = o.id + 'c'; n.groupId = o.groupId + 'b'; n.versionId = 'PV-3'; blk.limitOptions.push(n); });
+    blk.limitOptions = blk.limitOptions.filter(function(o){ return !(o.versionId === 'PV-3' && o.groupId && /b$/.test(o.id) && !/c$/.test(o.id)); });
+    blk.coverageStates = blk.coverageStates.filter(function(s){ return !(s.versionId === 'PV-3' && s.coverageCode === 'PHYS'); });
+    var ld = psLoadProduct(blk); var cb = psCreateRelease('PRD-TRK', 'PV-3', { jurisdiction: 'TX' }, '');
+    t('a version with a blocking issue compiles as a draft that cannot be approved', ld.ok && cb.ok && cb.release.issues.some(function(i){ return i.blocking && /Physical Damage has no all-states availability row/.test(i.message); }));
+    psRunTests(cb.release.id, 'TS-1'); psSimulate(cb.release.id, null, []); login('senior'); var apb = psApproveRelease(cb.release.id, '');
+    t('approval says what blocks it', apb.error === 'not_ready' && apb.problems.some(function(p){ return /blocking issue/.test(p); }));
+    PS.releases = PS.releases.filter(function(r){ return r.id !== cb.release.id; });
+
+    // ---------- tests that fail, simulation, supersede, rollback, retire
+    login('senior_uw'); var d2 = clone(psProduct('PRD-TRK')); d2.versions.push({ id: 'PV-4', kind: 'base', versionNo: 2, from: '2026-01-01', to: '2037-12-31', status: 'draft', coverages: d2.versions[0].coverages.map(clone), uwRules: [], ratingFactors: [{ code: 'BASE', name: 'Base rate', multiplier: 1.05 }] });
+    d2.coverageStates.forEach(function(s){ if (s.versionId === 'PV-1') { var n = clone(s); n.id = s.id + 'z'; n.versionId = 'PV-4'; if (s.coverageCode === 'UMUIM' && s.jurisdiction === 'TX') { n.availability = 'available'; n.rejectionAllowed = false; n.rejectionFormRef = ''; } d2.coverageStates.push(n); } });
+    d2.coverageStates = d2.coverageStates.filter(function(s, i, a){ return !(s.versionId === 'PV-4' && /zz$/.test(s.id)); });
+    clone(d2.limitGroups.filter(function(g){ return g.versionId === 'PV-1'; })).forEach(function(g){ var n = clone(g); n.id = g.id + 'z'; n.versionId = 'PV-4'; if (n.parentGroupId) n.parentGroupId += 'z'; d2.limitGroups.push(n); });
+    clone(d2.groupCoverages.filter(function(m){ return /^G[1-5]$/.test(m.groupId); })).forEach(function(m){ var n = clone(m); n.id = m.id + 'z'; n.groupId += 'z'; d2.groupCoverages.push(n); });
+    clone(d2.limitOptions.filter(function(o){ return o.versionId === 'PV-1'; })).forEach(function(o){ var n = clone(o); n.id = o.id + 'z'; if (n.groupId) n.groupId += 'z'; n.versionId = 'PV-4'; d2.limitOptions.push(n); });
+    t('a new version loads beside the released one', psLoadProduct(d2).ok && psProduct('PRD-TRK').versions.length === 4);
+    var cr2 = psCreateRelease('PRD-TRK', 'PV-4', { jurisdiction: null }, 'candidate'), R2 = cr2.release;
+    t('its compiled configuration is the new version\'s own: UM/UIM in Texas is only available', cr2.ok && R2.supersedesId === R1.id && psAvailability(R2.config, 'UMUIM', 'TX').availability === 'available' && psAvailability(R1.config, 'UMUIM', 'TX').availability === 'required');
+    var tr = psRunTests(R2.id, 'TS-1');
+    t('a regression suite catches what the new version changed', tr.ok && tr.run.failed >= 2 && tr.run.results.some(function(x){ return x.outcome === 'fail' && /Texas needs UM\/UIM/.test(x.name) && /missingRequired/.test(x.diff.join()); }));
+    psSimulate(R2.id, null, []); login('senior'); var apf = psApproveRelease(R2.id, '');
+    t('a release with failing tests is not approved, and the message names the failures', apf.error === 'not_ready' && apf.problems.some(function(p){ return /latest test run has \d+ failing case/.test(p); }));
+
+    // the dataset the simulation runs on
+    var sQ = mk('SUB-C33-Q1', { quoteIssued: true }), sP = mk('SUB-C33-P1', { quoteIssued: true, pasSync: { status: 'success', policyNumber: 'P-1' } }), sR = mk('SUB-C33-R1', { quoteIssued: true, renewalOf: 'SUB-C33-P1' }), sO = mk('SUB-C33-O1', { quoteIssued: true, address: '1 Main St, Columbus, OH 43004' }), sD = mk('SUB-C33-D1');
+    sD.coverageRows.push({ id: 'COV-3', code: 'UMUIM', line: 'UM/UIM', limit: '$300,000', ded: '$0' });
+    var sim = psSimulate(R2.id, R1.id, [sQ, sP, sR, sO, sD]);
+    t('the simulation names the cases that would newly break a rule and how many are quotes, policies and renewals', sim.ok && sim.simulation.policyCount === 5 && sim.simulation.impacted.length === 0, JSON.stringify(sim.simulation.impacted.map(function(i){ return i.subId; })));
+    var sim2 = psSimulate(R1.id, R2.id, [sQ, sP, sR, sO, sD]).simulation;
+    t('run the other way, the Texas cases without UM/UIM are the ones the stricter release affects', sim2.impacted.map(function(i){ return i.subId; }).sort().join() === 'SUB-C33-P1,SUB-C33-Q1,SUB-C33-R1' && sim2.impactedQuotes === 1 && sim2.impactedPolicies === 1 && sim2.impactedRenewals === 1 && sim2.impacted.every(function(i){ return i.state === 'TX'; }), JSON.stringify(sim2.impacted.map(function(i){ return i.subId + ':' + i.state; })));
+    t('the issues are counted, and the premium of the issued and bound cases is scaled by the factor ratio', Object.keys(sim2.impactedItems).length >= 1 && sim2.factorRatio === 0.9524 && sim2.baselinePremium === 400000 && sim2.candidatePremium === 380952 && sim2.changePct === -4.76 && /rating engine is external/.test(sim2.note), JSON.stringify([sim2.factorRatio, sim2.baselinePremium, sim2.candidatePremium, sim2.changePct]));
+    t('the premium effect upward, for the candidate with the higher factor', sim.simulation.factorRatio === 1.05 && sim.simulation.changePct === 5);
+
+    // make PV-4 releasable: adjust the test expectations the way the author would, as a new suite
+    login('senior_uw'); var d3 = clone(psProduct('PRD-TRK')); d3.testSuites.push({ id: 'TS-2', name: 'Version 2 expectations', cases: [{ name: 'Texas UM/UIM is optional now', input: { state: 'TX', coverages: ['BI', 'PD'] }, expected: { missingRequired: [] } }, { name: 'CA still has no hired auto', input: { state: 'CA', coverages: ['BI', 'PD', 'HIRED'] }, expected: { notAvailable: ['HIRED'] } }] }); psLoadProduct(d3);
+    var tr2 = psRunTests(R2.id, 'TS-2'); psSimulate(R2.id, R1.id, [sQ, sP]); login('senior'); var apk = psApproveRelease(R2.id, 'Texas UM/UIM becomes optional by filing.');
+    t('a new suite that the new version meets lets it be approved: the run counted is the latest', tr2.run.failed === 0 && apk.ok && R2.status === 'approved');
+    var pub2 = psPublish(R2.id);
+    t('publishing the new release supersedes the one it replaces for that scope', pub2.ok && pub2.superseded.join() === R1.id && R1.status === 'superseded' && R2.status === 'published' && R1.statusHistory[R1.statusHistory.length - 1].status === 'superseded' && psReleaseFor(mk('X')).id === R2.id);
+    t('a case runs on the release in force, and the old one is still on record', psReleaseFor(mk('X', { address: '1 Main St, Columbus, OH 43004' })).id === R2.id && !!psRelease(R1.id) && psVerifyRelease(R1));
+    var rb0 = psRollback(R1.id, 'no'); t('rolling back needs a reason', rb0.error === 'reason' && psRollback(R2.id, 'a long enough reason here').error === 'status');
+    var rb = psRollback(R1.id, 'The new version was filed late; the old rules stay until the filing is accepted.');
+    t('rolling back republishes the superseded release and marks the other one rolled back', rb.ok && rb.rolledBack.join() === R2.id && R1.status === 'published' && R2.status === 'rolled_back' && psReleaseFor(mk('X')).id === R1.id && /rolled back to/.test(R1.statusHistory[R1.statusHistory.length - 1].note));
+    t('retiring needs a reason and takes it out of service', psRetire(R1.id, 'x').error === 'reason' && psRetire(R1.id, 'The product is withdrawn from the market.').ok && R1.status === 'retired' && psReleaseFor(mk('X')) === null);
+    t('the history of every step is kept', PS.history.some(function(h){ return h.action === 'release_published'; }) && PS.history.some(function(h){ return h.action === 'release_rolled_back'; }) && PS.history.some(function(h){ return h.action === 'release_retired'; }) && PS.history.some(function(h){ return h.action === 'simulated'; }));
+
+    // ---------- scope and the release a case runs on
+    psReset(); load(); var A = publish('PV-1', { jurisdiction: null }).release;
+    var TXonly = (function(){ login('senior_uw'); var c = psCreateRelease('PRD-TRK', 'PV-1', { jurisdiction: 'TX', program: 'Fleet Select' }, ''); psRunTests(c.release.id, 'TS-1'); psSimulate(c.release.id, null, []); login('senior'); psApproveRelease(c.release.id, ''); psPublish(c.release.id); return c.release; })();
+    t('releases of different scope sit side by side; the more specific scope wins', TXonly.status === 'published' && A.status === 'published' && psReleaseFor(mk('S1', { program: 'Fleet Select' })).id === TXonly.id && psReleaseFor(mk('S2', { program: 'Other' })).id === A.id && psReleaseFor(mk('S3', { address: '1 Main St, Columbus, OH 43004', program: 'Fleet Select' })).id === A.id);
+    t('scope overlap is understood by every dimension', psScopesOverlap({ jurisdiction: 'TX', businessType: 'both', from: '2026-01-01' }, { jurisdiction: null, businessType: 'new', from: '2026-01-01' }) && !psScopesOverlap({ jurisdiction: 'TX', businessType: 'both', from: '2026-01-01' }, { jurisdiction: 'OH', businessType: 'both', from: '2026-01-01' }) && !psScopesOverlap({ businessType: 'new', from: '2026-01-01' }, { businessType: 'renewal', from: '2026-01-01' }) && !psScopesOverlap({ businessType: 'both', from: '2026-01-01', to: '2026-06-01' }, { businessType: 'both', from: '2026-07-01' }));
+
+    // ---------- the rules on a case
+    psReset(); load(); var RA = publish('PV-1', { jurisdiction: null }).release;
+    login('senior_uw'); var Cx = mk('SUB-C33-X'); use(Cx);
+    var ck0 = psCaseCheck(Cx);
+    t('the release in force says what is wrong with a Texas case that has no UM/UIM', ck0.applies && ck0.release.id === RA.id && ck0.missingRequired.join() === 'UMUIM' && ck0.required.indexOf('UMUIM') > -1);
+    var nq = toasts.length, gq = GUARD_REGISTRY.issueQuote.guards.filter(function(g){ return g.name === 'product release rules'; })[0];
+    t('issuing the quote is refused, with the rule named, and logged', gq.check([]) === false && toasts.slice(nq).some(function(m){ return /The product's rules \(REL-1\) stop this quote: UM\/UIM is required in TX unless the insured rejects it in writing on TX-UM-REJ/.test(m); }) && Cx.decisionLog.some(function(d){ return d.decision === 'product_rules_blocked'; }));
+    t('the decision brief shows the same', buildDecisionBrief(Cx).checks.some(function(c){ return /^Product rules \(REL-1\)/.test(c.label) && c.status === 'fail' && /UM\/UIM is required/.test(c.detail); }));
+    t('a rejection must be on the form the product names, signed, and dated', psRecordRejection(Cx, 'UMUIM', { formRef: 'OTHER-FORM', signedBy: 'Owner', signedAt: TODAY }).error === 'form' && psRecordRejection(Cx, 'UMUIM', { formRef: 'TX-UM-REJ', signedBy: '', signedAt: TODAY }).error === 'signer' && psRecordRejection(Cx, 'UMUIM', { formRef: 'TX-UM-REJ', signedBy: 'Owner', signedAt: 'today' }).error === 'date' && !Cx.coverageRejections);
+    t('a coverage that is not required, or cannot be rejected, cannot be rejected', psRecordRejection(Cx, 'CARGO', { formRef: 'X', signedBy: 'Owner', signedAt: TODAY }).error === 'not_required' && (function(){ var oh = mk('SUB-C33-OHX', { address: '1 Main St, Columbus, OH 43004' }); return psRecordRejection(oh, 'UMUIM', { formRef: 'X', signedBy: 'Owner', signedAt: TODAY }).error === 'not_rejectable'; })());
+    login('admin'); t('someone without completeness edit cannot record one', psRecordRejection(Cx, 'UMUIM', { formRef: 'TX-UM-REJ', signedBy: 'Owner', signedAt: TODAY }).error === 'permission'); login('senior_uw');
+    var rj = psRecordRejection(Cx, 'UMUIM', { formRef: 'TX-UM-REJ', signedBy: 'Jordan Reyes, owner', signedAt: TODAY, note: 'Signed form on file.' });
+    t('a signed rejection on the right form is recorded with who, when and where', rj.ok && Cx.coverageRejections.UMUIM.formRef === 'TX-UM-REJ' && Cx.coverageRejections.UMUIM.state === 'TX' && Cx.decisionLog.some(function(d){ return d.decision === 'coverage_rejected' && /Jordan Reyes/.test(d.notes); }));
+    t('and the case then passes, and the quote may be issued', psCaseCheck(Cx).issues.length === 0 && psCaseCheck(Cx).rejected.join() === 'UMUIM' && gq.check([]) === true && buildDecisionBrief(Cx).checks.some(function(c){ return /^Product rules/.test(c.label) && c.status === 'ok'; }));
+    var Co = mk('SUB-C33-CA', { address: '1 Main St, Los Angeles, CA 90001' }); Co.coverageRows.push({ id: 'COV-9', code: 'HIRED', line: 'Hired Auto', limit: '$100,000', ded: '$0' });
+    t('a coverage not sold in the state stops the quote', psCaseCheck(Co).issues.some(function(i){ return /Hired Auto is not available in CA/.test(i); }));
+    var Cl = mk('SUB-C33-LIM'); Cl.coverageRows.push({ id: 'COV-3', code: 'UMUIM', line: 'UM/UIM', limit: '$150,000', ded: '$0' });
+    t('a limit that is not one the state offers stops it too', psCaseCheck(Cl).issues.some(function(i){ return /UM\/UIM limit \$150,000 is not one of the limits offered in TX/.test(i); }));
+    var Cny = mk('SUB-C33-NY', { address: '1 Main St, Albany, NY 12207' }); t('a state the product is not offered in is not offered', psCaseCheck(Cny).offered === false && /not offered in NY/.test(psCaseCheck(Cny).issues[0]));
+    t('coverages are matched by code, by id or by name', (function(){ var s = mk('SUB-C33-NM'); s.coverageRows = [{ line: 'Bodily Injury Liability' }, { id: 'PD', line: 'x' }, { line: 'UM/UIM', limit: '$300,000' }]; return psCaseCheck(s).missingRequired.length === 0; })());
+
+    // the quote records the release
+    login('senior_uw'); var Qs = mk('SUB-C33-QR', { coverageRows: [{ id: 'COV-1', code: 'BI', line: 'Bodily Injury Liability', limit: '$1,000,000' }, { id: 'COV-2', code: 'PD', line: 'Property Damage Liability', limit: '$1,000,000' }, { id: 'COV-3', code: 'UMUIM', line: 'UM/UIM', limit: '$300,000' }] }); use(Qs);
+    var qv = recordQuoteVersion(Qs, false);
+    t('a quote version records the release it ran on, and so does the case', qv.releaseId === RA.id && Qs.releaseId === RA.id);
+    t('with no release published for a case nothing applies', (function(){ login('senior'); psRetire(RA.id, 'The product is withdrawn from the market.'); return psCaseCheck(mk('X')).applies === false && gq.check([]) === true; })());
+
+    // ---------- the screen
+    login('senior_uw'); psReset(); load(); renderProductStudio();
+    t('the Product Studio tab and panel are on the page', !!el('qiTabProduct') && !!el('qiPanelProduct') && !!el('productStudioRoot'));
+    switchQuoteIntelTab('product');
+    var tx1 = el('productStudioRoot').innerText;
+    t('the tab shows versions, shared limit groups, availability by state and releases', /Product Studio: versions, limits, availability and releases/.test(tx1) && /PV-2/.test(tx1) && /override/.test(tx1) && /Shared limit groups/.test(tx1) && /G-CSL/.test(tx1) && /premises_operations/.test(tx1) && /Availability by state/.test(tx1) && /TX: required \(can be rejected in writing, TX-UM-REJ\)/.test(tx1) && /No release has been compiled/.test(tx1) && el('qiPanelProduct').style.display === 'block');
+    t('other Quote Intelligence panels are hidden while it shows', el('qiPanelRenewal').style.display === 'none' && el('qiPanelConfig').style.display === 'none' && el('qiTabProduct').classList.contains('active'));
+    el('ps_sc_version').value = 'PV-1'; el('ps_sc_state').value = 'TX'; psUiCreate();
+    t('a release is compiled from the page', PS.releases.length === 1 && PS.releases[0].scope.jurisdiction === 'TX' && /REL-1/.test(el('productStudioRoot').innerText) && /draft/.test(el('productStudioRoot').innerText));
+    el('ps_suite_REL-1').value = 'TS-1'; psUiTests('REL-1'); psUiSim('REL-1');
+    t('tests and a simulation are run from the page, and the results show', /Tests: 6 passed, 0 failed/.test(el('productStudioRoot').innerText) && /Simulated: 0 case\(s\) affected/.test(el('productStudioRoot').innerText));
+    login('senior'); renderProductStudio(); psUiApprove('REL-1'); renderProductStudio(); psUiPublish('REL-1');
+    t('it is approved and published from the page by the approver', PS.releases[0].status === 'published' && /published/.test(el('productStudioRoot').innerText));
+    switchQuoteIntelTab('versions');
+    t('and the panel is hidden again when another tab is chosen', el('qiPanelProduct').style.display === 'none' && !el('qiTabProduct').classList.contains('active'));
+    login('senior_uw'); el('ps_json') || renderProductStudio(); switchQuoteIntelTab('product'); el('ps_json').value = '{bad'; var nj = toasts.length; psUiLoad();
+    t('text that is not JSON is refused on the page', toasts.slice(nj).some(function(m){ return /not valid JSON/.test(m); }));
+    t('the audit actions are labelled', !!AUDIT_ACTION_META.product_rules_blocked && !!AUDIT_ACTION_META.coverage_rejected);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  try { psReset(); } catch (e) { /* nothing to reset */ }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

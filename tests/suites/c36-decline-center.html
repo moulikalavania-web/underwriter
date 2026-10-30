@@ -1,0 +1,163 @@
+<!-- Suite C36: Decline Center outcomes. Every submission that did not become a policy has one governed outcome (declined, auto-declined, not taken, expired, withdrawn, lost to a competitor, closed incomplete)
+     with a reason from a list, an explanation, and what backs it (the decision, the rule run, the quote version, the competitor and its price). A decline that relied on a consumer report owes a notice.
+     The existing exits write their outcome, expired quotes are swept closed, a corrected outcome supersedes the old one, and a reopened one is closed with who and why. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 4; s.insured = 'Insured ' + id;
+    ['pasSync', 'quoteIssued', 'outcomes', 'ruleRuns', 'lifecycleStatus', 'lifecycleStatusAt', 'declineReason', 'declinedBy', 'declineTriggerPoint', 'quoteValidDays'].forEach(function(k){ delete s[k]; });
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function addQuote(subId, date){ QUOTE_VERSIONS_DATASET.length = 0; QUOTE_VERSIONS_DATASET.push({ subId: subId, quotes: [{ versionId: 'QT-1-v1.0', date: date, finalPremium: 50000 }] }); }
+  function days(n){ return new Date(Date.now() - n * 86400000).toISOString().slice(0, 16).replace('T', ' '); }
+  function canRole(r, res, act){ var p = PERMISSIONS_MATRIX[r]; return !!(p && p[res] && p[res][act]); }
+  var savedQ = clone(QUOTE_VERSIONS_DATASET), savedSubs = SUBMISSIONS_DATASET.slice(), savedLog = DECLINE_LOG.slice();
+  try {
+    login('senior');
+    // ---------- the lists
+    var types = Object.keys(OUT_TYPES);
+    t('eight outcome types, four of them declines or market declines, each with a reason list', types.length === 8 && types.every(function(k){ return outReasons(k).length > 0; }));
+    t('the decline reasons are the ones the declination notice uses, and CREDIT_INFO marks a consumer report', outReasons('declined_by_underwriter').length === NOTICE_REASON_CODES.length && outReason('declined_by_underwriter', 'CREDIT_INFO').consumerReport === true && outReason('declined_by_underwriter', 'APPETITE').consumerReport === false);
+    t('a reason belongs to its type: PRICE is a lost-business reason, not a decline reason', !!outReason('lost_to_competitor', 'PRICE') && outReason('declined_by_underwriter', 'PRICE') === null && outReason('nonsense', 'PRICE') === null);
+
+    // ---------- validation
+    var V = mk('SUB-C36-V'); use(V);
+    t('an unknown type is refused', outValidate(V, { type: 'x' })[0].field === 'type');
+    t('a reason not on the list and a short explanation are refused', outValidate(V, { type: 'withdrawn_by_broker', reasonCode: 'PRICE', reasonText: 'short' }).map(function(e){ return e.field; }).join() === 'reason,reasonText');
+    t('an underwriter decline needs the decision a person took on the log', outValidate(V, { type: 'declined_by_underwriter', reasonCode: 'APPETITE', reasonText: 'Outside our guidelines.' }).some(function(e){ return e.field === 'decision'; }));
+    V.decisionLog.push({ decision: 'declined', by: 'x', at: days(0), notes: 'n' });
+    t('and is valid once it is there', outValidate(V, { type: 'declined_by_underwriter', reasonCode: 'APPETITE', reasonText: 'Outside our guidelines.' }).length === 0);
+    t('an automatic decline needs a rule run that ended in a knockout', outValidate(V, { type: 'auto_declined', reasonCode: 'APPETITE', reasonText: 'Knockout rule failed.' }).some(function(e){ return e.field === 'rule_run'; }));
+    V.ruleRuns = [{ runId: 'RUN-1', outcome: 'refer' }]; t('a run that only referred does not count', outValidate(V, { type: 'auto_declined', reasonCode: 'APPETITE', reasonText: 'Knockout rule failed.' }).length === 1);
+    V.ruleRuns.push({ runId: 'RUN-2', outcome: 'auto_declined' }); t('a knockout run does', outValidate(V, { type: 'auto_declined', reasonCode: 'APPETITE', reasonText: 'Knockout rule failed.' }).length === 0);
+    QUOTE_VERSIONS_DATASET.length = 0;
+    t('"not taken" and "expired" need a quote on the case', outValidate(V, { type: 'not_taken_by_insured', reasonCode: 'PRICE', reasonText: 'Too expensive for them.' })[0].field === 'quote' && outValidate(V, { type: 'quote_expired', reasonCode: 'NO_RESPONSE', reasonText: 'Nobody answered it.' })[0].field === 'quote');
+    addQuote(V.id, days(1));
+    t('a quote version that is not the case\'s is refused', outValidate(V, { type: 'not_taken_by_insured', reasonCode: 'PRICE', reasonText: 'Too expensive for them.', quoteVersionId: 'QT-9-v1.0' })[0].field === 'quote' && outValidate(V, { type: 'not_taken_by_insured', reasonCode: 'PRICE', reasonText: 'Too expensive for them.', quoteVersionId: 'QT-1-v1.0' }).length === 0);
+    t('a competitor must be named and its premium must be a number from 0', outValidate(V, { type: 'lost_to_competitor', reasonCode: 'PRICE', reasonText: 'They were cheaper.' })[0].field === 'competitor' && outValidate(V, { type: 'lost_to_competitor', reasonCode: 'PRICE', reasonText: 'They were cheaper.', competitorName: 'Acme', competitorPremium: -5 })[0].field === 'competitorPremium' && outValidate(V, { type: 'lost_to_competitor', reasonCode: 'PRICE', reasonText: 'They were cheaper.', competitorName: 'Acme' }).length === 0);
+    var B = mk('SUB-C36-B', { pasSync: { status: 'success' } });
+    t('a bound policy cannot also be an outcome', outValidate(B, { type: 'withdrawn_by_broker', reasonCode: 'BROKER_REQUEST', reasonText: 'Broker asked us to.' }).some(function(e){ return e.field === 'bound'; }));
+
+    // ---------- recording
+    var W = mk('SUB-C36-W'); use(W);
+    var w = outRecord(W, { type: 'withdrawn_by_broker', reasonCode: 'PLACED_ELSEWHERE', reasonText: 'The broker placed it with another market.' });
+    t('a non-decline outcome is recorded and the case is closed, not declined', w.ok && w.outcome.id === 'OUT-1' && w.outcome.status === 'current' && W.lifecycleStatus === 'closed' && W.statusText === 'Withdrawn by the broker' && w.outcome.adverseActionRequired === false);
+    t('the outcome says who decided it and when, and the log keeps it', /Senior|Marcus/.test(w.outcome.decidedBy) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(w.outcome.decidedAt) && W.decisionLog.some(function(d){ return d.decision === 'outcome_recorded' && /Withdrawn by the broker/.test(d.notes); }));
+    var dup = outRecord(W, { type: 'closed_incomplete', reasonCode: 'NO_INFO_RECEIVED', reasonText: 'Nothing came back at all.' });
+    t('a second outcome is refused while one is current', !dup.ok && dup.error === 'exists' && dup.current.id === 'OUT-1' && W.outcomes.length === 1);
+    var sup = outRecord(W, { type: 'closed_incomplete', reasonCode: 'NO_INFO_RECEIVED', reasonText: 'Nothing came back at all.' }, { supersede: true });
+    t('a correction supersedes it and points both ways', sup.ok && sup.outcome.supersedesId === 'OUT-1' && W.outcomes[0].status === 'superseded' && W.outcomes[0].supersededBy === 'OUT-2' && outCurrent(W).id === 'OUT-2');
+    var bad = outRecord(mk('SUB-C36-X'), { type: 'withdrawn_by_broker', reasonCode: 'PRICE', reasonText: 'A reason that does not fit.' });
+    t('an invalid outcome is not recorded and says why', !bad.ok && bad.error === 'invalid' && bad.errors[0].field === 'reason');
+    var noPerm = ['junior', 'senior_uw', 'senior', 'admin', 'compliance', 'assistant'].filter(function(r){ return !canRole(r, 'workflow', 'approve'); })[0];
+    if (noPerm) { login(noPerm); var Y = mk('SUB-C36-Y', { decisionLog: [{ decision: 'declined', by: 'x', at: days(0), notes: 'n' }] }); var np = outRecord(Y, { type: 'declined_by_underwriter', reasonCode: 'APPETITE', reasonText: 'Outside our guidelines.' }); t('someone who may not approve cannot record a decline (' + noPerm + ')', !np.ok && np.error === 'permission' && !Y.outcomes); login('senior'); }
+
+    // ---------- adverse action
+    var C = mk('SUB-C36-C', { decisionLog: [{ decision: 'declined', by: 'x', at: days(0), notes: 'n' }] }); use(C);
+    var cr = outRecord(C, { type: 'declined_by_underwriter', reasonCode: 'CREDIT_INFO', reasonText: 'The credit-based score was below the floor.' });
+    t('a decline that relies on a consumer report owes a notice, and the case is declined', cr.ok && cr.outcome.consumerReportUsed === true && cr.outcome.adverseActionRequired === true && C.lifecycleStatus === 'declined' && outNoticeState(C, cr.outcome).state === 'owed');
+    t('it is not overdue on the day', outNoticeState(C, cr.outcome).overdue === false);
+    cr.outcome.decidedAt = days(NOTICE_TARGET_DAYS + 2);
+    t('and is overdue past the target', outNoticeState(C, cr.outcome).overdue === true && outNoticeState(C, cr.outcome).ageDays >= NOTICE_TARGET_DAYS + 1);
+    var N = mk('SUB-C36-N', { decisionLog: [{ decision: 'declined', by: 'x', at: days(0), notes: 'n' }] });
+    var nr = outRecord(N, { type: 'declined_by_underwriter', reasonCode: 'APPETITE', reasonText: 'Outside our guidelines.' });
+    t('a decline for another reason owes no notice', nr.outcome.adverseActionRequired === false && outNoticeState(N, nr.outcome).state === 'not_required');
+    var UR = mk('SUB-C36-U', { decisionLog: [{ decision: 'declined', by: 'x', at: days(0), notes: 'n' }] });
+    var ur = outRecord(UR, { type: 'declined_by_underwriter', reasonCode: 'LOSS_HISTORY', reasonText: 'The MVR showed too many violations.', consumerReportUsed: true });
+    t('the underwriter can say a consumer report was used under any reason', ur.outcome.adverseActionRequired === true);
+    t('a lost-business outcome never owes a notice', outRecord(mk('SUB-C36-L', {}), { type: 'withdrawn_by_broker', reasonCode: 'OTHER', reasonText: 'Another reason, written here.', consumerReportUsed: true }).outcome.adverseActionRequired === false);
+
+    // ---------- competitor and price
+    var L = mk('SUB-C36-LC', { discretionaryPricing: { finalPremium: 60000 } }); use(L); addQuote(L.id, days(2));
+    var lc = outRecord(L, { type: 'lost_to_competitor', reasonCode: 'PRICE', reasonText: 'The insured chose a cheaper market.', competitorName: ' Acme Mutual ', competitorPremium: '50000' });
+    t('a competitor loss keeps the competitor, its premium and ours, and names the quote', lc.ok && lc.outcome.competitorName === 'Acme Mutual' && lc.outcome.competitorPremium === 50000 && lc.outcome.ourPremium === 60000 && lc.outcome.quoteVersionId === 'QT-1-v1.0');
+    var L2 = mk('SUB-C36-LD', { discretionaryPricing: { finalPremium: 40000 } }); addQuote(L2.id, days(2));
+    outRecord(L2, { type: 'lost_to_competitor', reasonCode: 'TERMS', reasonText: 'They offered broader terms.', competitorName: 'Beta Re' });
+    var st = outStats([L, L2]);
+    t('statistics: the price gap is only counted where the competitor price is known', st.lostCount === 2 && st.lostWithPrice === 1 && st.avgPriceGapPct === 20 && st.byType.lost_to_competitor === 2 && st.byReason['lost_to_competitor|PRICE'] === 1);
+    t('statistics: quote to bind and notices owed', outStats([C, N]).noticesOwed === 1 && outStats([C]).noticesOverdue === 1 && outStats([]).total === 0 && outStats([]).quoteToBindPct === null);
+
+    // ---------- the existing exits
+    login('senior'); var E = mk('SUB-C36-E', { appetiteRules: [] }); use(E);
+    triggerAppetiteFailureExit();
+    var eo = outCurrent(E);
+    t('the appetite exit writes a decline outcome with the reason code APPETITE', E.lifecycleStatus === 'declined' && eo && eo.type === 'declined_by_underwriter' && eo.reasonCode === 'APPETITE' && eo.triggerPoint === 'Appetite Knockout' && /Marcus|Senior/.test(eo.decidedBy) && eo.source === 'person');
+    var E2 = mk('SUB-C36-E2', { ruleRuns: [{ runId: 'RUN-1', outcome: 'auto_declined' }] }); use(E2); triggerAppetiteFailureExit();
+    t('when the last rule run was a knockout it is recorded as an automatic decline, naming the run', outCurrent(E2).type === 'auto_declined' && outCurrent(E2).ruleRunId === 'RUN-1');
+    var E3 = mk('SUB-C36-E3'); use(E3); triggerDuplicateExit();
+    t('the duplicate exit writes DUPLICATE', outCurrent(E3) && outCurrent(E3).reasonCode === 'DUPLICATE' && outCurrent(E3).triggerPoint === 'Duplicate FEIN');
+    // the decline form
+    var F = mk('SUB-C36-F'); use(F); SUBMISSIONS_DATASET.push(F); openDeclineSubmissionModal(F.id);
+    t('the decline form offers the reason codes', el('declineReasonCode').options.length === NOTICE_REASON_CODES.length + 1);
+    el('declineTriggerPoint').value = 'Senior UW Decline'; el('declineReasonCode').value = 'CREDIT_INFO'; el('declineConsumerReport').checked = false; el('declineReasonText').value = 'Rejected after executive review of the report.'; el('declineConfirmInput').value = F.id;
+    submitDeclineSubmission();
+    var fo = outCurrent(F);
+    t('the form records the chosen reason and the consumer-report flag, so a notice is owed', fo && fo.reasonCode === 'CREDIT_INFO' && fo.adverseActionRequired === true && fo.triggerPoint === 'Senior UW Decline' && F.lifecycleStatus === 'declined');
+    var G = mk('SUB-C36-G'); use(G); SUBMISSIONS_DATASET.push(G); openDeclineSubmissionModal(G.id);
+    el('declineTriggerPoint').value = 'Other'; el('declineReasonCode').value = ''; el('declineReasonText').value = 'Not a fit for the book this year.'; el('declineConfirmInput').value = G.id; submitDeclineSubmission();
+    t('without a chosen code the form falls back to OTHER', outCurrent(G) && outCurrent(G).reasonCode === 'OTHER' && outCurrent(G).adverseActionRequired === false);
+
+    // ---------- expiry sweep
+    var X1 = mk('SUB-C36-X1', { quoteIssued: true }); addQuote(X1.id, days(45));
+    var X2 = mk('SUB-C36-X2', { quoteIssued: true }); QUOTE_VERSIONS_DATASET.push({ subId: X2.id, quotes: [{ versionId: 'QT-2-v1.0', date: days(5) }] });
+    var X3 = mk('SUB-C36-X3', { quoteIssued: true, quoteValidDays: 10 }); QUOTE_VERSIONS_DATASET.push({ subId: X3.id, quotes: [{ versionId: 'QT-3-v1.0', date: days(15) }] });
+    var X4 = mk('SUB-C36-X4', { quoteIssued: true, pasSync: { status: 'success' } }); QUOTE_VERSIONS_DATASET.push({ subId: X4.id, quotes: [{ versionId: 'QT-4-v1.0', date: days(90) }] });
+    var X5 = mk('SUB-C36-X5'); QUOTE_VERSIONS_DATASET.push({ subId: X5.id, quotes: [{ versionId: 'QT-5-v1.0', date: days(90) }] });
+    var made = outSweepExpired(Date.now(), [X1, X2, X3, X4, X5]);
+    t('the sweep closes an issued quote older than its validity, and only that', made.length === 2 && outCurrent(X1).type === 'quote_expired' && !outCurrent(X2) && outCurrent(X3).type === 'quote_expired');
+    t('a quote can carry its own validity', outCurrent(X3).reasonText.indexOf('within 10 days') > -1 && outCurrent(X1).reasonText.indexOf('within ' + OUT_QUOTE_VALID_DAYS + ' days') > -1);
+    t('a bound policy and a case with no issued quote are left alone', !outCurrent(X4) && !outCurrent(X5));
+    t('the sweep records the system as decider, names the quote and closes the case', outCurrent(X1).decidedBy === 'System' && outCurrent(X1).source === 'system' && outCurrent(X1).quoteVersionId === 'QT-1-v1.0' && X1.lifecycleStatus === 'closed');
+    t('running it again changes nothing', outSweepExpired(Date.now(), [X1, X2, X3, X4, X5]).length === 0);
+    var ns = notifOpenCase(X1);
+    t('a closed case is no longer an open case for reminders', ns === false || ns === undefined || !ns);
+    var Z = mk('SUB-C36-Z', { quoteIssued: true }); QUOTE_VERSIONS_DATASET.push({ subId: Z.id, quotes: [{ versionId: 'QT-6-v1.0', date: days(60) }] }); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(Z);
+    notificationsCheck(); t('the notification check runs the sweep', !!outCurrent(Z) && outCurrent(Z).type === 'quote_expired');
+
+    // ---------- reopen
+    var R = mk('SUB-C36-R', { discretionaryPricing: { finalPremium: 1000 } }); use(R);
+    outRecord(R, { type: 'withdrawn_by_broker', reasonCode: 'BROKER_REQUEST', reasonText: 'The broker asked to withdraw it.' });
+    t('a reason is needed to reopen', outReopen(R, 'no').error === 'reason' && outReopen(mk('SUB-C36-R0'), 'A good enough reason').error === 'none');
+    var ro = outReopen(R, 'The broker came back with new terms.');
+    t('reopening on the same case closes the outcome with who and why and clears the closed state', ro.ok && R.outcomes[0].status === 'reopened' && R.outcomes[0].reopenedBy && R.outcomes[0].reopenReason === 'The broker came back with new terms.' && !R.lifecycleStatus && R.statusText === 'Reopened' && outCurrent(R) === null && R.decisionLog.some(function(d){ return d.decision === 'outcome_reopened'; }));
+    t('after it the case can have a new outcome', outRecord(R, { type: 'closed_incomplete', reasonCode: 'NO_INFO_RECEIVED', reasonText: 'Still nothing from the broker.' }).ok && R.outcomes.length === 2);
+    var RN = mk('SUB-C36-RN'); use(RN);
+    addQuote(RN.id, days(1)); outRecord(RN, { type: 'not_taken_by_insured', reasonCode: 'PRICE', reasonText: 'The insured found it too dear.' });
+    var rn = outReopen(RN, 'Insured asked for a new quote.', { asNew: true });
+    t('reopening as new makes a linked submission, without the old outcome or rule runs', rn.ok && rn.submission.id === 'SUB-C36-RN-RO1' && rn.submission.reopenedFrom === 'SUB-C36-RN' && !rn.submission.outcomes && !rn.submission.lifecycleStatus && RN.outcomes[0].reopenedSubmissionId === 'SUB-C36-RN-RO1' && SUBMISSIONS_DATASET[0].id === 'SUB-C36-RN-RO1');
+    t('the original keeps its outcome as reopened', RN.outcomes[0].status === 'reopened' && rn.submission.decisionLog.some(function(d){ return d.decision === 'outcome_reopened_as_new'; }));
+    var rb = mk('SUB-C36-RB', { pasSync: { status: 'success' } }); rb.outcomes = [{ id: 'OUT-1', status: 'current', type: 'withdrawn_by_broker' }];
+    t('a bound policy cannot be reopened', outReopen(rb, 'There is a good reason.').error === 'bound');
+    var rbn = ['junior', 'senior_uw', 'senior', 'admin', 'compliance', 'assistant'].filter(function(r){ return !canRole(r, 'workflow', 'approve'); })[0];
+    if (rbn) { login(rbn); t('someone who may not approve cannot reopen (' + rbn + ')', outReopen(R, 'There is a good reason.').error === 'permission'); login('senior'); }
+
+    // ---------- the screen
+    var S1 = mk('SUB-C36-S1'); var S2 = mk('SUB-C36-S2', { decisionLog: [{ decision: 'declined', by: 'x', at: days(0), notes: 'n' }] });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(S1, S2);
+    outRecord(S1, { type: 'withdrawn_by_broker', reasonCode: 'BROKER_REQUEST', reasonText: 'The broker asked to withdraw it.' });
+    var sr = outRecord(S2, { type: 'declined_by_underwriter', reasonCode: 'CREDIT_INFO', reasonText: 'The score was below the floor.' }); sr.outcome.decidedAt = days(10);
+    renderDeclineCenter(); var tx = el('declineOutcomesContainer').innerText;
+    t('the Decline Center shows outcomes, reasons, the notice owed and overdue, and the reopen buttons', /Why business did not become a policy/.test(tx) && /Withdrawn by the broker/.test(tx) && /Declined by an underwriter/.test(tx) && /Owed, overdue/i.test(tx) && /Reopen/.test(tx) && /Quote to bind/.test(tx) && /internal code set for the company to confirm/.test(tx));
+    el('out_reopen_reason').value = 'The broker came back with new terms.'; outUiReopen('SUB-C36-S1', false);
+    t('the Reopen button reopens from the page', S1.outcomes[0].status === 'reopened' && /reopened/i.test(el('declineOutcomesContainer').innerText));
+    el('out_sub').innerHTML = '<option value="SUB-C36-S1">s</option>'; el('out_sub').value = 'SUB-C36-S1'; el('out_type').value = 'lost_to_competitor'; outUiType();
+    t('choosing lost to a competitor shows the competitor fields and its reasons', !!el('out_comp') && !!el('out_comp_prem') && !!el('out_reason').querySelector('option[value="PRICE"]'));
+    el('out_sub').innerHTML = '<option value="SUB-C36-S1">s</option>'; el('out_sub').value = 'SUB-C36-S1'; el('out_type').value = 'lost_to_competitor'; el('out_reason').value = 'PRICE'; el('out_comp').value = 'Acme'; el('out_comp_prem').value = '900'; el('out_text').value = 'Cheaper elsewhere, they said.'; outUiRecord();
+    t('an outcome is recorded from the page', outCurrent(S1) && outCurrent(S1).type === 'lost_to_competitor' && outCurrent(S1).competitorPremium === 900);
+    var tn = toasts.length; el('out_sub').value = ''; outUiRecord(); t('recording without a submission is refused with a message', toasts.slice(tn).some(function(m){ return /Pick the submission/.test(m); }));
+    t('the audit actions are labelled', !!AUDIT_ACTION_META.outcome_recorded && !!AUDIT_ACTION_META.outcome_reopened && !!AUDIT_ACTION_META.outcome_reopened_as_new);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  try { QUOTE_VERSIONS_DATASET.length = 0; savedQ.forEach(function(x){ QUOTE_VERSIONS_DATASET.push(x); }); SUBMISSIONS_DATASET.length = 0; savedSubs.forEach(function(x){ SUBMISSIONS_DATASET.push(x); }); DECLINE_LOG.length = 0; savedLog.forEach(function(x){ DECLINE_LOG.push(x); }); } catch (e) { /* nothing to restore */ }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

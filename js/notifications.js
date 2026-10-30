@@ -54,7 +54,7 @@ function notifAgo(iso) {
 // REMINDERS, worked out from the cases
 // ----------------------------------------------------------------------------
 function notifOpenCase(sub) {
-  return sub.apiSourced && !["declined", "merged", "discarded"].includes(sub.lifecycleStatus) && !sub.quoteIssued && !(sub.pasSync && sub.pasSync.status === "success");
+  return sub.apiSourced && !["declined", "merged", "discarded", "closed"].includes(sub.lifecycleStatus) && !sub.quoteIssued && !(sub.pasSync && sub.pasSync.status === "success");
 }
 /** { due, hours, left, state } for a case's SLA: ok, risk (last quarter, or last hour for a P1) or overdue. Null when there is no clock to read. */
 function notifSla(sub, now) {

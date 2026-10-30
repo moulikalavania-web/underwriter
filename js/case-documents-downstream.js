@@ -319,45 +319,6 @@ function onManualAssignmentChange() {
  * actual attached document names, falling back to the primary application
  * form (ACORD), same as a real OCR pipeline would tag its evidence doc.
  */
-// Shared, redesigned Coverage Lines component — used by both the ACORD
-// Application Form preview (Screen 1 doc viewer and the Underwriting
-// Workbench doc viewer, which previously duplicated the same plain
-// black-bordered spreadsheet table in two places). Renders each coverage
-// line as an icon-led card instead of a table row, themed with the app's
-// blue palette (#1D4ED8 / #1E40AF / #EFF6FF) plus a green accent for
-// premium, to match the rest of the redesigned UI.
-function coverageLineIcon(lineText) {
-  var t = (lineText || "").toLowerCase();
-  if (t.indexOf("cargo") !== -1) return "ph-package";
-  if (t.indexOf("physical damage") !== -1 || t.indexOf("collision") !== -1) return "ph-car";
-  if (t.indexOf("liability") !== -1) return "ph-shield-check";
-  return "ph-file-text";
-}
-
-function renderCoverageRowsHtml(coverageRows) {
-  if (!coverageRows || !coverageRows.length) {
-    return '<div class="empty-state" style="padding:16px 0;"><i class="ph ph-shield-slash empty-state-icon"></i><div class="empty-state-body">No coverage lines on file.</div></div>';
-  }
-  return '<div class="coverage-lines-list">' + coverageRows.map(function (c) {
-    return '' +
-      '<div class="coverage-line-card">' +
-        '<div class="cov-line-icon"><i class="ph ' + coverageLineIcon(c.line) + '"></i></div>' +
-        '<div class="cov-line-main">' +
-          '<div class="cov-line-name">' + c.line + '</div>' +
-          '<div class="cov-line-meta">' +
-            '<span class="cov-line-stat"><span class="cov-line-stat-lbl">Limit</span><span class="cov-line-stat-val">' + c.limit + '</span></span>' +
-            '<span class="cov-line-stat"><span class="cov-line-stat-lbl">Deductible</span><span class="cov-line-stat-val">' + c.ded + '</span></span>' +
-          '</div>' +
-        '</div>' +
-        '<div class="cov-line-prem-box">' +
-          '<span class="cov-line-prem-lbl">Est. Premium</span>' +
-          '<span class="cov-line-prem-val">' + c.prem + '</span>' +
-        '</div>' +
-      '</div>';
-  }).join('') + '</div>';
-}
-window.renderCoverageRowsHtml = renderCoverageRowsHtml;
-
 function guessFieldSource(fieldKey, docs) {
   if (!docs || docs.length === 0) return null;
   const key = fieldKey.toLowerCase();
@@ -652,7 +613,9 @@ function validateMgaOverrideInput(inputEl) {
   // has an editable input — only a genuine change from the original counts.
   if (rule._originalBaseValue === undefined) rule._originalBaseValue = rule.baseValue;
   rule.baseValue = inputEl.value;
-  rule.overridden = String(inputEl.value) !== String(rule._originalBaseValue);
+  // Compare with the original as it is DISPLAYED ("10 Years", "$10,000"), not as stored (10): the box always shows the formatted
+  // value, so comparing the raw original marked every rule with a unit as edited the moment it was drawn.
+  rule.overridden = String(inputEl.value) !== String(formatRuleBaseValue(Object.assign({}, rule, { baseValue: rule._originalBaseValue })));
 
   // Live comparison: Submission Value vs the (possibly just-edited) MGA
   // Base Value, using the rule's own operator — never a hardcoded pass.

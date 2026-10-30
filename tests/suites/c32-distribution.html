@@ -1,0 +1,194 @@
+<!-- Suite C32: tenants, distribution agreements and binding authority. A chain carrier > MGA > wholesaler > broker, each link an agreement with dates and a parent; the MGA's binding
+     authority says what it may do (quote, bind, issue, endorse, cancel) and carries one limit row per limit; a case is visible to another company only through the chain or a share;
+     quoting, binding, endorsing and cancelling are refused if the agreement does not allow them; a limit marked refer needs the carrier, one marked decline stops it. Loaded as a
+     proposal citing the contract, approved by someone else. With nothing loaded the prototype behaves as before. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var TODAY = new Date().toISOString().slice(0, 10);
+  function demo(){ return {
+    tenants: [{ id: 'T-HOME', name: 'FUT Underwriting', type: 'mga' }, { id: 'T-CAR-VIK', name: 'Vikram & Sons', type: 'carrier' }, { id: 'T-WHS-AMW', name: 'Amwins Specialty Wholesale Brokerage', type: 'wholesaler', producerNames: ['Amwins Specialty Wholesale Brokerage'] }, { id: 'T-BRK-MARSH', name: 'Marsh & McLennan Commercial Brokerage', type: 'broker', producerNames: ['Marsh & McLennan Commercial Brokerage', 'Marsh & McLennan'] }, { id: 'T-BRK-ARORA', name: 'Arora & Sons', type: 'broker', producerNames: ['Arora & Sons'] }, { id: 'T-CAR-HAR', name: 'Harbor Mutual', type: 'carrier' }],
+    agreements: [
+      { id: 'AGR-VIK-MGA', parentId: null, principal: 'T-CAR-VIK', distributor: 'T-HOME', type: 'mga', number: 'DAA-1', from: '2026-01-01', to: '2037-06-30', status: 'active' },
+      { id: 'AGR-MGA-MARSH', parentId: 'AGR-VIK-MGA', principal: 'T-HOME', distributor: 'T-BRK-MARSH', type: 'agency', number: 'AG-MARSH', from: '2026-01-01', to: '2036-12-31', status: 'active' },
+      { id: 'AGR-MGA-AMW', parentId: 'AGR-VIK-MGA', principal: 'T-HOME', distributor: 'T-WHS-AMW', type: 'wholesale', number: 'WH-AMW', from: '2026-01-01', to: '2036-12-31', status: 'active' },
+      { id: 'AGR-AMW-ARORA', parentId: 'AGR-MGA-AMW', principal: 'T-WHS-AMW', distributor: 'T-BRK-ARORA', type: 'agency', number: 'AG-ARORA', from: '2026-01-01', to: '2036-12-31', status: 'active' },
+      { id: 'AGR-HAR-MGA', parentId: null, principal: 'T-CAR-HAR', distributor: 'T-HOME', type: 'mga', number: 'DAA-2', from: '2026-01-01', to: '2037-06-30', status: 'active' }],
+    baas: [{ id: 'BAA-VIK', agreementId: 'AGR-VIK-MGA', number: 'BAA-1', yearOfAccount: 2026, canQuote: true, canBind: true, canIssue: true, canEndorse: true, canCancel: false, claimsAuthority: 'report', currency: 'USD', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'BAA-HAR', agreementId: 'AGR-HAR-MGA', number: 'BAA-2', yearOfAccount: 2026, canQuote: true, canBind: true, canIssue: true, canEndorse: true, canCancel: true, claimsAuthority: 'none', currency: 'USD', from: '2026-01-01', to: '2037-06-30' }],
+    limits: [
+      { id: 'LIM-1', baaId: 'BAA-VIK', lob: '*', state: '*', classCode: '*', coverage: '*', limitType: 'premium', amount: 2000000, breachAction: 'refer', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'LIM-2', baaId: 'BAA-VIK', lob: 'gl_cas', state: '*', classCode: '*', coverage: '*', limitType: 'premium', amount: 750000, breachAction: 'refer', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'LIM-3', baaId: 'BAA-VIK', lob: '*', state: '*', classCode: '*', coverage: '*', limitType: 'policy_limit', amount: 10000000, breachAction: 'refer', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'LIM-4', baaId: 'BAA-VIK', lob: '*', state: '*', classCode: '*', coverage: '*', limitType: 'tiv', amount: 25000000, breachAction: 'decline', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'LIM-5', baaId: 'BAA-VIK', lob: 'trucking', state: 'TX', classCode: '*', coverage: '*', limitType: 'premium', amount: 300000, breachAction: 'decline', from: '2026-01-01', to: '2037-06-30' },
+      { id: 'LIM-6', baaId: 'BAA-VIK', lob: '*', state: '*', classCode: '*', coverage: 'motortruckcargo', limitType: 'policy_limit', amount: 250000, breachAction: 'refer', from: '2026-01-01', to: '2037-06-30' }],
+    programs: [{ id: 'PRG-FLEET', name: 'Fleet Select', adminTenant: 'T-HOME', capacity: [{ carrier: 'T-CAR-VIK', baaId: 'BAA-VIK', pct: 60, lead: true, fronting: false }, { carrier: 'T-CAR-HAR', baaId: 'BAA-HAR', pct: 40, lead: false, fronting: false }] }],
+    shares: [] }; }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 9; s.completedSteps = [1, 2, 3, 4, 5, 6, 7, 8];
+    ['pasSync', 'quoteIssued', 'customerApproved', 'authorityRef', 'carrierApproval', 'tenantId', 'agreementId', 'authorityChecks', 'discretionaryPricing', 'importedRatingData', 'program', 'carrier', 'insuredInfo', 'canonicalJson'].forEach(function(k){ delete s[k]; });
+    s.broker = 'Arora & Sons'; s.channelType = 'broker'; s.address = '9 Elm Road, Dallas, TX 75201'; s.exposureVal = 1000000; s.exposure = '$1,000,000'; s.assignedTo = 'senior_uw';
+    s.discretionaryPricing = { finalPremium: 100000, basePremium: 100000 };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; (Array.isArray(s) ? s : [s]).forEach(function(x){ SUBMISSIONS_DATASET.push(x); }); activeSubmissionId = (Array.isArray(s) ? s[0] : s).id; }
+  function load(cfg){ login('senior_uw'); var p = ddPropose(cfg || demo(), 'CONTRACT-2026-07', 'test'); login('senior'); var a = ddApprove(); return p.ok && a.ok; }
+  function guardOf(name){ return GUARD_REGISTRY[name].guards.filter(function(g){ return g.name === 'binding authority agreement'; })[0]; }
+  try {
+    ddReset();
+    // ---------- nothing loaded: nothing changes
+    login('senior_uw'); var Z = mk('SUB-C32-Z'); use(Z);
+    t('with no agreements loaded the checks do not apply', ddLoaded() === false && ddResolve(Z).applies === false && ddAuthorityCheck(Z, 'bind').applies === false && ddTenantCanSee('T-HOME', Z) === true && ddTenantCanSee('T-BRK-ARORA', Z) === false);
+    t('the carrier layer is exactly what it was', authCarrierCheck(Z, authMeasures(Z), SUBMISSIONS_DATASET, TODAY).carrier === (typeof PRODUCER_DEFAULT_CARRIER !== 'undefined' ? PRODUCER_DEFAULT_CARRIER : '') );
+    showWorkflowPage(AUTH_STEP); renderAuthorityCard(Z);
+    t('the authority page says no agreements are loaded and how to load them', /No agreements are loaded/.test(el('authorityContainer').innerText) && /Load agreements and binding authority from the contracts/.test(el('authorityContainer').innerText));
+
+    // ---------- validation
+    var ok = demo(); t('the example set is valid', ddValidate(ok).length === 0, ddValidate(ok).join(' | '));
+    var c1 = demo(); c1.tenants = c1.tenants.filter(function(x){ return x.id !== 'T-HOME'; }); t('the home tenant must be present', ddValidate(c1).some(function(e){ return /home tenant T-HOME/.test(e); }));
+    var c2 = demo(); c2.agreements[1].distributor = 'T-NOBODY'; c2.agreements[3].principal = 'T-HOME'; c2.agreements[2].principal = c2.agreements[2].distributor;
+    var e2 = ddValidate(c2);
+    t('an agreement needs real tenants, and may not be a company with itself', e2.some(function(e){ return /distributor T-NOBODY is not a tenant/.test(e); }) && e2.some(function(e){ return /cannot distribute for itself/.test(e); }));
+    t('a child\'s principal must be its parent\'s distributor, which is how the chain continues', e2.some(function(e){ return /AGR-AMW-ARORA: its principal must be the parent's distributor \(T-WHS-AMW\)/.test(e); }));
+    var c3 = demo(); c3.agreements[1].to = '2040-01-01'; c3.agreements[3].from = '2025-01-01'; var e3 = ddValidate(c3);
+    t('a child\'s dates must lie within its parent\'s', e3.some(function(e){ return /AGR-MGA-MARSH: its dates must lie within its parent's/.test(e); }) && e3.some(function(e){ return /AGR-AMW-ARORA: its dates must lie within its parent's/.test(e); }));
+    var c4 = demo(); c4.agreements[0].parentId = 'AGR-AMW-ARORA'; var e4 = ddValidate(c4);
+    t('a chain that loops back on itself is refused', e4.some(function(e){ return /loops back on itself/.test(e); }));
+    var c5 = demo(); c5.agreements[1].parentId = null; t('the top of a chain must be a carrier', ddValidate(c5).some(function(e){ return /the top of a chain is a carrier's agreement; T-HOME is a mga/.test(e); }));
+    var c6 = demo(); c6.agreements[1].parentId = 'AGR-NOPE'; c6.agreements[0].type = 'franchise'; c6.agreements[0].from = '01/01/2026';
+    var e6 = ddValidate(c6); t('a missing parent, a type that does not exist and a bad date are named', e6.some(function(e){ return /parent AGR-NOPE does not exist/.test(e); }) && e6.some(function(e){ return /type must be one of mga, mgu, wholesale, agency/.test(e); }) && e6.some(function(e){ return /start date must be yyyy-mm-dd/.test(e); }));
+    var c7 = demo(); c7.baas[0].agreementId = 'AGR-NO'; c7.baas[1].canQuote = 'yes'; c7.baas[1].claimsAuthority = 'all'; c7.baas[1].to = '2040-01-01';
+    var e7 = ddValidate(c7); t('a binding authority needs its agreement, true or false flags, a claims level, and dates inside the agreement', e7.some(function(e){ return /BAA-VIK: the agreement AGR-NO does not exist/.test(e); }) && e7.some(function(e){ return /BAA-HAR: say whether canQuote/.test(e); }) && e7.some(function(e){ return /claims authority must be/.test(e); }) && e7.some(function(e){ return /BAA-HAR: its dates must lie within the agreement's/.test(e); }));
+    var c8 = demo(); c8.limits[0].limitType = 'bonus'; c8.limits[1].amount = -5; c8.limits[2].breachAction = 'ignore'; c8.limits[3].baaId = 'BAA-X';
+    var e8 = ddValidate(c8); t('a limit needs a type, a non-negative amount, a breach action and an existing authority', e8.some(function(e){ return /LIM-1: the limit type/.test(e); }) && e8.some(function(e){ return /LIM-2: the amount/.test(e); }) && e8.some(function(e){ return /LIM-3: the action on a breach/.test(e); }) && e8.some(function(e){ return /LIM-4: the binding authority BAA-X does not exist/.test(e); }));
+    var c9 = demo(); c9.limits.push({ id: 'LIM-7', baaId: 'BAA-VIK', lob: 'gl_cas', state: '*', classCode: '*', coverage: '*', limitType: 'premium', amount: 1, breachAction: 'refer', from: '2030-01-01', to: '2031-01-01' });
+    t('two limits for the same scope that overlap in time are refused with both ids', ddValidate(c9).some(function(e){ return /Limits LIM-2 and LIM-7 overlap/.test(e); }));
+    var c10 = demo(); c10.limits.push({ id: 'LIM-8', baaId: 'BAA-VIK', lob: 'gl_cas', state: '*', classCode: '*', coverage: '*', limitType: 'premium', amount: 1, breachAction: 'refer', from: '2038-01-01', to: '2038-06-01' });
+    t('but limits that never meet in time are fine, as are limits of different scope', ddValidate(c10).filter(function(e){ return /overlap/.test(e); }).length === 0 && ddValidate(demo()).length === 0);
+    var p1 = demo(); p1.programs[0].capacity[1].pct = 30; p1.programs[0].capacity[1].lead = true;
+    var pe = ddValidate(p1); t('a program\'s shares add to 100% and exactly one is the lead', pe.some(function(e){ return /shares add to 90%/.test(e); }) && pe.some(function(e){ return /exactly one carrier is the lead/.test(e); }));
+    var p2 = demo(); p2.programs[0].capacity[1].baaId = 'BAA-VIK'; p2.programs[0].capacity[0].fronting = true; p2.programs[0].capacity[0].carrier = 'T-HOME';
+    var pe2 = ddValidate(p2); t('each share is a carrier\'s own binding authority, and a fronting share names its contract', pe2.some(function(e){ return /T-HOME is not a carrier tenant/.test(e); }) && pe2.some(function(e){ return /BAA-VIK is not T-CAR-HAR's binding authority/.test(e); }) && pe2.some(function(e){ return /fronting share names its reinsurance or fronting contract/.test(e); }));
+
+    // ---------- loading is a proposal approved by someone else
+    login('junior'); t('an Underwriter I cannot propose', ddPropose(demo(), 'CONTRACT-2026-07', '').error === 'permission' && !ddLoaded());
+    login('senior_uw'); t('a proposal needs the contract cited', ddPropose(demo(), '', '').error === 'contract' && DD_PENDING === null);
+    var bad = demo(); bad.agreements[1].distributor = 'T-NOBODY'; var rb = ddPropose(bad, 'CONTRACT-2026-07', ''); t('an invalid set is refused, naming what is wrong, and nothing is stored', rb.error === 'invalid' && /T-NOBODY/.test(rb.errors[0]) && DD_PENDING === null);
+    var pr = ddPropose(demo(), 'CONTRACT-2026-07', 'from the signed agreements');
+    t('a valid proposal waits, and nothing is in force', pr.ok && !!DD_PENDING && DD_PENDING.contractRef === 'CONTRACT-2026-07' && !ddLoaded() && ddResolve(Z).applies === false);
+    t('the proposer cannot approve, because a Senior Underwriter holds no approval permission', ddApprove().error === 'permission');
+    login('admin'); var adm = ddPropose(demo(), 'CONTRACT-2026-08', ''); t('the Head of Underwriting may propose and approve, but never the same one', adm.ok && ddApprove().error === 'self' && ddReject().ok && DD_PENDING === null);
+    login('senior_uw'); ddPropose(demo(), 'CONTRACT-2026-07', ''); login('senior'); renderAuthorityCard(Z);
+    t('the page shows the waiting proposal to the approver', /Proposal waiting/.test(el('authorityContainer').innerText) && /CONTRACT-2026-07/.test(el('authorityContainer').innerText) && /Approve/.test(el('authorityContainer').innerText));
+    var ap = ddApprove();
+    t('a different approver puts it in force, and it is kept with its contract, who and when', ap.ok && ddLoaded() && DD_META.contractRef === 'CONTRACT-2026-07' && /Marcus Vance/.test(DD_META.approvedBy) && DD_HISTORY.map(function(h){ return h.action; }).slice(-2).join() === 'proposed,approved' && !!JSON.parse(localStorage.getItem(DD_KEY)).cfg.agreements.length);
+
+    // ---------- the chain a case sits in
+    login('senior_uw'); var Ar = mk('SUB-C32-AR'); use(Ar); var rA = ddResolve(Ar);
+    t('a case from the retail broker sits in a three-link chain up to the carrier', rA.applies && rA.chain.map(function(a){ return a.id; }).join() === 'AGR-AMW-ARORA,AGR-MGA-AMW,AGR-VIK-MGA' && rA.carrier.name === 'Vikram & Sons' && rA.mga.id === 'T-HOME' && rA.baa.id === 'BAA-VIK' && rA.problems.length === 0);
+    var Ma = mk('SUB-C32-MA', { broker: 'Marsh & McLennan' }); t('a producer is found by name, in either spelling', ddResolve(Ma).chain.map(function(a){ return a.id; }).join() === 'AGR-MGA-MARSH,AGR-VIK-MGA');
+    t('a producer with no agreement, and a direct case, are not checked against one', ddResolve(mk('X', { broker: 'Nobody Brokers' })).applies === false && ddResolve(mk('X', { channelType: 'direct' })).applies === false);
+    t('an agreement can be named on the case instead', ddResolve(mk('X', { broker: 'Nobody Brokers', agreementId: 'AGR-MGA-MARSH' })).chain.length === 2);
+    var late = ddResolve(Ar, '2038-01-01'); t('an agreement out of force that day is a problem, and so is a missing binding authority', late.problems.some(function(p){ return /AGR-AMW-ARORA .* is not in force on 2038-01-01/.test(p); }) && late.problems.some(function(p){ return /No binding authority agreement is in force under AGR-VIK-MGA on 2038-01-01/.test(p); }));
+    t('a case that names a different carrier than its chain leads to is a problem', ddResolve(mk('X', { carrier: 'Harbor Mutual' })).problems.some(function(p){ return /names the carrier Harbor Mutual, but its agreement chain leads to Vikram & Sons/.test(p); }));
+
+    // ---------- who sees a case
+    var sh = ddSharedTenants(Ar);
+    t('the owner is the home company, and the producers below it see it', ddOwner(Ar) === 'T-HOME' && sh['T-BRK-ARORA'] && sh['T-WHS-AMW'] && sh['T-HOME'] === undefined && !sh['T-BRK-MARSH']);
+    t('the carrier does not see it until it is quoted or bound', !sh['T-CAR-VIK'] && ddTenantCanSee('T-CAR-VIK', Ar) === false);
+    Ar.quoteIssued = true; t('then it does', ddTenantCanSee('T-CAR-VIK', Ar) === true && ddTenantCanSee('T-CAR-HAR', Ar) === false);
+    Ar.quoteIssued = false;
+    t('another broker never does', ddTenantCanSee('T-BRK-MARSH', Ar) === false && ddTenantCanSee('T-BRK-MARSH', Ma) === true && ddTenantCanSee('T-BRK-ARORA', Ma) === false);
+    var Ow = mk('SUB-C32-OW', { tenantId: 'T-CAR-VIK', broker: 'Nobody Brokers' }); t('a case another tenant owns is not the home company\'s', ddOwner(Ow) === 'T-CAR-VIK' && ddTenantCanSee('T-HOME', Ow) === false && ddTenantCanSee('T-CAR-VIK', Ow) === true);
+    DD_CFG.shares.push({ id: 'SH-1', ownerTenantId: 'T-HOME', granteeTenantId: 'T-BRK-MARSH', entityType: 'submission', entityId: Ar.id, accessLevel: 'read', from: '2026-01-01', to: '2036-01-01', status: 'active' });
+    t('an explicit share opens it to one more tenant, for the dates it names', ddTenantCanSee('T-BRK-MARSH', Ar) === true && ddSharedTenants(Ar)['T-BRK-MARSH'] === 'share SH-1' && ddTenantCanSee('T-BRK-MARSH', Ar, '2040-01-01') === false);
+    DD_CFG.shares.length = 0;
+    registerExternalRole('c32_arora', { name: 'Meera Arora', title: 'Producer, Arora & Sons (External)', icon: 'x', limit: 0, limitText: 'x', description: 'x', external: true, scope: { kind: 'all' }, tenantId: 'T-BRK-ARORA' });
+    registerExternalRole('c32_marsh', { name: 'Jordan Reyes', title: 'Producer, Marsh (External)', icon: 'x', limit: 0, limitText: 'x', description: 'x', external: true, scope: { kind: 'all' }, tenantId: 'T-BRK-MARSH' });
+    registerExternalRole('c32_carrier', { name: 'Helen Park', title: 'Carrier, Vikram & Sons (External, read-only)', icon: 'x', limit: 0, limitText: 'x', description: 'x', external: true, readOnly: true, scope: { kind: 'carrier', carrier: 'Vikram & Sons' }, tenantId: 'T-CAR-VIK' });
+    registerExternalRole('c32_notenant', { name: 'No Tenant', title: 'Auditor (no tenant)', icon: 'x', limit: 0, limitText: 'x', description: 'x', external: true, scope: { kind: 'all' } });
+    Ar.carrier = 'Vikram & Sons'; Ma.carrier = 'Vikram & Sons';
+    t('a persona belonging to one broker sees only what the chain shares with its tenant', extCanSee('c32_arora', Ar) === true && extCanSee('c32_arora', Ma) === false && extCanSee('c32_marsh', Ma) === true && extCanSee('c32_marsh', Ar) === false);
+    t('a carrier persona sees a case on its paper only once quoted', extCanSee('c32_carrier', Ar) === false && (function(){ Ar.quoteIssued = true; var r = extCanSee('c32_carrier', Ar); Ar.quoteIssued = false; return r; })());
+    t('the persona\'s own scope still applies on top of the tenant', extCanSee('c32_carrier', mk('X', { carrier: 'Harbor Mutual', quoteIssued: true })) === false);
+    t('a persona with no tenant is governed by its scope alone, as before', extCanSee('c32_notenant', Ar) === true && extCanSee('c32_notenant', Ma) === true);
+    t('and internal underwriters, who work for the home company, see their own', extCanSee('senior_uw', Ar) === true);
+    var vis = extVisible('c32_arora', [Ar, Ma, Ow]); t('lists are built from the visible set only', vis.length === 1 && vis[0].id === Ar.id);
+
+    // ---------- what the agreement allows
+    var ck = ddAuthorityCheck(Ar, 'quote');
+    t('a case inside every limit is within authority, with the limit row tested for each type', ck.applies && ck.ok && !ck.exceeded && ck.allowed && ck.checks.map(function(c){ return c.limitType + ':' + c.limitId; }).join() === 'premium:LIM-5,policy_limit:LIM-3,tiv:LIM-4' && ck.checks.every(function(c){ return c.result === 'within_authority'; }), ck.checks.map(function(c){ return c.limitType + ':' + c.limitId; }).join());
+    t('the most specific limit applies: trucking in Texas beats the all-lines premium limit', ddLimitFor('BAA-VIK', 'premium', { lob: 'trucking', state: 'TX' }, TODAY, null).id === 'LIM-5' && ddLimitFor('BAA-VIK', 'premium', { lob: 'trucking', state: 'OH' }, TODAY, null).id === 'LIM-1' && ddLimitFor('BAA-VIK', 'premium', { lob: 'gl_cas', state: 'TX' }, TODAY, null).id === 'LIM-2' && ddLimitFor('BAA-VIK', 'premium', { lob: 'property', state: 'TX' }, TODAY, null).id === 'LIM-1');
+    t('a limit not in force that day does not apply', ddLimitFor('BAA-VIK', 'premium', { lob: 'property', state: 'TX' }, '2038-01-01', null) === null);
+    var tx = mk('SUB-C32-TX', { address: '9 Elm Road, Dallas, TX 75201', discretionaryPricing: { finalPremium: 350000 } }); var ctx = ddAuthorityCheck(tx, 'bind');
+    t('a premium above a limit marked decline is a hard stop', ctx.exceeded && ctx.hardStop && ctx.stops.some(function(s){ return /Premium \$350,000 is above the \$300,000 limit and the agreement says decline/.test(s); }) && ctx.needsCarrier === false);
+    var oh = mk('SUB-C32-OH', { address: '1 Main St, Columbus, OH 43004', discretionaryPricing: { finalPremium: 2500000 } }); var cOh = ddAuthorityCheck(oh, 'bind');
+    t('a premium above a limit marked refer needs the carrier, and is not a hard stop', cOh.exceeded && !cOh.hardStop && cOh.needsCarrier && cOh.stops.length === 0 && cOh.reasons.some(function(r){ return /above the \$2,000,000 limit in LIM-1 \(refer to the carrier\)/.test(r); }));
+    var big = mk('SUB-C32-BIG', { address: '1 Main St, Columbus, OH 43004', vehicles: [{ year: 2022, make: 'Volvo', stated_value: 30000000, vin: '1XKYD49X0NJ111111' }] }); big.sov = { kind: 'locations', rows: [{ loc: '1', address: 'A', tiv: 30000000 }] };
+    t('total insured value is tested too, from the statement of values', ddAuthorityCheck(big, 'bind').checks.some(function(c){ return c.limitType === 'tiv' && c.result === 'exceeded' && c.checkedValue === 30000000; }) && ddAuthorityCheck(big, 'bind').hardStop);
+    var cg = mk('SUB-C32-CG', { address: '1 Main St, Columbus, OH 43004', coverageRows: [{ line: 'Motor Truck Cargo', limit: '$500,000', ded: '$1,000' }] });
+    t('a limit on one coverage is tested against that coverage\'s limit', ddAuthorityCheck(cg, 'bind').checks.some(function(c){ return /Motor Truck Cargo/.test(c.measure) && c.limitId === 'LIM-6' && c.result === 'exceeded'; }));
+    t('what the agreement lets the MGA do is read from the binding authority', ddAuthorityCheck(Ar, 'bind').allowed && ddAuthorityCheck(Ar, 'endorse').allowed && !ddAuthorityCheck(Ar, 'cancel').allowed && ddAuthorityCheck(Ar, 'cancel').stops[0] === ddAuthorityCheck(Ar, 'cancel').reasons[0] && /does not let FUT Underwriting cancel on Vikram & Sons's paper/.test(ddAuthorityCheck(Ar, 'cancel').reasons[0]));
+    var h = mk('SUB-C32-H', { broker: 'Marsh & McLennan', agreementId: null }); h.agreementId = 'AGR-HAR-MGA'; t('a different carrier\'s authority allows what that carrier allows', ddAuthorityCheck(h, 'cancel').allowed && ddResolve(h).carrier.name === 'Harbor Mutual');
+
+    // ---------- the carrier layer in authority.js reads it
+    var ca = authCarrierCheck(oh, authMeasures(oh), SUBMISSIONS_DATASET, TODAY);
+    t('a limit marked refer makes the carrier layer ask for the carrier\'s approval, with the agreement named', ca.ok === false && ca.reasons.some(function(r){ return /LIM-1/.test(r); }) && ca.agreement === 'BAA-1' && ca.carrier === 'Vikram & Sons');
+    use(oh); var asOh = authAssess(oh, 'senior', SUBMISSIONS_DATASET);
+    t('so the case cannot proceed on internal authority alone', asOh.carrierCovered === false && asOh.blockers.some(function(b){ return /carrier's approval must be recorded/.test(b) && /LIM-1/.test(b); }));
+    t('and a case inside the limits is covered', authCarrierCheck(Ar, authMeasures(Ar), SUBMISSIONS_DATASET, TODAY).ok === true || authCarrierCheck(Ar, authMeasures(Ar), SUBMISSIONS_DATASET, TODAY).reasons.every(function(r){ return !/LIM-/.test(r); }));
+
+    // ---------- the actions are refused
+    use(Ar); var nq = toasts.length; var gq = guardOf('issueQuote');
+    t('issuing a quote inside the agreement is allowed and the limits tested are kept as authority checks', gq.check([]) === true && Ar.authorityChecks.length >= 2 && Ar.authorityChecks[0].subjectType === 'quote' && Ar.authorityChecks[0].authoritySourceType === 'authority_limit' && Ar.authorityChecks[0].baaId === 'BAA-VIK' && /Arora|David|Sarah|Chen/.test(Ar.authorityChecks[0].checkedBy) && Ar.authorityChecks.some(function(c){ return c.measure === 'premium' && c.checkedValue === 100000 && c.limitValue === 300000 && c.result === 'within_authority'; }));
+    var NQ = clone(demo()); NQ.baas[0].canQuote = false; NQ.baas[0].canBind = false; load(NQ);
+    var nb = toasts.length;
+    t('where the agreement does not let the MGA quote, issuing the quote is refused and logged', gq.check([]) === false && toasts.slice(nb).some(function(m){ return /Issuing the quote refused \(binding authority\).*does not let FUT Underwriting quote/.test(m); }) && Ar.decisionLog.some(function(d){ return d.decision === 'dd_quote_blocked'; }));
+    var bg = guardOf('bind'); nb = toasts.length;
+    t('and so is the bind', bg.check([Ar.id]) === false && Ar.decisionLog.some(function(d){ return d.decision === 'dd_bind_blocked'; }) && toasts.slice(nb).some(function(m){ return /The bind refused/.test(m); }));
+    load(demo());
+    t('with the authority restored, the bind is allowed', bg.check([Ar.id]) === true);
+    use(tx); var nh = toasts.length;
+    t('a hard-stop limit refuses the bind even though nothing else is wrong', bg.check([tx.id]) === false && toasts.slice(nh).some(function(m){ return /\$350,000 is above the \$300,000 limit and the agreement says decline/.test(m); }));
+    use(oh); t('a refer limit does not refuse it here; the carrier layer handles it', bg.check([oh.id]) === true);
+    use(Ar); var nc = toasts.length; pcSubmitCancellation();
+    t('a cancellation is refused when the binding authority does not allow it', toasts.slice(nc).some(function(m){ return /Cancelling the policy refused \(binding authority\)/.test(m); }) && Ar.decisionLog.some(function(d){ return d.decision === 'dd_cancel_blocked'; }));
+    var ne = toasts.length; pcIssueEndorsement();
+    t('an endorsement is allowed through to its own rules, which then ask for their own details', !toasts.slice(ne).some(function(m){ return /Endorsing the policy refused \(binding authority\)/.test(m); }));
+    var NE = demo(); NE.baas[0].canEndorse = false; load(NE); ne = toasts.length; pcIssueEndorsement();
+    t('but refused if the agreement does not allow endorsing', toasts.slice(ne).some(function(m){ return /Endorsing the policy refused \(binding authority\)/.test(m); }) && Ar.decisionLog.some(function(d){ return d.decision === 'dd_endorse_blocked'; }));
+    load(demo());
+
+    // ---------- the screens
+    login('senior_uw'); use(Ar); showWorkflowPage(AUTH_STEP); renderAuthorityCard(Ar); var txt = el('authorityContainer').innerText;
+    t('the authority page shows the chain, the binding authority and what it allows', /Agreements and binding authority for this case/.test(txt) && /Arora & Sons \(broker\)/.test(txt) && /Vikram & Sons \(carrier\)/.test(txt) && /BAA-1/.test(txt) && /May quote/.test(txt) && /May not cancel/.test(txt));
+    t('it shows each limit tested, this case against the limit, with the result', /Premium/.test(txt) && /\$100,000/.test(txt) && /\$300,000/.test(txt) && /LIM-5/.test(txt) && /Within authority/.test(txt));
+    t('and who owns the case and who else can see it', /Owned by FUT Underwriting \(mga\)/.test(txt) && /Arora & Sons \(broker\)/.test(txt) && /Amwins Specialty Wholesale Brokerage/.test(txt));
+    use(oh); renderAuthorityCard(oh); t('a breach shows what happens: refer to the carrier', /Exceeded: refer to the carrier/.test(el('authorityContainer').innerText));
+    use(tx); renderAuthorityCard(tx); t('or decline', /Exceeded: decline/.test(el('authorityContainer').innerText));
+    var pg = mk('SUB-C32-PG', { program: 'Fleet Select', exposureVal: 1000000 }); var ps = ddProgramShares(pg);
+    t('a case in a program shows how its limit splits between the carriers', ps && ps.shares.length === 2 && ps.shares[0].limit === 600000 && ps.shares[0].lead === true && ps.shares[1].limit === 400000);
+    use(pg); renderAuthorityCard(pg); t('and the page says so', /Program Fleet Select/.test(el('authorityContainer').innerText) && /Harbor Mutual 40%/.test(el('authorityContainer').innerText));
+    login('junior'); renderAuthorityCard(pg); t('an Underwriter I sees the agreements but not the loader', /Agreements and binding authority/.test(el('authorityContainer').innerText) && !el('dd_json'));
+    login('senior_uw'); renderAuthorityCard(pg); t('someone who may propose sees the loader with the contract box', !!el('dd_json') && !!el('dd_ref'));
+    el('dd_json').value = 'nope'; var nj = toasts.length; ddUiPropose(); t('text that is not JSON is refused', toasts.slice(nj).some(function(m){ return /not valid JSON/.test(m); }));
+    el('dd_json').value = JSON.stringify(demo()); el('dd_ref').value = ''; nj = toasts.length; ddUiPropose(); t('a proposal from the page needs the contract', toasts.slice(nj).some(function(m){ return /Cite the contract/.test(m); }) && DD_PENDING === null);
+    el('dd_json').value = JSON.stringify(demo()); el('dd_ref').value = 'CONTRACT-2026-09'; ddUiPropose(); t('and with it, is waiting for the approver', !!DD_PENDING && DD_PENDING.contractRef === 'CONTRACT-2026-09'); ddReject();
+
+    // ---------- reset
+    ddReset(); t('resetting forgets everything, and the checks stop applying', !ddLoaded() && ddResolve(Ar).applies === false && localStorage.getItem(DD_KEY) === null);
+    t('the audit actions are labelled', ['dd_quote_blocked', 'dd_bind_blocked', 'dd_issue_blocked', 'dd_endorse_blocked', 'dd_cancel_blocked'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  try { ddReset(); } catch (e) { /* nothing to reset */ }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

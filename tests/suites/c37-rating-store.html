@@ -1,0 +1,104 @@
+<!-- Suite C37: rating detail as received. The rating engine is external; whatever it sends back about itself (rate tables with dimensions and row conditions, algorithm steps, factor results,
+     schedule-rating categories, experience mod) is stored as sent, one record per import, fingerprinted, with a list of what does not hang together. Nothing is calculated or corrected here. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id){ var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 11; ['pasSync', 'quoteIssued', 'ratingRecords', 'importedRatingData', 'isQuoteImported', 'discretionaryPricing'].forEach(function(k){ delete s[k]; }); return s; }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  var DETAIL = {
+    engineName: 'Example engine', engineVersion: '2026.2', requestId: 'REQ-1', ratedAt: '2026-10-28 14:05', productReleaseId: 'PRL-1',
+    rateTables: [
+      { tableCode: 'AL_BASE', name: 'Base rate', version: '7', dimensions: [{ code: 'radius', name: 'Radius', dataType: 'range' }, { code: 'class', name: 'Class' }], rows: [{ rowNo: 1, conditions: { radius: { from: 0, to: 100 }, class: 'LOCAL' }, value: 3100 }, { rowNo: 2, conditions: { radius: { from: 101, to: 300 }, class: 'INTER' }, value: 3650 }] },
+      { tableCode: 'ILF', version: '3', dimensions: [{ code: 'limit' }], rows: [{ rowNo: 1, conditions: { limit: 1000000 }, value: 1.0 }] }
+    ],
+    algorithmSteps: [{ stepNo: 2, code: 'ILF', name: 'Limits', operation: 'multiply', inputValue: 3650, outputValue: 3650 }, { stepNo: 1, code: 'BASE', name: 'Base', operation: 'lookup', inputValue: 'INTER', outputValue: 3650 }],
+    factorResults: [{ factorCode: 'liab_baserate', name: 'Base rate', category: 'base', coverage: 'Liability', stepNo: 1, rateTableCode: 'AL_BASE', matchedRow: 2, value: 3650, premiumBefore: null, premiumAfter: '3,650' }, { factorCode: 'liab_ilf', category: 'limit', stepNo: 2, rateTableCode: 'ILF', matchedRow: 1, value: 1.0, premiumBefore: 3650, premiumAfter: 3650 }],
+    scheduleRating: [{ category: 'management', label: 'Management', modifierPct: '-4%', minPct: -25, maxPct: 25, reason: 'Coaching.' }, { category: 'safety', label: 'Safety', modifierPct: -5, minPct: -25, maxPct: 25 }],
+    experienceMod: { category: 'loss_experience', value: 0.94, source: 'Loss runs', periodFrom: '2023-01-01', periodTo: '2025-12-31' }
+  };
+  var PAYLOAD = { quote: { finalPremium: 52840, coveragePremium: 49100 }, coverages: [{ name: 'Liability', subtotal: 41200 }], ratingDetail: DETAIL };
+  try {
+    login('senior');
+    // ---------- reading what was sent
+    var x = rstExtract(PAYLOAD);
+    t('detail is found under ratingDetail, and the engine\'s own identity is kept', x.found && x.detail.engine.name === 'Example engine' && x.detail.engine.version === '2026.2' && x.detail.engine.requestId === 'REQ-1' && x.detail.engine.productReleaseId === 'PRL-1');
+    t('the same keys at the top level are read too', rstExtract({ rateTables: DETAIL.rateTables }).found === true && rstExtract({ rateTables: DETAIL.rateTables }).detail.rateTables.length === 2);
+    t('an answer with only the premium has no detail', rstExtract({ quote: { finalPremium: 1 }, coverages: [] }).found === false && rstExtract(null).found === false && rstExtract('x').found === false);
+    t('rate tables keep dimensions and rows with their conditions and values', x.detail.rateTables[0].dimensions.length === 2 && x.detail.rateTables[0].rows[1].conditions.radius.from === 101 && x.detail.rateTables[0].rows[1].value === 3650 && x.detail.rateTables[1].rows[0].conditions.limit === 1000000);
+    t('numbers sent as text are read as numbers, and a figure that is not a number is kept empty', x.detail.factorResults[0].premiumAfter === 3650 && x.detail.scheduleRating[0].modifierPct === -4 && rstExtract({ scheduleRating: [{ category: 'a', modifierPct: 'lots' }] }).detail.scheduleRating[0].modifierPct === null);
+    t('the experience mod and schedule categories are kept', x.detail.experienceMod.value === 0.94 && x.detail.experienceMod.periodTo === '2025-12-31' && x.detail.scheduleRating.length === 2);
+    t('rows with no number are numbered from 1', rstExtract({ rateTables: [{ tableCode: 'T', dimensions: [], rows: [{ conditions: {}, value: 1 }, { conditions: {}, value: 2 }] }] }).detail.rateTables[0].rows.map(function(r){ return r.rowNo; }).join() === '1,2');
+    t('a condition is written out for a reader', rstConditionText({ radius: { from: 101, to: 300 }, class: 'INTER' }) === 'radius 101 to 300 and class = INTER' && rstConditionText({}) === 'any' && rstConditionText({ s: ['TX', 'OK'] }) === 's in TX/OK');
+
+    // ---------- what does not hang together
+    t('a consistent answer has nothing flagged', rstIssues(x.detail).length === 0);
+    var bad = clone(DETAIL);
+    bad.rateTables[0].rows[0].conditions.age = 5; bad.rateTables.push({ tableCode: 'AL_BASE', dimensions: [], rows: [{ rowNo: 1, conditions: {}, value: 1 }] });
+    bad.algorithmSteps.push({ stepNo: 1, code: 'DUP' }, { name: 'No number' });
+    bad.factorResults.push({ factorCode: 'f_step', stepNo: 9 }, { factorCode: 'f_tab', rateTableCode: 'NOPE' }, { factorCode: 'f_row', rateTableCode: 'ILF', matchedRow: 5 });
+    bad.scheduleRating.push({ category: 'big', label: 'Big', modifierPct: 40, minPct: -25, maxPct: 25 }, { category: 'none', label: 'None' });
+    bad.experienceMod.value = null;
+    var iss = rstIssues(rstExtract({ ratingDetail: bad }).detail).map(function(i){ return i.message; }).join(' | ');
+    t('a condition on an undeclared dimension, a repeated table or step, and rows with no dimensions are flagged', /"age", which the table does not declare/.test(iss) && /Rate table AL_BASE appears more than once/.test(iss) && /Step 1 appears more than once/.test(iss) && /has rows but declares no dimensions/.test(iss) && /A step has no number/.test(iss));
+    t('a factor naming a missing step, table or row is flagged', /f_step names step 9/.test(iss) && /f_tab names rate table NOPE/.test(iss) && /f_row names row 5 of ILF/.test(iss));
+    t('a schedule modifier outside its range, one with none, and an experience mod with no value are flagged', /Big modifier 40% is outside its range -25% to 25%/.test(iss) && /None has no modifier/.test(iss) && /experience modification has no value/.test(iss));
+
+    // ---------- keeping it
+    var S = mk('SUB-C37-S'); use(S);
+    var r1 = rstCapture(S, PAYLOAD);
+    t('detail is stored as a record: id, who, when, source, counts and a fingerprint', r1 && r1.id === 'RR-1' && S.ratingRecords.length === 1 && r1.source === 'JSON import' && /Marcus|Senior/.test(r1.receivedBy) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(r1.receivedAt) && r1.counts.rateTables === 2 && r1.counts.algorithmSteps === 2 && r1.counts.factorResults === 2 && r1.counts.scheduleRating === 2 && r1.counts.experienceMod === 1 && /^[0-9a-f]+:\d+$/.test(r1.fingerprint));
+    t('the case log says it was stored and that it was not recalculated', S.decisionLog.some(function(d){ return d.decision === 'rating_detail_stored' && /RR-1 stored as sent by Example engine 2026\.2/.test(d.notes) && /Not recalculated here/.test(d.notes); }));
+    t('an answer with no detail stores nothing', rstCapture(S, { quote: { finalPremium: 1 }, coverages: [] }) === null && S.ratingRecords.length === 1);
+    t('the same answer again stores nothing new', rstCapture(S, clone(PAYLOAD)) === r1 && S.ratingRecords.length === 1);
+    var p2 = clone(PAYLOAD); p2.ratingDetail.scheduleRating[0].modifierPct = -8;
+    var r2 = rstCapture(S, p2);
+    t('a different answer is a new record and the old one stays, marked superseded', r2.id === 'RR-2' && S.ratingRecords.length === 2 && r1.supersededBy === 'RR-2' && rstCurrent(S) === r2 && r1.detail.scheduleRating[0].modifierPct === -4);
+    t('records are intact until touched, and an altered one is shown as altered', rstVerify(r1) === true && (function(){ r1.detail.factorResults[0].value = 1; var v = rstVerify(r1); r1.detail.factorResults[0].value = 3650; return v === false && rstVerify(r1) === true; })());
+    t('the stored detail does not alias the payload', (function(){ var p = clone(PAYLOAD), s = mk('SUB-C37-A'), r = rstCapture(s, p); p.ratingDetail.rateTables[0].rows[0].value = 1; return r.detail.rateTables[0].rows[0].value === 3100; })());
+    t('issues are kept on the record', rstCapture(mk('SUB-C37-I'), { ratingDetail: bad }).issues.length >= 8);
+
+    // ---------- through the real import
+    var I = mk('SUB-C37-I2'); use(I);
+    var qn = (QUOTE_VERSIONS_DATASET.find(function(e){ return e.subId === I.id; }) || { quotes: [] }).quotes.length;
+    applyImportedRatingDataToSubmission(clone(PAYLOAD), I);
+    var qe = QUOTE_VERSIONS_DATASET.find(function(e){ return e.subId === I.id; });
+    t('importing the engine\'s JSON stores its detail and names the quote version made by that import', I.ratingRecords && I.ratingRecords.length === 1 && qe && qe.quotes.length === qn + 1 && I.ratingRecords[0].quoteVersionId === qe.quotes[qe.quotes.length - 1].versionId);
+    t('the premium is still the engine\'s own figure, untouched', I.importedRatingData.quote.finalPremium === 52840 && I.discretionaryPricing.basePremium === 49100);
+    var J = mk('SUB-C37-J'); use(J); applyImportedRatingDataToSubmission({ quote: { finalPremium: 30000, coveragePremium: 28000 }, coverages: [] }, J);
+    t('an import without detail stores no record', !J.ratingRecords || J.ratingRecords.length === 0);
+    renderStep7View(J); rstRender(J);
+    t('and the screen says none was received', /None received/.test(el('ratingStoreContainer').innerText) && /carried only the premium/.test(el('ratingStoreContainer').innerText));
+
+    // ---------- the screen
+    SUBMISSIONS_DATASET.push(I); activeSubmissionId = I.id; rstRender(I); var tx = el('ratingStoreContainer').innerText;
+    t('the screen shows the engine, request, when it was received, the quote and an unaltered fingerprint', /Rating engine detail/.test(tx) && /Example engine 2026\.2/.test(tx) && /REQ-1/.test(tx) && /PRL-1/.test(tx) && /Unaltered/.test(tx) && /RR-1/.test(tx) && /Stored exactly as the rating engine sent it/.test(tx));
+    t('factor results are the first tab, with the table and row each came from', /Factor results \(2\)/.test(tx) && /liab_baserate/.test(tx) && /AL_BASE row 2/.test(tx) && /\$3,650/.test(tx));
+    rstUiSection('rateTables'); tx = el('ratingStoreContainer').innerText;
+    t('the rate tables tab lists each table with its dimensions and rows', /AL_BASE/.test(tx) && /2 dimension\(s\), 2 row\(s\)/.test(tx) && /radius 101 to 300 and class = INTER/.test(tx) && /Radius \(Radius\)|radius \(Radius\)/i.test(tx));
+    rstUiSection('algorithmSteps'); var sh = el('ratingStoreContainer').innerHTML;
+    t('steps are shown in step order whatever order they were sent', sh.indexOf('>BASE<') > -1 && sh.indexOf('>BASE<') < sh.indexOf('>ILF<'));
+    rstUiSection('scheduleRating'); tx = el('ratingStoreContainer').innerText;
+    t('schedule rating shows each category, its modifier, range and reason', /Management/.test(tx) && /-4%/.test(tx) && /-25% to 25%/.test(tx) && /Coaching/.test(tx));
+    rstUiSection('experienceMod'); tx = el('ratingStoreContainer').innerText;
+    t('the experience mod tab shows value, source and period', /0\.94/.test(tx) && /Loss runs/.test(tx) && /2023-01-01 to 2025-12-31/.test(tx));
+    rstCapture(I, p2); rstUiSection('factorResults');
+    t('with more than one record the screen lists them and shows the latest as current', /RR-2, current/.test(el('ratingStoreContainer').innerText) && /Received so far/.test(el('ratingStoreContainer').innerText));
+    rstUiRecord('RR-1');
+    t('an earlier record can be opened and is shown as superseded', /RR-1, superseded by RR-2/.test(el('ratingStoreContainer').innerText));
+    RST_UI.record = null;
+    I.ratingRecords[1].issues = [{ section: 'x', message: 'Something is off.' }]; rstRender(I);
+    t('flagged items are shown with a note that nothing was changed', /do not hang together/.test(el('ratingStoreContainer').innerText) && /Nothing was changed/.test(el('ratingStoreContainer').innerText) && /Something is off/.test(el('ratingStoreContainer').innerText));
+    rstRender(null); t('with no case nothing is shown', el('ratingStoreContainer').innerHTML === '');
+    t('the audit action is labelled', !!AUDIT_ACTION_META.rating_detail_stored);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

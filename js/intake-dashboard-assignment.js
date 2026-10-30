@@ -43,6 +43,10 @@ function referralAgeLabel(ref) {
   return h < 48 ? h + " h" : Math.round(h / 24) + " d";
 }
 function isMyCase(sub) { return sub.assignedTo === currentUserRole || referredToRole(sub, currentUserRole); }
+/** Whoever may approve work sees every submission in the queue, assigned to them or not. Opening a case for underwriting still follows assignment. */
+function canSeeAllSubmissions() { return canManageAssignments() || hasPermission("workflow", "approve"); }
+/** True while a referral is waiting on this user. Only a referral (not an assignment) opens the Broker, Direct and Senior Referrals tabs. */
+function hasReferralToMe() { return SUBMISSIONS_DATASET.some(s => s.apiSourced && referredToRole(s, currentUserRole)); }
 
 function renderRoleDashboard() {
   const container = document.getElementById("roleDashboardContainer");
@@ -305,9 +309,20 @@ function renderSubmissionsTable() {
   const isManagerView = canManageAssignments();
   // External and oversight personas (js/external-access.js) are scoped by agency, program or carrier, not by assignment.
   const scopedByRole = typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole);
-  const filteredByLOB = (isManagerView || scopedByRole)
+  const filteredByLOB = (isManagerView || scopedByRole || canSeeAllSubmissions())
     ? filteredByLOB0
     : filteredByLOB0.filter(sub => isMyCase(sub));
+
+  // 1c. The queue opens on All Submissions. The other tabs exist only while a referral is waiting on this user; with none, a leftover
+  // selection (a referral that was just decided) goes back to All.
+  const showExtraTabs = hasReferralToMe();
+  if (!showExtraTabs && currentTableFilter !== "all") {
+    currentTableFilter = "all";
+    const ta = document.getElementById("tabFilterAll");
+    if (ta) ta.classList.add("active");
+    ["tabFilterBroker", "tabFilterDirect", "tabFilterReferrals"].forEach(id => { const b = document.getElementById(id); if (b) b.classList.remove("active"); });
+  }
+  ["tabFilterBroker", "tabFilterDirect", "tabFilterReferrals"].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = showExtraTabs ? "" : "none"; });
 
   // 2. Filter by Channel Type tab (All / Broker / Direct / Referrals) and Search Query
   let filtered = filteredByLOB.filter(sub => {
@@ -829,7 +844,8 @@ function openCaseAtCurrentStep(id) {
   // "No Assignment → No Underwriting" gate — enforced here too, not just via
   // queue visibility, so this can't be bypassed by a direct call, a stale
   // reference, or a future entry point that doesn't go through the table.
-  if (!canManageAssignments() && !(typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole)) && !isMyCase(sub)) {
+  // Anyone who may approve sees every submission, so they may also open one that is not assigned to them.
+  if (!canSeeAllSubmissions() && !(typeof extUsesScopeNotAssignment === "function" && extUsesScopeNotAssignment(currentUserRole)) && !isMyCase(sub)) {
     if (!sub.assignedTo) {
       showToast(`⛔ ${sub.id} is Unassigned. Ask the Head of Underwriting to assign it to you before you can begin underwriting.`, "danger");
     } else {

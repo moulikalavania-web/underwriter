@@ -109,6 +109,17 @@
     runProducerCheck(P, 'clearance');
     t('a new sign-in starts a new session', producerVerifiedThisSession(P) && (initAppAfterLogin('senior_uw'), !producerVerifiedThisSession(P)));
 
+    // ---------- loading the licensing registry updates the hold banner too, not only the producer card
+    var regSaved = PRODUCER_REGISTRY.slice(), wlSaved = SANCTIONS_WATCHLIST.slice();
+    PRODUCER_REGISTRY.length = 0; SANCTIONS_WATCHLIST.length = 0;
+    var H = mk('SUB-C20-REG'); H.broker = 'Marsh & McLennan Commercial Brokerage'; SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(H); activeSubmissionId = H.id;
+    clearanceAutoRun(H, 'clearance');
+    t('with no registry the banner says so', /No licensing registry is loaded/.test(el('clearanceHoldContainer').innerText));
+    refParseRegistry('producer_name,npn,license_state,license_number,license_lines,license_status,license_expires,appointment_carrier,appointment_state,appointment_lobs,appointment_status,appointment_effective\nMarsh & McLennan Commercial Brokerage,12345678,TX,TX-1,Property & Casualty,Active,2028-12-31,Vikram & Sons,TX,trucking,Active,2025-01-01').records.forEach(function(r){ PRODUCER_REGISTRY.push(r); });
+    PRODUCER_DEFAULT_CARRIER = 'Vikram & Sons'; refAfterLoad('registry');
+    t('after the registry is loaded the banner no longer says it is missing, and shows the producer as verified', !/No licensing registry/.test(el('clearanceHoldContainer').innerText) && /Producer licence and appointment:\s*Verified/.test(el('clearanceHoldContainer').innerText) && /Sanctions screening/.test(el('clearanceHoldContainer').innerText));
+    PRODUCER_REGISTRY.length = 0; regSaved.forEach(function(x){ PRODUCER_REGISTRY.push(x); }); wlSaved.forEach(function(x){ SANCTIONS_WATCHLIST.push(x); });
+
     t('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n') + (errs.length ? '\nPAGE ERRORS: ' + errs.join(' | ') : ''); document.body.appendChild(pre);

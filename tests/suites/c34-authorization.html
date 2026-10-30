@@ -1,0 +1,133 @@
+<!-- Suite C34: authorization. The permission catalogue (a code and a bit that is never reused), roles with the codes they hold, a policy bundle that is drafted by one person and published
+     by another as a numbered version tied to a commit, attribute scope (line, state, program, tenant, record, own cases; every kind set must be met), decisions kept with the policy version, and
+     the audit log showing the decision behind a sensitive action (and counting those with none). With no policy published the role permissions alone decide, as before. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 9; s.assignedTo = 'junior';
+    ['insuredInfo', 'canonicalJson', 'program', 'tenantId'].forEach(function(k){ delete s[k]; });
+    s.address = '9 Elm Road, Dallas, TX 75201'; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; (Array.isArray(s) ? s : [s]).forEach(function(x){ SUBMISSIONS_DATASET.push(x); }); activeSubmissionId = (Array.isArray(s) ? s[0] : s).id; }
+  function policy(scopes, abac){ return { rules: [{ id: 'R-RBAC', type: 'rbac' }, Object.assign({ id: 'R-ABAC', type: 'abac', enforceActions: ['edit', 'approve', 'override'], useRoster: false }, abac || {})], scopes: scopes || [] }; }
+  function publish(content, ver, commit){ login('admin'); var d = azDraftSave(content, ''); if (!d.ok) return d; login('compliance'); return azPublish({ version: ver || '1.0.0', gitCommit: commit || 'a1b2c3d4' }); }
+  try {
+    azReset();
+    // ---------- the permission catalogue
+    var cat = azCatalogue();
+    t('every resource and action is a permission with a code', cat.length === RBAC_RESOURCES.length * RBAC_ACTIONS.length && cat.some(function(p){ return p.code === 'APPETITE_RULES.OVERRIDE' && p.resource === 'appetiteRules' && p.action === 'override'; }) && cat.some(function(p){ return p.code === 'PREMIUM_ADJUSTMENT.EDIT'; }) && cat.some(function(p){ return p.code === 'QUOTE_CONDITIONS.APPROVE'; }));
+    t('each has its own bit, and the catalogue gives the same bits every time', new Set(cat.map(function(p){ return p.bit; })).size === cat.length && JSON.stringify(azCatalogue().map(function(p){ return p.bit; })) === JSON.stringify(cat.map(function(p){ return p.bit; })));
+    var maxBit = Math.max.apply(null, cat.map(function(p){ return p.bit; }));
+    RBAC_RESOURCES.push({ key: 'c34Probe', label: 'Probe' }); var bitProbe = azCatalogue().filter(function(p){ return p.code === 'C34_PROBE.VIEW'; })[0].bit; RBAC_RESOURCES.pop();
+    RBAC_RESOURCES.push({ key: 'c34Other', label: 'Other' }); var other = azCatalogue().filter(function(p){ return p.code === 'C34_OTHER.VIEW'; })[0].bit; RBAC_RESOURCES.pop();
+    t('a new permission takes the next bit, and a bit freed by removing one is never given to another', bitProbe === maxBit + 1 && other > bitProbe && azCatalogue().length === cat.length && AZ.bits['C34_PROBE.VIEW'] === bitProbe);
+    var roles = azRoles();
+    t('each role lists the permission codes it holds', roles.some(function(r){ return r.roleCode === 'senior' && r.permissions.indexOf('APPETITE_RULES.OVERRIDE') > -1; }) && !azRoleHolds('junior', 'APPETITE_RULES.OVERRIDE') && azRoleHolds('senior_uw', 'APPETITE_RULES.OVERRIDE') && azRoleHolds('compliance', 'ACCESS_REVIEW.APPROVE'));
+
+    // ---------- the baseline decides when no policy is published
+    login('senior_uw'); var A = mk('SUB-C34-A'); use(A);
+    t('with no policy published the built-in baseline decides', azCurrentPolicy().id === 'POL-0' && azCurrentPolicy().bundleName === 'baseline-rbac' && azCurrentPolicy().rules.length === 1);
+    var okOvr = hasPermission('appetiteRules', 'override');
+    var d1 = AZ.decisions[AZ.decisions.length - 1];
+    t('a sensitive check is kept as a decision: who, what, which case, the result and the policy', okOvr === true && d1.id === 'DEC-1' && d1.permission === 'APPETITE_RULES.OVERRIDE' && d1.subId === 'SUB-C34-A' && d1.allow === true && d1.policyVersionId === 'POL-0' && /David Chen/.test(d1.actor) && d1.matched.join() === 'R-RBAC');
+    hasPermission('appetiteRules', 'override'); hasPermission('appetiteRules', 'override');
+    t('the same check within a minute is the same decision, counted again', AZ.decisions.length === 1 && AZ.decisions[0].count === 3);
+    t('checks that only show or hide a screen are not kept', (function(){ var n = AZ.decisions.length; hasPermission('appetiteRules', 'view'); hasPermission('documents', 'edit'); return AZ.decisions.length === n; })());
+    login('junior'); var noOvr = hasPermission('appetiteRules', 'override'); var d2 = AZ.decisions.filter(function(d){ return d.permission === 'APPETITE_RULES.OVERRIDE' && !d.allow; })[0];
+    t('a refusal by role is kept too, with the reason', noOvr === false && d2.allow === false && /does not hold APPETITE_RULES.OVERRIDE/.test(d2.reasons[0]) && d2.actorName === 'Sarah Jenkins');
+    t('the answer is the same as before the decision point existed', ['view', 'edit', 'approve', 'override', 'archive'].every(function(a){ return RBAC_RESOURCES.every(function(r){ var m = PERMISSIONS_MATRIX.junior[r.key]; return hasPermission(r.key, a) === !!(m && m[a]); }); }));
+    t('a check with no case open is not kept', (function(){ var keep = activeSubmissionId; activeSubmissionId = null; var n = AZ.decisions.length; hasPermission('authority', 'approve'); activeSubmissionId = keep; return AZ.decisions.length === n; })());
+
+    // ---------- drafting and publishing a policy
+    var ve = azValidate({ rules: [{ id: 'R-ABAC', type: 'abac', enforceActions: ['dance'] }], scopes: [{ id: 'S1', subjectType: 'user', subjectRef: 'nobody', scopeType: 'galaxy', values: [] }, { id: 'S1', subjectType: 'role', subjectRef: 'junior', scopeType: 'state', values: ['TX'], from: '01/01/2026' }] });
+    t('a policy must have the role rule, known rule types, real roles, known scope kinds, values, and dates', ve.some(function(e){ return /needs the role-based rule/.test(e); }) && ve.some(function(e){ return /enforceActions lists some of/.test(e); }) && ve.some(function(e){ return /the subject is a role/.test(e); }) && ve.some(function(e){ return /nobody is not a role/.test(e); }) && ve.some(function(e){ return /the scope type is one of/.test(e); }) && ve.some(function(e){ return /list the values/.test(e); }) && ve.some(function(e){ return /the id is used twice/.test(e); }) && ve.some(function(e){ return /start date is yyyy-mm-dd/.test(e); }));
+    login('junior'); t('someone who cannot edit review rules cannot draft a policy', azDraftSave(policy(), '').error === 'permission' && !AZ.draft);
+    login('admin'); t('an invalid draft is refused and nothing is stored', azDraftSave({ rules: [], scopes: [] }, '').error === 'invalid' && !AZ.draft);
+    var scTX = [{ id: 'SC-1', subjectType: 'role', subjectRef: 'junior', scopeType: 'state', values: ['TX', 'LA'] }];
+    t('a valid draft is kept, and nothing decides on it', azDraftSave(policy(scTX), 'Texas desk').ok && !!AZ.draft && azCurrentPolicy().id === 'POL-0' && AZ.draft.draftedBy.indexOf('Head') > -1 || (!!AZ.draft && azCurrentPolicy().id === 'POL-0'));
+    login('senior_uw'); t('someone who does not record access reviews cannot publish', azPublish({ version: '1.0.0', gitCommit: 'a1b2c3d4' }).error === 'permission');
+    login('compliance');
+    t('the version must be three numbers, and the commit hex, and it must be new', azPublish({ version: '1.0', gitCommit: 'a1b2c3d4' }).error === 'version' && azPublish({ version: '1.0.0', gitCommit: 'zzzz' }).error === 'commit' && azPublish({ version: '1.0.0', gitCommit: 'abc' }).error === 'commit');
+    AZ.draft.draftedByKey = azName('compliance'); t('the person who drafted it cannot publish it', azPublish({ version: '1.0.0', gitCommit: 'a1b2c3d4' }).error === 'self'); AZ.draft.draftedByKey = azName('admin');
+    var pub = azPublish({ version: '1.0.0', gitCommit: 'A1B2C3D4E5', bundleName: 'underwriting-access' });
+    t('another person publishes it as the next version, tied to the commit, with a fingerprint', pub.ok && pub.version.id === 'POL-1' && pub.version.gitCommit === 'a1b2c3d4e5' && pub.version.status === 'published' && /Robert Okafor/.test(pub.version.publishedBy) && /Head/.test(pub.version.draftedBy) && azVerifyVersion(pub.version) && AZ.draft === null && azCurrentPolicy().id === 'POL-1');
+    t('a version number cannot be used twice', (function(){ login('admin'); azDraftSave(policy(scTX), ''); login('compliance'); var r = azPublish({ version: '1.0.0', gitCommit: 'a1b2c3d4' }); azDiscardDraft(); return r.error === 'exists'; })());
+    t('an altered version fails its fingerprint', !azVerifyVersion(Object.assign({}, pub.version, { scopes: [] })) && azVerifyVersion(pub.version));
+
+    // ---------- attribute scope
+    login('junior'); var Tx = mk('SUB-C34-TX'), Oh = mk('SUB-C34-OH', { address: '1 Main St, Columbus, OH 43004' }), Un = mk('SUB-C34-UN', { address: 'somewhere' });
+    use(Tx); var inTx = hasPermission('premiumAdjustment', 'edit');
+    t('inside the role\'s state scope the role permission stands', inTx === true && AZ.decisions[AZ.decisions.length - 1].allow === true && AZ.decisions[AZ.decisions.length - 1].policyVersionId === 'POL-1' && AZ.decisions[AZ.decisions.length - 1].scopes.join() === 'SC-1' && AZ.decisions[AZ.decisions.length - 1].matched.indexOf('R-ABAC') > -1);
+    use(Oh); var inOh = hasPermission('premiumAdjustment', 'edit'); var dOh = AZ.decisions[AZ.decisions.length - 1];
+    t('outside it the action is refused, with the reason, though the role holds the permission', inOh === false && PERMISSIONS_MATRIX.junior.premiumAdjustment.edit === true && dOh.allow === false && /The case's state is OH, outside Sarah Jenkins's state scope \(TX, LA\)/.test(dOh.reasons[0]));
+    t('the refusal is written to the case\'s log with the decision id', Oh.decisionLog.some(function(d){ return d.decision === 'authz_denied' && d.authzDecisionId === dOh.id && /PREMIUM_ADJUSTMENT.EDIT denied by POL-1/.test(d.notes); }));
+    hasPermission('premiumAdjustment', 'edit'); t('and only once per minute', Oh.decisionLog.filter(function(d){ return d.decision === 'authz_denied'; }).length === 1);
+    use(Un); t('a scope that cannot be checked denies: the state is not known', hasPermission('premiumAdjustment', 'edit') === false && /state of the case is not known/.test(AZ.decisions[AZ.decisions.length - 1].reasons[0]));
+    use(Oh); t('looking is not limited by scope', hasPermission('premiumAdjustment', 'view') === true && hasPermission('documents', 'view') === true);
+    login('senior'); use(Oh); t('another role with no scope is not affected', hasPermission('premiumAdjustment', 'edit') === true);
+
+    // every kind of scope that is set must be met
+    var multi = policy([{ id: 'SC-1', subjectType: 'role', subjectRef: 'junior', scopeType: 'state', values: ['TX'] }, { id: 'SC-2', subjectType: 'role', subjectRef: 'junior', scopeType: 'lob', values: ['trucking'] }, { id: 'SC-3', subjectType: 'role', subjectRef: 'junior', scopeType: 'state', values: ['LA'] }]);
+    var pb = azCheckScope('junior', mk('X1', { lobKey: 'gl_cpc' }), multi), pc = azCheckScope('junior', mk('X2'), multi), pl = azCheckScope('junior', mk('X3', { address: '5 Rue, Baton Rouge, LA 70801' }), multi);
+    t('two kinds must both be met; within a kind any value will do', !pb.ok && /The case's lob is gl_cpc/.test(pb.reasons[0]) && pc.ok && pl.ok && pc.scopes.length === 3);
+    t('own cases only', (function(){ var p = policy([{ id: 'SC-9', subjectType: 'role', subjectRef: 'junior', scopeType: 'own' }]); return azCheckScope('junior', mk('X4', { assignedTo: 'junior' }), p).ok && !azCheckScope('junior', mk('X5', { assignedTo: 'senior_uw' }), p).ok && /assigned to David Chen, and Sarah Jenkins works only on their own cases/.test(azCheckScope('junior', mk('X5', { assignedTo: 'senior_uw' }), p).reasons[0]) && /not assigned/.test(azCheckScope('junior', mk('X6', { assignedTo: null }), p).reasons[0]); })());
+    t('program, tenant and named records', (function(){ var pr = policy([{ id: 'S1', subjectType: 'role', subjectRef: 'junior', scopeType: 'program', values: ['Fleet Select'] }]); var te = policy([{ id: 'S2', subjectType: 'role', subjectRef: 'junior', scopeType: 'tenant', values: ['T-HOME'] }]); var re = policy([{ id: 'S3', subjectType: 'role', subjectRef: 'junior', scopeType: 'record', values: ['X7'] }]); return azCheckScope('junior', mk('X7', { program: 'Fleet Select' }), pr).ok && !azCheckScope('junior', mk('X7', { program: 'Other' }), pr).ok && azCheckScope('junior', mk('X7'), te).ok && !azCheckScope('junior', mk('X7', { tenantId: 'T-CAR' }), te).ok && azCheckScope('junior', mk('X7'), re).ok && !azCheckScope('junior', mk('X8'), re).ok; })());
+    t('a scope outside its dates does not apply', (function(){ var p = policy([{ id: 'S1', subjectType: 'role', subjectRef: 'junior', scopeType: 'state', values: ['OH'], from: '2000-01-01', to: '2000-12-31' }]); return azCheckScope('junior', mk('X9'), p).ok && !azCheckScope('junior', mk('X9'), p, '2000-06-01').ok; })());
+    t('with no ABAC rule in the policy there is no scope', azCheckScope('junior', mk('X9', { address: '1 Main St, Columbus, OH 43004' }), AZ_BASELINE_PROBE()).ok);
+    function AZ_BASELINE_PROBE(){ return { rules: [{ id: 'R-RBAC', type: 'rbac' }], scopes: multi.scopes }; }
+
+    // the roster is a source of scope when the policy says so
+    login('admin'); azDraftSave(policy([], { useRoster: true }), 'use the roster'); login('compliance'); var p2 = azPublish({ version: '1.1.0', gitCommit: 'b2c3d4e5' });
+    t('a newer version retires the one before it, and decides from then on', p2.ok && p2.version.id === 'POL-2' && AZ.versions[0].status === 'retired' && AZ.versions[0].effectiveTo === new Date().toISOString().slice(0, 10) && azCurrentPolicy().id === 'POL-2');
+    login('junior'); use(Oh); var ro = hasPermission('premiumAdjustment', 'edit');
+    t('the roster\'s states and lines then limit a role: the junior desk is Texas, Louisiana and Oklahoma trucking', ro === false && /outside Sarah Jenkins's state scope \(TX, LA, OK\)/.test(AZ.decisions[AZ.decisions.length - 1].reasons[0]) && AZ.decisions[AZ.decisions.length - 1].policyVersionId === 'POL-2');
+    use(Tx); t('and a case on that desk passes', hasPermission('premiumAdjustment', 'edit') === true); use(mk('SUB-C34-GL', { lobKey: 'gl_cpc' })); t('a line off the desk does not', hasPermission('premiumAdjustment', 'edit') === false && /lob is gl_cpc, outside Sarah Jenkins's lob scope \(trucking\)/.test(AZ.decisions[AZ.decisions.length - 1].reasons[0]));
+    login('senior'); use(Oh); t('a role whose roster covers every state is unaffected', hasPermission('premiumAdjustment', 'edit') === true);
+
+    // ---------- the audit log shows the decision
+    login('junior'); var Au = mk('SUB-C34-AU'); use(Au); AZ.decisions.length = 0; azReset();
+    var nowMin = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    hasPermission('premiumAdjustment', 'edit');
+    Au.decisionLog.push({ step: 9, decision: 'discretionary_credit', by: 'Sarah Jenkins (Underwriter I)', at: nowMin, notes: 'Credit 5%.' });
+    Au.decisionLog.push({ step: 9, decision: 'uw_override_applied', by: 'David Chen (Senior Underwriter)', at: nowMin, notes: 'Override with no recorded check.' });
+    Au.decisionLog.push({ step: 9, decision: 'quote_issued', by: 'Sarah Jenkins (Underwriter I)', at: nowMin, notes: 'Not a sensitive action here.' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(Au);
+    var entries = collectAuditLogEntries(); var eCredit = entries.filter(function(e){ return e.type === 'discretionary_credit'; })[0], eOvr = entries.filter(function(e){ return e.type === 'uw_override_applied'; })[0], eQuote = entries.filter(function(e){ return e.type === 'quote_issued'; })[0];
+    t('a sensitive audit entry carries the decision that allowed it and its policy version', !!eCredit.authorization && eCredit.authorization.result === 'allow' && /^DEC-\d+$/.test(eCredit.authorization.decisionId) && eCredit.authorization.policyVersionId === 'POL-0' && eCredit.sensitive === true);
+    t('one with no decision behind it is marked, so a path that skipped the check can be seen', eOvr.sensitive === true && eOvr.authorization === null);
+    t('an action that is not on the sensitive list is left alone', eQuote.sensitive === undefined && eQuote.authorization === undefined);
+    t('the entries are counted', (function(){ var g = azAuditGaps(entries); return g.sensitive === 2 && g.withDecision === 1 && g.withoutDecision === 1; })());
+    t('a decision for another person, or another case, is not used', (function(){ var other = mk('SUB-C34-OTHER'); other.decisionLog.push({ step: 9, decision: 'discretionary_credit', by: 'Sarah Jenkins (Underwriter I)', at: nowMin, notes: 'x' }); SUBMISSIONS_DATASET.push(other); var e = collectAuditLogEntries().filter(function(x){ return x.subId === 'SUB-C34-OTHER'; })[0]; SUBMISSIONS_DATASET.pop(); return e.sensitive === true && e.authorization === null; })());
+    login('compliance'); showAuditLogPage(); var feed = el('auditLogFeed').innerText;
+    t('the audit page says "Authorization: allow by policy POL-0, decision DEC-n" on the one, and that none was recorded on the other', /Authorization:\s*allow by policy POL-0,\s*decision\s*DEC-\d+/i.test(feed) && /No authorization decision was recorded for this action/.test(feed));
+    t('the summary shows how many sensitive actions have a decision', /Sensitive actions with a decision/i.test(el('auditLogSummary').innerText) && /1\s*\/\s*2/.test(el('auditLogSummary').innerText));
+    el('auditLogSearchInput').value = eCredit.authorization.decisionId; renderAuditLogFeed();
+    t('an audit entry can be found by its decision id', /discretionary/i.test(el('auditLogFeed').innerText) && !/Override with no recorded check/.test(el('auditLogFeed').innerText));
+    el('auditLogSearchInput').value = ''; renderAuditLogFeed();
+
+    // ---------- the screen
+    login('admin'); azReset(); login('admin'); use(mk('SUB-C34-UI')); AZ.draft = null; hasPermission('appetiteRules', 'override');
+    login('admin'); azDraftSave(policy(scTX), 'ui'); login('compliance'); renderAccessControl(); var ui0 = el('accessControlRoot').innerText;
+    t('the tab shows what is in force, the draft waiting, the roles and the catalogue', !!el('qiTabAccess') && !!el('qiPanelAccess') && /Access control: permissions, policy versions and decisions/.test(ui0) && /In force: POL-0 baseline-rbac/.test(ui0) && /Draft waiting/.test(ui0) && /Permission catalogue \(\d+\)/.test(ui0) && /APPETITE_RULES\.OVERRIDE/.test(ui0));
+    el('az_ver').value = '2.0.0'; el('az_commit').value = 'c0ffee1'; azUiPublish();
+    t('the person who records reviews publishes from the page', azCurrentPolicy().id === 'POL-1' && /POL-1 2\.0\.0/.test(el('accessControlRoot').innerText) && /In force: POL-1 underwriting-access 2\.0\.0/.test(el('accessControlRoot').innerText) && /Scopes in force/.test(el('accessControlRoot').innerText));
+    switchQuoteIntelTab('access'); t('the Access Control tab opens its panel and hides the others', el('qiPanelAccess').style.display === 'block' && el('qiPanelRenewal').style.display === 'none' && el('qiTabAccess').classList.contains('active'));
+    el('az_search').value = 'PREMIUM_ADJ'; azUiSearch(); t('the catalogue can be searched', /PREMIUM_ADJUSTMENT\.EDIT/.test(el('accessControlRoot').innerText) && !/CLAIMS_X/.test(el('accessControlRoot').innerText) && el('accessControlRoot').querySelectorAll('tbody tr').length > 0);
+    switchQuoteIntelTab('versions'); t('and it is hidden again when another tab is chosen', el('qiPanelAccess').style.display === 'none');
+    login('admin'); switchQuoteIntelTab('access'); el('az_json').value = '{bad'; var nj = toasts.length; azUiDraft();
+    t('text that is not JSON is refused on the page', toasts.slice(nj).some(function(m){ return /not valid JSON/.test(m); }));
+    t('the audit action is labelled', !!AUDIT_ACTION_META.authz_denied);
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  try { azReset(); } catch (e) { /* nothing to reset */ }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

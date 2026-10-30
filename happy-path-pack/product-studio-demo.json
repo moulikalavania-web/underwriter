@@ -1,0 +1,663 @@
+{
+  "productId": "PRD-TRK",
+  "name": "Commercial Trucking",
+  "ownerTenantId": "T-CAR-VIK",
+  "jurisdictions": [
+    "TX",
+    "OH",
+    "CA"
+  ],
+  "versions": [
+    {
+      "id": "PV-1",
+      "kind": "base",
+      "versionNo": 1,
+      "from": "2026-01-01",
+      "to": "2037-12-31",
+      "status": "draft",
+      "coverages": [
+        {
+          "code": "BI",
+          "name": "Bodily Injury Liability",
+          "availability": "mandatory"
+        },
+        {
+          "code": "PD",
+          "name": "Property Damage Liability",
+          "availability": "mandatory"
+        },
+        {
+          "code": "PHYS",
+          "name": "Physical Damage",
+          "availability": "optional"
+        },
+        {
+          "code": "UMUIM",
+          "name": "UM/UIM",
+          "availability": "optional"
+        },
+        {
+          "code": "CARGO",
+          "name": "Motor Truck Cargo",
+          "availability": "optional"
+        },
+        {
+          "code": "HIRED",
+          "name": "Hired Auto",
+          "availability": "optional"
+        },
+        {
+          "code": "GL",
+          "name": "General Liability",
+          "availability": "optional"
+        }
+      ],
+      "uwRules": [
+        {
+          "id": "UW-AGE",
+          "name": "Maximum fleet age",
+          "type": "refer",
+          "threshold": 15,
+          "active": true
+        }
+      ],
+      "ratingFactors": [
+        {
+          "code": "BASE",
+          "name": "Base rate",
+          "multiplier": 1
+        }
+      ]
+    },
+    {
+      "id": "PV-2",
+      "kind": "override",
+      "baseVersionId": "PV-1",
+      "ownerTenantId": "T-MGU",
+      "versionNo": 1,
+      "from": "2026-01-01",
+      "to": "2037-12-31",
+      "status": "draft",
+      "overrides": [
+        {
+          "id": "OVR-1",
+          "targetType": "coverage",
+          "targetRef": "HIRED",
+          "action": "remove"
+        },
+        {
+          "id": "OVR-2",
+          "targetType": "limit",
+          "targetRef": "CARGO",
+          "action": "restrict",
+          "value": 150000
+        },
+        {
+          "id": "OVR-3",
+          "targetType": "factor",
+          "targetRef": "BASE",
+          "action": "adjust",
+          "value": 0.95,
+          "filingRef": "FILING-REF-NEEDED"
+        }
+      ]
+    }
+  ],
+  "permissions": [
+    {
+      "id": "P1",
+      "baseVersionId": "PV-1",
+      "targetType": "coverage",
+      "targetRef": "HIRED",
+      "allowedActions": [
+        "remove"
+      ],
+      "min": null,
+      "max": null,
+      "requiresCarrierApproval": false,
+      "requiresFiling": false
+    },
+    {
+      "id": "P2",
+      "baseVersionId": "PV-1",
+      "targetType": "coverage",
+      "targetRef": "*",
+      "allowedActions": [
+        "make_required"
+      ],
+      "min": null,
+      "max": null,
+      "requiresCarrierApproval": true,
+      "requiresFiling": false
+    },
+    {
+      "id": "P3",
+      "baseVersionId": "PV-1",
+      "targetType": "limit",
+      "targetRef": "CARGO",
+      "allowedActions": [
+        "restrict"
+      ],
+      "min": 100000,
+      "max": 250000,
+      "requiresCarrierApproval": false,
+      "requiresFiling": false
+    },
+    {
+      "id": "P4",
+      "baseVersionId": "PV-1",
+      "targetType": "factor",
+      "targetRef": "BASE",
+      "allowedActions": [
+        "adjust"
+      ],
+      "min": 0.9,
+      "max": 1.1,
+      "requiresCarrierApproval": true,
+      "requiresFiling": true
+    },
+    {
+      "id": "P5",
+      "baseVersionId": "PV-1",
+      "targetType": "uw_rule",
+      "targetRef": "UW-AGE",
+      "allowedActions": [
+        "tighten",
+        "disable"
+      ],
+      "min": 5,
+      "max": 15,
+      "requiresCarrierApproval": false,
+      "requiresFiling": false
+    }
+  ],
+  "limitGroups": [
+    {
+      "id": "G1",
+      "versionId": "PV-1",
+      "code": "G-CSL",
+      "limitType": "csl",
+      "limitBasis": "per_accident",
+      "parentGroupId": null,
+      "jurisdiction": null,
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "G2",
+      "versionId": "PV-1",
+      "code": "G-CSL",
+      "limitType": "csl",
+      "limitBasis": "per_accident",
+      "parentGroupId": null,
+      "jurisdiction": "TX",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "G3",
+      "versionId": "PV-1",
+      "code": "G-HIRED",
+      "limitType": "sublimit",
+      "limitBasis": "per_accident",
+      "parentGroupId": "G1",
+      "jurisdiction": null,
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "G4",
+      "versionId": "PV-1",
+      "code": "G-GEN",
+      "limitType": "aggregate",
+      "limitBasis": "per_term",
+      "parentGroupId": null,
+      "jurisdiction": null,
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "G5",
+      "versionId": "PV-1",
+      "code": "G-PCO",
+      "limitType": "aggregate",
+      "limitBasis": "per_term",
+      "parentGroupId": null,
+      "jurisdiction": null,
+      "from": "2026-01-01",
+      "to": null
+    }
+  ],
+  "groupCoverages": [
+    {
+      "id": "M1",
+      "groupId": "G1",
+      "coverageCode": "BI",
+      "erosionCategory": null
+    },
+    {
+      "id": "M2",
+      "groupId": "G1",
+      "coverageCode": "PD",
+      "erosionCategory": null
+    },
+    {
+      "id": "M3",
+      "groupId": "G2",
+      "coverageCode": "BI",
+      "erosionCategory": null
+    },
+    {
+      "id": "M4",
+      "groupId": "G2",
+      "coverageCode": "PD",
+      "erosionCategory": null
+    },
+    {
+      "id": "M5",
+      "groupId": "G3",
+      "coverageCode": "HIRED",
+      "erosionCategory": null
+    },
+    {
+      "id": "M6",
+      "groupId": "G4",
+      "coverageCode": "GL",
+      "erosionCategory": "premises_operations"
+    },
+    {
+      "id": "M7",
+      "groupId": "G5",
+      "coverageCode": "GL",
+      "erosionCategory": "products_completed_operations"
+    }
+  ],
+  "limitOptions": [
+    {
+      "id": "O1",
+      "coverageCode": null,
+      "groupId": "G1",
+      "optionSetCode": "CSL-1M",
+      "jurisdiction": null,
+      "limitType": "csl",
+      "amount": 1000000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O2",
+      "coverageCode": null,
+      "groupId": "G1",
+      "optionSetCode": "CSL-2M",
+      "jurisdiction": null,
+      "limitType": "csl",
+      "amount": 2000000,
+      "currency": "USD",
+      "isDefault": false,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O3",
+      "coverageCode": null,
+      "groupId": "G2",
+      "optionSetCode": "CSL-TX-750",
+      "jurisdiction": "TX",
+      "limitType": "csl",
+      "amount": 750000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O4",
+      "coverageCode": null,
+      "groupId": "G2",
+      "optionSetCode": "CSL-TX-1M",
+      "jurisdiction": "TX",
+      "limitType": "csl",
+      "amount": 1000000,
+      "currency": "USD",
+      "isDefault": false,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O5",
+      "coverageCode": null,
+      "groupId": "G3",
+      "optionSetCode": "CSL-1M",
+      "jurisdiction": null,
+      "limitType": "sublimit",
+      "amount": 250000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O6",
+      "coverageCode": null,
+      "groupId": "G4",
+      "optionSetCode": "GL-STD",
+      "jurisdiction": null,
+      "limitType": "aggregate",
+      "amount": 2000000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O7",
+      "coverageCode": null,
+      "groupId": "G5",
+      "optionSetCode": "GL-STD",
+      "jurisdiction": null,
+      "limitType": "aggregate",
+      "amount": 1000000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O8",
+      "coverageCode": "UMUIM",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": null,
+      "limitType": "per_occurrence",
+      "amount": 100000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O9",
+      "coverageCode": "UMUIM",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": null,
+      "limitType": "per_occurrence",
+      "amount": 250000,
+      "currency": "USD",
+      "isDefault": false,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O10",
+      "coverageCode": "UMUIM",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": "TX",
+      "limitType": "per_occurrence",
+      "amount": 300000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O11",
+      "coverageCode": "UMUIM",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": "TX",
+      "limitType": "per_occurrence",
+      "amount": 500000,
+      "currency": "USD",
+      "isDefault": false,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O12",
+      "coverageCode": "CARGO",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": null,
+      "limitType": "per_occurrence",
+      "amount": 100000,
+      "currency": "USD",
+      "isDefault": true,
+      "versionId": "PV-1"
+    },
+    {
+      "id": "O13",
+      "coverageCode": "CARGO",
+      "groupId": null,
+      "optionSetCode": null,
+      "jurisdiction": null,
+      "limitType": "per_occurrence",
+      "amount": 250000,
+      "currency": "USD",
+      "isDefault": false,
+      "versionId": "PV-1"
+    }
+  ],
+  "coverageStates": [
+    {
+      "id": "S1",
+      "versionId": "PV-1",
+      "coverageCode": "BI",
+      "jurisdiction": null,
+      "availability": "required",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S2",
+      "versionId": "PV-1",
+      "coverageCode": "PD",
+      "jurisdiction": null,
+      "availability": "required",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S3",
+      "versionId": "PV-1",
+      "coverageCode": "PHYS",
+      "jurisdiction": null,
+      "availability": "available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S4",
+      "versionId": "PV-1",
+      "coverageCode": "UMUIM",
+      "jurisdiction": null,
+      "availability": "available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S5",
+      "versionId": "PV-1",
+      "coverageCode": "CARGO",
+      "jurisdiction": null,
+      "availability": "available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S6",
+      "versionId": "PV-1",
+      "coverageCode": "HIRED",
+      "jurisdiction": null,
+      "availability": "available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S7",
+      "versionId": "PV-1",
+      "coverageCode": "GL",
+      "jurisdiction": null,
+      "availability": "available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S8",
+      "versionId": "PV-1",
+      "coverageCode": "UMUIM",
+      "jurisdiction": "TX",
+      "availability": "required",
+      "rejectionAllowed": true,
+      "rejectionFormRef": "TX-UM-REJ",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S9",
+      "versionId": "PV-1",
+      "coverageCode": "UMUIM",
+      "jurisdiction": "OH",
+      "availability": "required",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    },
+    {
+      "id": "S10",
+      "versionId": "PV-1",
+      "coverageCode": "HIRED",
+      "jurisdiction": "CA",
+      "availability": "not_available",
+      "rejectionAllowed": false,
+      "rejectionFormRef": "",
+      "from": "2026-01-01",
+      "to": null
+    }
+  ],
+  "testSuites": [
+    {
+      "id": "TS-1",
+      "name": "Regression",
+      "cases": [
+        {
+          "name": "Texas needs UM/UIM unless rejected",
+          "input": {
+            "state": "TX",
+            "coverages": [
+              "BI",
+              "PD"
+            ]
+          },
+          "expected": {
+            "required": [
+              "BI",
+              "PD",
+              "UMUIM"
+            ],
+            "missingRequired": [
+              "UMUIM"
+            ]
+          }
+        },
+        {
+          "name": "A signed rejection satisfies it",
+          "input": {
+            "state": "TX",
+            "coverages": [
+              "BI",
+              "PD"
+            ],
+            "rejections": {
+              "UMUIM": true
+            }
+          },
+          "expected": {
+            "missingRequired": [],
+            "rejected": [
+              "UMUIM"
+            ]
+          }
+        },
+        {
+          "name": "Ohio needs it and cannot be rejected",
+          "input": {
+            "state": "OH",
+            "coverages": [
+              "BI",
+              "PD"
+            ],
+            "rejections": {
+              "UMUIM": true
+            }
+          },
+          "expected": {
+            "missingRequired": [
+              "UMUIM"
+            ]
+          }
+        },
+        {
+          "name": "Hired auto is not sold in California",
+          "input": {
+            "state": "CA",
+            "coverages": [
+              "BI",
+              "PD",
+              "HIRED"
+            ]
+          },
+          "expected": {
+            "notAvailable": [
+              "HIRED"
+            ],
+            "issuesContain": [
+              "not available"
+            ]
+          }
+        },
+        {
+          "name": "Not offered in New York",
+          "input": {
+            "state": "NY",
+            "coverages": [
+              "BI"
+            ]
+          },
+          "expected": {
+            "offered": false
+          }
+        },
+        {
+          "name": "Texas UM/UIM default limit",
+          "input": {
+            "state": "TX",
+            "coverages": [
+              "BI",
+              "PD",
+              "UMUIM"
+            ]
+          },
+          "expected": {
+            "defaults": {
+              "UMUIM": 300000
+            },
+            "optionAmounts": {
+              "UMUIM": [
+                300000,
+                500000
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

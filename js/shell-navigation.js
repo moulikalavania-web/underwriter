@@ -206,7 +206,7 @@ function initAppAfterLogin(chosenRole) {
     appInitialised = true;
   }
   if (typeof changeUserRole === "function" && chosenRole) changeUserRole(chosenRole);
-  renderSubmissionsTable();
+  filterSubmissionsTable("all");   // every sign-in opens the queue on All Submissions
   selectSubmission(activeSubmissionId, false);
   showIntakePage();
 }
@@ -286,7 +286,7 @@ function changeUserRole(role) {
   // and must reflect the newly active persona immediately, even if the
   // user is already sitting on that screen when they switch roles.
   let sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (sub) {
+  if (sub) {
     renderAuthorityScreen(sub);
     renderAppetiteRules(sub.appetiteRules);
     renderUnderwritingWorkbench(sub);

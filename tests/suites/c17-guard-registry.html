@@ -9,10 +9,10 @@
   try {
     // ---------- one wrapper per action, and the guards in the order they run
     t('the three gated actions are registered', ['eSign', 'issueQuote', 'bind'].every(function(a){ return !!GUARD_REGISTRY[a] && GUARD_REGISTRY[a].installed === true; }));
-    var quote = 'underwriting authority,surplus lines,adverse-action notices,TRIA offer,producer licence,sanctions screening';
+    var quote = 'AI output reviewed,product release rules,binding authority agreement,unresolved source data,underwriting authority,surplus lines,adverse-action notices,TRIA offer,producer licence,sanctions screening';
     t('opening the e-signature step runs: ' + quote, listGuards('eSign').join(',') === quote, listGuards('eSign').join(','));
     t('issuing the quote runs the same guards in the same order', listGuards('issueQuote').join(',') === quote, listGuards('issueQuote').join(','));
-    t('the bind runs them, plus subjectivities and broker of record, in the order the nested wrappers ran', listGuards('bind').join(',') === 'underwriting authority,surplus lines,broker of record,subjectivities,TRIA offer,producer licence,sanctions screening', listGuards('bind').join(','));
+    t('the bind runs them, plus subjectivities and broker of record, in the order the nested wrappers ran', listGuards('bind').join(',') === 'binding authority agreement,risk changed since the quote,unresolved source data,underwriting authority,surplus lines,broker of record,subjectivities,TRIA offer,producer licence,sanctions screening', listGuards('bind').join(','));
     t('the pricing pin after issuing is an after-hook, not another layer round the function', GUARD_REGISTRY.issueQuote.after.map(function(a){ return a.name; }).join() === 'pin pricing terms');
 
     // ---------- nothing else wraps those functions

@@ -52,7 +52,7 @@
     t('the receiver\'s board has a Referred-to-you card with the sender and the note', /Referred to you \(1\)/.test(d) && /Sarah Jenkins/.test(d) && /Please decide/.test(d), d.slice(0, 200));
     t('the receiver\'s next action is the referral, and the counter reads 1', /DECISION NEEDED/.test(d) && /Referred to Me\s*1/.test(d));
     login('senior'); showIntakePage();
-    t('someone it was not sent to sees nothing about it', rowText('REF-1') === '' && /Referred to Me\s*0/.test(el('roleDashboardContainer').innerText.replace(/\s+/g, ' ')));
+    t('someone it was not sent to sees the case in the queue, but it is not marked as referred to them and is not on their board', rowText('REF-1') !== '' && !/REFERRED TO YOU/i.test(rowText('REF-1')) && /Referred to Me\s*0/.test(el('roleDashboardContainer').innerText.replace(/\s+/g, ' ')));
     login('admin'); showIntakePage();
     var m = el('roleDashboardContainer').innerText.replace(/\s+/g, ' ');
     t('the Head of Underwriting sees the referral count and the list with who must decide', /Referrals \(1 awaiting decision\)/.test(m) && /David Chen \(Senior Underwriter\)/.test(m) && /REF-1/.test(m), m.slice(0, 260));
@@ -74,7 +74,7 @@
     login('junior'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
     t('the sender sees it approved, and by whom', /approved/i.test(el('juniorActionBox').innerText) && /David Chen/.test(el('juniorActionBox').innerText) && /Approved by David Chen/.test(el('referralStatusBadge').textContent));
     login('senior'); showIntakePage();
-    t('the CUO is not shown a decision that was not theirs', rowText('REF-1') === '');
+    t('the CUO is not asked to decide one that was not theirs', !/REFERRED TO YOU/i.test(rowText('REF-1')) && !/Decision needed/i.test(rowText('REF-1')));
 
     // ---------- a risk beyond every internal level goes to the carrier
     var B = mk('REF-2', { exposureVal: 60000000, exposure: '$60,000,000', authorityLimit: 60000000 }); SUBMISSIONS_DATASET.push(B);

@@ -1,0 +1,326 @@
+<!-- Suite C29: the underwriting decision engine. Rules carry a severity and an outcome on failure, and each evaluation is kept as a run (proceed, refer
+     or knockout). An override needs a written reason, a knockout needs a Senior Underwriter or above, and each override is a record that can be revoked.
+     The assessment scores six weighted dimensions to a grade. An authority level per person adds transaction scope, debit and credit ceilings and the
+     right to bind on top of the line and state ceilings, narrowed by product and program; the levels are changed by a proposal citing the authority letter that a
+     different person approves, and are marked as placeholders until then. A rule whose threshold was edited is judged on the edited value, not counted as waived. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function rule(id, name, type, val, base, over){
+    var r = { ruleId: id, id: id, factor: name, name: name, ruleType: type, val: String(val), baseValue: base, operator: '<=', unit: 'Years', guardrail: '<= ' + base, pass: Number(val) <= base, canOverride: type !== 'Knockout' };
+    for (var k in (over || {})) r[k] = over[k]; return r;
+  }
+  function mk(id, rules, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 2; s.completedSteps = [1];
+    ['pasSync', 'quoteIssued', 'authorityRef', 'lifecycleStatus', 'uwOverrides', 'ruleRuns', 'uwAssessment', 'transactionType', 'renewalOf', 'riskScore', 'riskScoreOverridden'].forEach(function(k){ delete s[k]; });
+    s.assignedTo = 'senior_uw'; s.appetiteRules = rules; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  try {
+    uwLevelsReset();
+    // ---------- severity
+    t('a Knockout rule is a knockout that declines', uwRuleSeverity({ ruleType: 'Knockout' }) === 'knockout' && uwRuleOutcome({ ruleType: 'Knockout' }) === 'decline');
+    t('a rule that cannot be overridden is a knockout', uwRuleSeverity({ canOverride: false }) === 'knockout');
+    t('a Referral or Eligibility rule is major and refers', uwRuleSeverity({ ruleType: 'Referral' }) === 'major' && uwRuleSeverity({ ruleType: 'Eligibility' }) === 'major' && uwRuleOutcome({ ruleType: 'Eligibility' }) === 'refer');
+    t('a Standard rule is minor and warns', uwRuleSeverity({ ruleType: 'Standard' }) === 'minor' && uwRuleOutcome({ ruleType: 'Standard' }) === 'warn');
+    t('a rule may state its own severity and outcome', uwRuleSeverity({ ruleType: 'Standard', severity: 'info' }) === 'info' && uwRuleOutcome({ ruleType: 'Standard', outcomeOnFail: 'refer' }) === 'refer');
+
+    // ---------- evaluation outcomes
+    var okR = rule('R-OK', 'Max Vehicle Age', 'Eligibility', 5, 10);
+    var A = mk('SUB-C29-A', [okR, rule('R-OK2', 'Radius', 'Standard', 100, 500)]);
+    var ev = uwEvaluateRules(A);
+    t('all rules passing proceeds', ev.outcome === 'proceed' && ev.passCount === 2 && ev.knockoutCount === 0);
+    var B = mk('SUB-C29-B', [okR, rule('R-MAJ', 'Fleet Age', 'Eligibility', 14, 10)]);
+    ev = uwEvaluateRules(B);
+    t('a failed major rule goes to referral', ev.outcome === 'refer' && ev.referCount === 1 && ev.results.filter(function(r){ return r.result === 'fail'; })[0].severity === 'major');
+    var C = mk('SUB-C29-C', [rule('W1', 'W1', 'Standard', 20, 10), rule('W2', 'W2', 'Standard', 20, 10)]);
+    t('two warnings still proceed', uwEvaluateRules(C).outcome === 'proceed' && uwEvaluateRules(C).warningCount === 2);
+    C.appetiteRules.push(rule('W3', 'W3', 'Standard', 20, 10));
+    t('three warnings together go to referral', uwEvaluateRules(C).outcome === 'refer' && uwEvaluateRules(C).warningCount === 3 && UW_WARNINGS_BEFORE_REFER === 3);
+    var D = mk('SUB-C29-D', [okR, rule('R-KO', 'Prohibited Class', 'Knockout', 20, 10)]);
+    t('a failed knockout is an auto-decline', uwEvaluateRules(D).outcome === 'auto_declined' && uwEvaluateRules(D).knockoutCount === 1);
+    t('a rule with no value to compare is not counted', uwEvaluateRules(mk('X', [{ ruleId: 'N', factor: 'N', ruleType: 'Standard', pass: undefined }])).results.length === 0);
+
+    // ---------- runs are kept, once per change
+    login('senior_uw'); use(D); showWorkflowPage(2);
+    var run = uwRunRules(D);
+    t('a run is kept with its id, stage, counts and outcome', D.ruleRuns.length === 1 && run.runId === 'RUN-1' && run.stage === 'triage' && run.outcome === 'auto_declined' && run.knockoutCount === 1);
+    uwRunRules(D); uwRunRules(D);
+    t('the same result is not kept again', D.ruleRuns.length === 1);
+    D.currentStep = 8; var run2 = uwRunRules(D);
+    t('a new stage is a new run', D.ruleRuns.length === 2 && run2.stage === 'quote');
+    D.currentStep = 2;
+    renderAppetiteRules(D.appetiteRules);
+    var card = el('ruleRunContainer').innerText;
+    t('the appetite page shows the run, the knockout and what happens', /Rule evaluation/i.test(card) && /Knockout: decline/i.test(card) && /Prohibited Class/i.test(card) && /Recommend decline/i.test(card), card.slice(0, 200));
+    t('a knockout offers to record the decline, and does not decline by itself', /Record the decline/.test(el('ruleRunContainer').innerHTML) && D.lifecycleStatus !== 'declined');
+    use(B); renderAppetiteRules(B.appetiteRules);
+    t('a case that only refers shows Refer and no decline button', /Refer/.test(el('ruleRunContainer').innerText) && !/Record the decline/.test(el('ruleRunContainer').innerHTML));
+
+    // ---------- overrides are records
+    login('senior_uw');
+    var P = mk('SUB-C29-P', [rule('R-F', 'Fleet Age', 'Eligibility', 14, 10), rule('R-K', 'Prohibited Class', 'Knockout', 20, 10)]); use(P);
+    renderAppetiteRules(P.appetiteRules);
+    var r1 = uwApplyRuleOverride(P, 'R-F', 'short');
+    t('an override with a short reason is refused', !r1.ok && r1.error === 'reason' && !P.appetiteRules[0].manualPassOverride && !(P.uwOverrides || []).length);
+    var r2 = uwApplyRuleOverride(P, 'R-F', 'Fleet is being renewed in March; all units under 8 years by then.');
+    var rec = (P.uwOverrides || [])[0];
+    t('an override with a reason is applied and kept as a record', r2.ok && P.appetiteRules[0].manualPassOverride === true && P.appetiteRules[0].pass === true && rec && rec.id === 'OVR-1' && rec.targetType === 'appetite_rule' && rec.status === 'active');
+    t('the record holds who, role, when, the change and the reason', rec.byRole === 'senior_uw' && /David Chen/.test(rec.by) && !!rec.at && /Fail/.test(rec.oldValue) && /pass/.test(rec.newValue) && /renewed in March/.test(rec.reason) && rec.severity === 'major');
+    t('the decision log has it', P.decisionLog.some(function(d){ return d.decision === 'uw_override_applied' && /OVR-1/.test(d.notes); }));
+    t('the run now counts it as overridden', P.ruleRuns[P.ruleRuns.length - 1].overriddenCount === 1 && /OVR-1/.test(el('ruleRunContainer').innerText));
+    t('overriding a rule twice is refused', uwApplyRuleOverride(P, 'R-F', 'Again, with a long enough reason.').error === 'already');
+    var rv = uwRevokeRuleOverride(P, 'R-F');
+    t('a revoked override stays in the history as revoked and the rule fails again', rv.ok && P.uwOverrides[0].status === 'revoked' && !!P.uwOverrides[0].revokedAt && P.appetiteRules[0].manualPassOverride === false && P.appetiteRules[0].pass === false && P.decisionLog.some(function(d){ return d.decision === 'uw_override_revoked'; }));
+
+    // the dialog path: the person is asked for a reason
+    var asked = null; window.prompt = function(m){ asked = m; return 'The carrier approved this class in writing on 3 March.'; };
+    var nBefore = (P.uwOverrides || []).length;
+    toggleAppetiteRuleOverride('R-K');
+    t('the override button asks for the reason, naming the rule and its severity', /Prohibited Class/.test(asked || '') && /Knockout/.test(asked || ''));
+    t('a Senior Underwriter may override a knockout, as a record', P.uwOverrides.length === nBefore + 1 && P.uwOverrides[P.uwOverrides.length - 1].severity === 'knockout' && P.appetiteRules[1].manualPassOverride === true);
+    t('a knockout override notifies the Head of Underwriting', typeof notificationsFor === 'function' && notificationsFor('admin').some(function(n){ return /Knockout rule overridden/.test(n.title) && n.caseId === 'SUB-C29-P'; }));
+    window.prompt = function(){ return null; }; var nn = P.uwOverrides.length;
+    toggleAppetiteRuleOverride('R-F');
+    t('cancelling the question changes nothing', P.uwOverrides.length === nn && P.appetiteRules[0].manualPassOverride === false);
+    toggleAppetiteRuleOverride('R-K');
+    t('the same button removes an override and records the revocation', P.appetiteRules[1].manualPassOverride === false && P.uwOverrides[P.uwOverrides.length - 1].status === 'revoked');
+
+    // a knockout override needs senior_uw or above, even if the permission is widened
+    var savedPerm = PERMISSIONS_MATRIX.junior.appetiteRules.override; PERMISSIONS_MATRIX.junior.appetiteRules.override = true;
+    login('junior'); var Q = mk('SUB-C29-Q', [rule('R-K', 'Prohibited Class', 'Knockout', 20, 10), rule('R-F', 'Fleet Age', 'Eligibility', 14, 10)], { assignedTo: 'junior' }); use(Q); renderAppetiteRules(Q.appetiteRules);
+    var rq = uwApplyRuleOverride(Q, 'R-K', 'I would like this one to go through, please.');
+    t('an Underwriter I cannot override a knockout even with the permission', !rq.ok && rq.error === 'authority' && rq.needRole === 'senior_uw' && !Q.appetiteRules[0].manualPassOverride);
+    t('a major rule may be overridden by them, with a reason', uwApplyRuleOverride(Q, 'R-F', 'Producer sent the replacement schedule today.').ok);
+    PERMISSIONS_MATRIX.junior.appetiteRules.override = savedPerm;
+    login('junior'); var Z = mk('SUB-C29-Z', [rule('R-F', 'Fleet Age', 'Eligibility', 14, 10)], { assignedTo: 'junior' }); use(Z);
+    t('without the permission nothing is overridden', uwApplyRuleOverride(Z, 'R-F', 'A perfectly good reason here.').error === 'permission' && !(Z.uwOverrides || []).length);
+
+    // the risk score
+    login('senior_uw'); var S = mk('SUB-C29-S', [rule('R-OK', 'Max Vehicle Age', 'Eligibility', 5, 10)]); S.currentStep = 6; use(S); showWorkflowPage(5); renderRiskScoreCard(S);
+    var auto = calculateRiskScore(S).score;
+    t('the risk score card gains a reason box', !!el('riskScoreReason'));
+    el('riskScoreOverrideInput').value = String(Math.min(100, auto + 8)); el('riskScoreReason').value = '';
+    saveRiskScoreOverride(S.id);
+    t('changing the score without a reason is refused', !S.riskScoreOverridden && !(S.uwOverrides || []).length && toasts.some(function(m){ return /Say why the score differs/.test(m); }));
+    el('riskScoreReason').value = 'Two units are tractors with a poor inspection history.'; saveRiskScoreOverride(S.id);
+    var rs = (S.uwOverrides || [])[0];
+    t('with a reason it is saved and kept as a record', S.riskScoreOverridden === true && S.riskScore === Math.min(100, auto + 8) && rs && rs.targetType === 'risk_score' && rs.oldValue === String(auto) && /tractors/.test(rs.reason));
+    resetRiskScoreToAuto(S.id);
+    t('resetting to the calculated score revokes the record', S.riskScoreOverridden === false && S.uwOverrides[0].status === 'revoked');
+    login('junior'); S.assignedTo = 'junior'; renderRiskScoreCard(S);
+    el('riskScoreOverrideInput').value = String(Math.max(0, auto - 30) === auto ? auto + 30 : (auto >= 30 ? auto - 30 : auto + 30)); el('riskScoreReason').value = 'A thirty point move needs a senior to sign it off.';
+    saveRiskScoreOverride(S.id);
+    t('an Underwriter I cannot move the score by more than 20 points', S.riskScoreOverridden !== true && toasts.some(function(m){ return /more than 20 points/.test(m); }));
+
+    // ---------- assessment
+    login('junior'); var E = mk('SUB-C29-E', [], { assignedTo: 'junior' }); E.currentStep = 6; use(E);
+    var w = UW_FRAMEWORK.dimensions.reduce(function(a, d){ return a + d.weight; }, 0);
+    t('six dimensions with weights adding to 100', UW_FRAMEWORK.dimensions.length === 6 && w === 100);
+    t('nothing scored yet gives no grade', uwAssessmentScore({}).overall === null && uwAssessmentScore({}).grade === null);
+    var all5 = {}; UW_FRAMEWORK.dimensions.forEach(function(d){ all5[d.code] = { score: 5 }; });
+    t('all 5s is 5.00 and grade A', uwAssessmentScore(all5).overall === 5 && uwAssessmentScore(all5).grade === 'A' && uwAssessmentScore(all5).complete);
+    var mix = { MGMT: { score: 3 }, MAINT: { score: 3 }, DRIVER: { score: 2 }, SAFETY: { score: 4 }, LOSS: { score: 4 }, FIN: { score: 5 } };
+    t('the weighted score is (3x20 + 3x20 + 2x20 + 4x15 + 4x15 + 5x10) / 100 = 3.30, grade C', uwAssessmentScore(mix).overall === 3.3 && uwAssessmentScore(mix).grade === 'C');
+    t('grade edges: 4.5 A, 3.75 B, 3.0 C, 2.25 D, below E', uwGradeFor(4.5) === 'A' && uwGradeFor(4.49) === 'B' && uwGradeFor(3.75) === 'B' && uwGradeFor(3) === 'C' && uwGradeFor(2.25) === 'D' && uwGradeFor(2.24) === 'E');
+    t('a score outside 1 to 5 or a half score is refused', !uwAssessmentSet(E, 'MGMT', 6, '').ok && !uwAssessmentSet(E, 'MGMT', 0, '').ok && !uwAssessmentSet(E, 'MGMT', 3.5, '').ok && !uwAssessmentSet(E, 'NOPE', 3, '').ok);
+    uwAssessmentSet(E, 'MGMT', 3, 'Owner has run the company 12 years.'); uwAssessmentSet(E, 'MAINT', 3, '');
+    var f1 = uwAssessmentFinalise(E);
+    t('finalising with dimensions unscored is refused and names them', !f1.ok && f1.error === 'incomplete' && f1.missing.indexOf('Driver controls') > -1 && E.uwAssessment.status === 'draft');
+    uwAssessmentSet(E, 'DRIVER', 2, ''); uwAssessmentSet(E, 'SAFETY', 4, ''); uwAssessmentSet(E, 'LOSS', 4, ''); uwAssessmentSet(E, 'FIN', 5, '');
+    var f2 = uwAssessmentFinalise(E);
+    t('a score of 2 or less needs a comment before it can be finalised', !f2.ok && f2.error === 'comment' && f2.missing[0] === 'Driver controls');
+    uwAssessmentSet(E, 'DRIVER', 2, 'Two drivers with a major violation in the last year.');
+    var f3 = uwAssessmentFinalise(E);
+    t('finalising stores the overall, grade, who and when', f3.ok && E.uwAssessment.status === 'final' && E.uwAssessment.overall === 3.3 && E.uwAssessment.grade === 'C' && /Sarah Jenkins/.test(E.uwAssessment.assessedBy) && !!E.uwAssessment.assessedAt && E.decisionLog.some(function(d){ return d.decision === 'uw_assessment_final'; }));
+    t('a final assessment cannot be changed', uwAssessmentSet(E, 'MGMT', 5, '').error === 'final' && E.uwAssessment.responses.MGMT.score === 3);
+    t('an Underwriter I cannot reopen it', !uwAssessmentReopen(E).ok && E.uwAssessment.status === 'final');
+    login('senior_uw');
+    t('a Senior Underwriter can reopen it', uwAssessmentReopen(E).ok && E.uwAssessment.status === 'draft');
+    uwAssessmentFinalise(E);
+
+    // suggestions from what was read
+    var G = mk('SUB-C29-G', [], { assignedTo: 'junior' });
+    G.vehicles = [{ year: new Date().getFullYear() - 2 }, { year: new Date().getFullYear() - 3 }];
+    G.mvrData = { drivers: [{ name: 'Dana Ortiz', band: 'High', score: 60, major: 2, minor: 0, accidents: 0, status: 'Suspended', violations: [] }, { name: 'Rahul Sharma', band: 'Medium', score: 30, major: 0, minor: 2, accidents: 0, status: 'Valid', violations: [] }] };
+    G.losses = []; var sg = uwAssessmentSuggest(G);
+    t('vehicle ages suggest a maintenance score', sg.MAINT && sg.MAINT.score === 5 && /Average vehicle age 2\.5/.test(sg.MAINT.basis), sg.MAINT && sg.MAINT.basis);
+    t('MVR results suggest a driver score (one high-risk driver is a 2)', sg.DRIVER && sg.DRIVER.score === 2 && /1 high risk, 1 medium/.test(sg.DRIVER.basis), sg.DRIVER && sg.DRIVER.basis);
+    t('nothing is suggested where nothing was read', !sg.MGMT && !sg.SAFETY && !sg.FIN);
+    use(G); G.currentStep = 6; login('junior'); renderUwAssessment(G);
+    t('the card on the score step lists the six dimensions with suggestions', /Underwriting assessment/.test(el('uwAssessmentContainer').innerText) && /Suggested 5: Average vehicle age/.test(el('uwAssessmentContainer').innerText) && el('uwAssessmentContainer').querySelectorAll('select').length === 6);
+    uwAssessUseSuggestion(G.id, 'MAINT');
+    t('"use" takes the suggestion with its basis as the comment', G.uwAssessment.responses.MAINT.score === 5 && /Average vehicle age/.test(G.uwAssessment.responses.MAINT.comment) && G.uwAssessment.responses.MAINT.suggested === 5);
+
+    // the brief
+    var br = buildDecisionBrief(E);
+    t('the decision brief shows the final assessment', br.checks.some(function(c){ return c.label === 'Underwriting assessment' && c.status === 'ok' && /Grade C/.test(c.detail); }));
+    var br2 = buildDecisionBrief(mk('SUB-C29-H', [rule('R-F', 'Fleet Age', 'Eligibility', 14, 10)]));
+    t('and shows a missing one as pending, with the rule evaluation', br2.checks.some(function(c){ return c.label === 'Underwriting assessment' && c.status === 'pending'; }) && br2.checks.some(function(c){ return c.label === 'Rule evaluation' && c.status === 'warn'; }));
+
+    // ---------- authority levels
+    var M = function(txn, over){ var m = { premium: 1000, limit: 1000, lob: 'trucking', state: 'TX', txn: txn }; for (var k in (over || {})) m[k] = over[k]; return m; };
+    t('a junior has levels for new, endorsement and cancellation, each its own row', uwLevelFor('junior', M('new')).id === 'LV-JR-NEW' && uwLevelFor('junior', M('renew')).id === 'LV-JR-NEW' && uwLevelFor('junior', M('endorse')).id === 'LV-JR-END' && uwLevelFor('junior', M('cancel')).id === 'LV-JR-CAN');
+    t('senior and chief levels cover every transaction', uwLevelFor('senior_uw', M('cancel')).id === 'LV-SU-ALL' && uwLevelFor('senior', M('endorse')).id === 'LV-CUO-ALL');
+    t('a case is new business unless it is a renewal or says otherwise', uwTxnOf({}) === 'new' && uwTxnOf({ renewalOf: 'X' }) === 'renew' && uwTxnOf({ transactionType: 'cancel' }) === 'cancel');
+    t('the transaction travels with the measures', authMeasures(mk('X', [], { transactionType: 'endorse' })).txn === 'endorse' && authMeasures(mk('X', [])).txn === 'new');
+    t('a junior is covered for new business inside the line and state ceilings', authRoleCovers('junior', M('new')).ok && authRoleCovers('junior', M('new')).level.id === 'LV-JR-NEW');
+    var cc = authRoleCovers('junior', M('cancel'));
+    t('but not for a cancellation, though the ceilings would allow it', !cc.ok && /Cancellations and reinstatements/.test(cc.reasons[0]) && cc.level.id === 'LV-JR-CAN', cc.reasons.join('|'));
+    t('the premium ceiling still applies on top', !authRoleCovers('junior', M('new', { premium: 900000 })).ok && authRoleCovers('senior_uw', M('cancel')).ok);
+    t('a measure with no transaction is treated as new business', authRoleCovers('junior', { premium: 1000, limit: 1000, lob: 'trucking', state: 'TX' }).ok);
+    t('a role with no level rows is not constrained by them', uwLevelCheck('nobody', M('new')).ok && !uwLevelCheck('nobody', M('new')).constrained);
+    t('a level outside its dates does not apply', uwLevelFor('junior', M('new'), '2025-06-01') === null && uwLevelFor('junior', M('new'), '2026-06-01').id === 'LV-JR-NEW');
+    t('the levels as shipped do not overlap', uwLevelOverlaps().length === 0);
+    var twice = UW_AUTHORITY_LEVELS.concat([{ id: 'LV-DUP', role: 'junior', lob: '*', states: '*', txn: ['new'], maxDebitPct: 1, maxCreditPct: 1, canBind: true, from: '2026-03-01', to: null }]);
+    t('two levels for one person, scope and transaction in the same period are an overlap', JSON.stringify(uwLevelOverlaps(twice)) === JSON.stringify([['LV-JR-NEW', 'LV-DUP']]));
+    var spaced = UW_AUTHORITY_LEVELS.concat([{ id: 'LV-OLD', role: 'junior', lob: '*', states: '*', txn: ['new'], maxDebitPct: 1, maxCreditPct: 1, canBind: true, from: '2024-01-01', to: '2025-12-31' }]);
+    t('a level that ended before the next began is not', uwLevelOverlaps(spaced).length === 0);
+    var narrower = UW_AUTHORITY_LEVELS.concat([{ id: 'LV-TX', role: 'junior', lob: '*', states: ['TX'], txn: ['new'], maxDebitPct: 1, maxCreditPct: 1, canBind: true, from: '2026-01-01', to: null }]);
+    t('a state-specific level is not an overlap; it is the more specific one', uwLevelOverlaps(narrower).length === 0);
+
+    // the authority card
+    login('junior'); var U = mk('SUB-C29-U', [], { assignedTo: 'junior', exposureVal: 500000 }); U.currentStep = 9; use(U); showWorkflowPage(AUTH_STEP); renderAuthorityCard(U);
+    var ac = el('authorityContainer').innerText;
+    t('the authority page shows the signed-in person\'s level for this case', /Your authority level for this case/.test(ac) && /LV-JR-NEW/.test(ac) && /credit up to 5%/.test(ac) && /debit up to 10%/.test(ac) && /may bind/.test(ac), ac.slice(-420));
+    t('and the table of all levels with the overlap check', /All authority levels \(no overlaps\)/.test(ac) && /LV-CUO-ALL/.test(ac));
+    U.transactionType = 'cancel'; renderAuthorityCard(U);
+    t('for a cancellation it says the person may not bind it', /may not bind/.test(el('authorityContainer').innerText));
+
+    // ---------- debit and credit by person
+    var V = mk('SUB-C29-V', [], { assignedTo: 'junior' });
+    V.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: null, appliedBy: null, appliedAt: null, finalPremium: 10000 }; use(V);
+    login('junior'); var cj = uwDiscretionaryCaps(V);
+    t('an Underwriter I may give 5% credit and add 10% debit', cj.credit === 5 && cj.debit === 10);
+    login('senior_uw'); var cs = uwDiscretionaryCaps(V);
+    t('a Senior Underwriter 10% and 20%', cs.credit === 10 && cs.debit === 20);
+    login('senior'); var cu = uwDiscretionaryCaps(V);
+    t('the Chief up to the filed limit, never above it', cu.credit === DISCRETIONARY_MAX_CREDIT_PCT && cu.debit === DISCRETIONARY_MAX_DEBIT_PCT);
+    login('junior'); V.transactionType = 'cancel'; var c0 = uwDiscretionaryCaps(V); V.transactionType = 'new';
+    t('where the level does not allow the transaction, no adjustment', c0.credit === 0 && c0.debit === 0);
+    t('the filed limits are restored after each use', DISCRETIONARY_MAX_CREDIT_PCT === 15 && DISCRETIONARY_MAX_DEBIT_PCT === 25);
+
+    openDiscretionaryPricingModal(V.id);
+    el('dpAdjustmentType').value = 'credit'; el('dpPercentInput').value = '12'; updateDiscretionaryPricingPreview();
+    t('the dialog caps the box at the person\'s own ceiling, not the filed one', el('dpPercentInput').value === '5' && /0–5%/.test(el('dpPercentLabel').textContent), el('dpPercentLabel').textContent);
+    el('dpPercentInput').value = '12'; el('dpReason').value = 'Telematics fleet-wide and a clean inspection record.';
+    var nbefore = toasts.length; saveDiscretionaryPricing();
+    t('saving more than the person may give is refused with what they may give', !V.discretionaryPricing.adjustmentType && /up to 5%/.test(toasts.slice(nbefore).join('|')) && V.decisionLog.some(function(d){ return d.decision === 'uw_pricing_over_authority' && /12%/.test(d.notes) && /LV-JR-NEW/.test(d.notes); }));
+    el('dpPercentInput').value = '4'; saveDiscretionaryPricing();
+    t('within their ceiling it saves', V.discretionaryPricing.adjustmentType === 'credit' && V.discretionaryPricing.adjustmentPercent === 4);
+    login('senior_uw'); V.discretionaryPricing = { basePremium: 10000, adjustmentType: null, adjustmentPercent: 0, reason: null, appliedBy: null, appliedAt: null, finalPremium: 10000 };
+    openDiscretionaryPricingModal(V.id); el('dpAdjustmentType').value = 'credit'; el('dpPercentInput').value = '9'; el('dpReason').value = 'Telematics fleet-wide and a clean inspection record.'; saveDiscretionaryPricing();
+    t('the same 9% is within a Senior Underwriter\'s ceiling', V.discretionaryPricing.adjustmentType === 'credit' && V.discretionaryPricing.adjustmentPercent === 9);
+
+
+    // ---------- levels: product and program, placeholder marking, proposals from an authority letter
+    uwLevelsReset();
+    t('the shipped levels are marked as placeholders until a letter is loaded', uwLevelsArePlaceholder() && UW_AUTHORITY_LEVELS.every(function(l){ return l.source === 'placeholder'; }) && UW_LEVELS_META.source === 'placeholder');
+    login('junior'); var PU = mk('SUB-C29-PU', [], { assignedTo: 'junior', exposureVal: 500000, productCode: 'TRK-STD', program: 'Fleet Select' }); PU.currentStep = 9; use(PU); showWorkflowPage(AUTH_STEP); renderAuthorityCard(PU);
+    t('the authority page says the figures are placeholders', /Placeholder figures/.test(el('authorityContainer').innerText) && /not been loaded from an authority letter/.test(el('authorityContainer').innerText));
+    t('the measures carry the case\'s product and program', authMeasures(PU).product === 'TRK-STD' && authMeasures(PU).program === 'Fleet Select');
+
+    var base = clone(UW_AUTHORITY_LEVELS);
+    var bad = uwLevelsValidate(base.concat([{ id: 'LV-X', role: 'nobody', lob: '*', states: '*', txn: ['sell'], maxCreditPct: 40, maxDebitPct: -1, canBind: 'yes', from: '26-1-1', to: null }]));
+    t('validation names every fault: unknown person, transaction, credit above the filed limit, negative debit, bind flag, date', bad.some(function(e){ return /not a person/.test(e); }) && bad.some(function(e){ return /transactions must be/.test(e); }) && bad.some(function(e){ return /above the filed limit of 15%/.test(e); }) && bad.some(function(e){ return /debit must be a percent/.test(e); }) && bad.some(function(e){ return /may bind/.test(e); }) && bad.some(function(e){ return /yyyy-mm-dd/.test(e); }));
+    t('a level that ends before it starts is refused, and so is an empty list', uwLevelsValidate(base.concat([{ id: 'LV-Y', role: 'junior', lob: '*', states: ['TX'], txn: ['new'], maxCreditPct: 1, maxDebitPct: 1, canBind: true, from: '2026-05-01', to: '2026-01-01' }])).some(function(e){ return /ends before it starts/.test(e); }) && uwLevelsValidate([]).length === 1);
+
+    // who may propose, and the letter
+    login('junior'); var up = uwLevelsUpsert({ id: 'LV-JR-TX', role: 'junior', lob: '*', states: ['TX'], txn: ['new'], maxCreditPct: 3, maxDebitPct: 6, canBind: true, from: '2026-02-01' }, 'AL-2026-014', 'Texas');
+    t('an Underwriter I cannot propose a level change', !up.ok && up.error === 'permission' && UW_LEVELS_PENDING === null);
+    login('senior_uw'); var nl = { id: 'LV-JR-TX', role: 'junior', lob: '*', states: ['TX'], txn: ['new'], maxCreditPct: 3, maxDebitPct: 6, canBind: true, from: '2026-02-01' };
+    t('a proposal without a letter reference is refused', uwLevelsUpsert(nl, '', '').error === 'letter' && UW_LEVELS_PENDING === null);
+    t('a proposal with an invalid level is refused and changes nothing', uwLevelsUpsert(Object.assign({}, nl, { maxCreditPct: 99 }), 'AL-2026-014', '').error === 'invalid' && UW_LEVELS_PENDING === null);
+    t('an overlapping level is refused with both ids', (function(){ var r = uwLevelsUpsert({ id: 'LV-DUP', role: 'junior', lob: '*', states: '*', txn: ['new'], maxCreditPct: 1, maxDebitPct: 1, canBind: true, from: '2026-03-01' }, 'AL-2026-014', ''); return r.error === 'invalid' && /LV-JR-NEW and LV-DUP overlap/.test(r.errors.join('|')); })());
+    var pr = uwLevelsUpsert(nl, 'AL-2026-014', 'Texas is narrower than the countrywide level');
+    t('a valid proposal is kept and nothing is in force yet', pr.ok && UW_LEVELS_PENDING && UW_LEVELS_PENDING.letterRef === 'AL-2026-014' && UW_LEVELS_PENDING.levels.length === UW_AUTHORITY_LEVELS.length + 1 && !UW_AUTHORITY_LEVELS.some(function(l){ return l.id === 'LV-JR-TX'; }));
+    t('the figures in force are unchanged while it waits', uwLevelFor('junior', { lob: 'trucking', state: 'TX', txn: 'new', product: '', program: '' }).id === 'LV-JR-NEW');
+    t('a Senior Underwriter may propose but holds no approval permission', uwLevelsApprove().error === 'permission' && UW_LEVELS_PENDING);
+    login('admin'); var adminProp = uwLevelsUpsert({ id: 'LV-ADM-T', role: 'junior', lob: '*', states: ['OH'], txn: ['new'], maxCreditPct: 1, maxDebitPct: 1, canBind: true, from: '2026-02-01' }, 'AL-2026-015', '');
+    t('the Head of Underwriting may propose and approve, but never the same change', adminProp.ok && uwLevelsApprove().error === 'self' && UW_LEVELS_PENDING && UW_LEVELS_PENDING.letterRef === 'AL-2026-015');
+    uwLevelsReject(); t('and may withdraw it', UW_LEVELS_PENDING === null);
+    login('senior_uw'); uwLevelsUpsert(nl, 'AL-2026-014', 'Texas is narrower than the countrywide level');
+    login('senior_uw'); renderAuthorityCard(PU);
+    t('the page shows the waiting proposal and that a different approver must decide', /Proposal waiting/.test(el('authorityContainer').innerText) && /AL-2026-014/.test(el('authorityContainer').innerText) && /different approver/.test(el('authorityContainer').innerText));
+    login('junior'); t('a person without approval permission cannot approve', uwLevelsApprove().error === 'permission');
+    login('senior'); var ap = uwLevelsApprove();
+    t('a different person with approval authority puts it in force', ap.ok && UW_LEVELS_PENDING === null && UW_AUTHORITY_LEVELS.some(function(l){ return l.id === 'LV-JR-TX'; }) && UW_LEVELS_META.letterRef === 'AL-2026-014' && /Marcus Vance/.test(UW_LEVELS_META.approvedBy));
+    t('every level is then sourced to the letter and the placeholder mark is gone', !uwLevelsArePlaceholder() && UW_AUTHORITY_LEVELS.every(function(l){ return l.source === 'AL-2026-014'; }));
+    t('the history says who proposed and who approved', UW_LEVELS_HISTORY.length >= 2 && /proposed/.test(UW_LEVELS_HISTORY[0].action) && UW_LEVELS_HISTORY[UW_LEVELS_HISTORY.length - 1].action === 'approved');
+    t('the more specific state level now wins for a Texas case, and the countrywide one elsewhere', uwLevelFor('junior', { lob: 'trucking', state: 'TX', txn: 'new' }).id === 'LV-JR-TX' && uwLevelFor('junior', { lob: 'trucking', state: 'OH', txn: 'new' }).id === 'LV-JR-NEW');
+    t('the levels survive a reload', (function(){ var saved = JSON.parse(localStorage.getItem(UW_LEVELS_KEY)); return saved.levels.some(function(l){ return l.id === 'LV-JR-TX'; }) && saved.meta.letterRef === 'AL-2026-014'; })());
+    login('junior'); renderAuthorityCard(PU);
+    t('the page now names the letter instead of the placeholder warning', /Levels in force from AL-2026-014/.test(el('authorityContainer').innerText) && !/Placeholder figures/.test(el('authorityContainer').innerText));
+
+    // product and program narrow a level, and the narrower one is the more specific
+    login('senior_uw');
+    t('a level for one product and program is proposed, approved by someone else, and wins for that product', (function(){
+      var r = uwLevelsUpsert({ id: 'LV-JR-FS', role: 'junior', lob: '*', states: '*', product: 'TRK-STD', program: 'Fleet Select', txn: ['new'], maxCreditPct: 2, maxDebitPct: 4, canBind: true, from: '2026-02-01' }, 'AL-2026-019', 'Fleet Select program');
+      login('senior'); var a = uwLevelsApprove();
+      return r.ok && a.ok && uwLevelFor('junior', authMeasures(PU)).id === 'LV-JR-FS' && uwLevelFor('junior', { lob: 'trucking', state: 'OH', txn: 'new', product: 'TRK-STD', program: 'Other' }).id === 'LV-JR-NEW';
+    })());
+    login('junior'); var capPU = uwDiscretionaryCaps(PU);
+    t('the debit and credit ceiling follows the product and program level', capPU.credit === 2 && capPU.debit === 4);
+    t('product and program are part of the overlap test', uwLevelOverlaps(UW_AUTHORITY_LEVELS.concat([{ id: 'LV-JR-FS2', role: 'junior', lob: '*', states: '*', product: 'TRK-STD', program: 'Fleet Select', txn: ['new'], maxCreditPct: 1, maxDebitPct: 1, canBind: true, from: '2026-03-01' }])).some(function(p){ return p[0] === 'LV-JR-FS' && p[1] === 'LV-JR-FS2'; }) && uwLevelOverlaps(UW_AUTHORITY_LEVELS.concat([{ id: 'LV-JR-OTH', role: 'junior', lob: '*', states: '*', product: 'TRK-STD', program: 'Another', txn: ['new'], maxCreditPct: 1, maxDebitPct: 1, canBind: true, from: '2026-03-01' }])).length === 0);
+
+    // the editor on the page
+    login('senior_uw'); renderAuthorityCard(PU);
+    t('a person who may propose sees the editor with the letter box; others do not', !!el('uwlv_id') && !!el('uwlv_letter') && !!el('uwlv_product') && !!el('uwlv_program') && !!el('uwlv_json'));
+    login('junior'); renderAuthorityCard(PU);
+    t('an Underwriter I sees the levels but no editor', !el('uwlv_id') && /LV-JR-FS/.test(el('authorityContainer').innerText));
+    login('senior_uw'); renderAuthorityCard(PU);
+    uwLvEdit('LV-SU-ALL');
+    t('"edit" fills the form from the level', el('uwlv_id').value === 'LV-SU-ALL' && el('uwlv_role').value === 'senior_uw' && el('uwlv_credit').value === '10' && el('uwlv_debit').value === '20' && el('uwlv_bind').value === 'yes' && el('uwlv_txn').value === '*');
+    el('uwlv_credit').value = '8'; el('uwlv_letter').value = ''; uwLvSubmit();
+    t('submitting without a letter shows why and proposes nothing', UW_LEVELS_PENDING === null && toasts.slice(-1)[0] && /authority letter/.test(toasts.slice(-1)[0]));
+    uwLvEdit('LV-SU-ALL'); el('uwlv_credit').value = '8'; el('uwlv_letter').value = 'AL-2026-021'; uwLvSubmit();
+    t('submitting with it proposes the change', UW_LEVELS_PENDING && UW_LEVELS_PENDING.levels.filter(function(l){ return l.id === 'LV-SU-ALL'; })[0].maxCreditPct === 8);
+    renderAuthorityCard(PU); t('the author sees "withdraw", not approve, on the proposal', (function(){ var a = el('authorityContainer').querySelector('.uw-level-block .alert'); return !!a && /Withdraw/.test(a.innerText) && !/Approve|Reject/.test(a.innerText); })());
+    uwLvReject();
+    t('the author may withdraw it', UW_LEVELS_PENDING === null && UW_LEVELS_HISTORY[UW_LEVELS_HISTORY.length - 1].action === 'rejected' && /withdrawn/.test(UW_LEVELS_HISTORY[UW_LEVELS_HISTORY.length - 1].text));
+    // loading a whole list from a letter
+    el('uwlv_letter').value = 'AL-2026-030';
+    el('uwlv_json').value = JSON.stringify([{ id: 'LV-A', role: 'junior', txn: ['new', 'renew'], maxCreditPct: 4, maxDebitPct: 8, canBind: true, from: '2026-07-01' }, { id: 'LV-B', role: 'senior_uw', txn: '*', maxCreditPct: 9, maxDebitPct: 18, canBind: true, from: '2026-07-01' }]);
+    uwLvImport();
+    t('a list loaded from a letter becomes one proposal with the defaults filled in', UW_LEVELS_PENDING && UW_LEVELS_PENDING.levels.length === 2 && UW_LEVELS_PENDING.levels[0].lob === '*' && UW_LEVELS_PENDING.levels[0].product === '*' && UW_LEVELS_PENDING.letterRef === 'AL-2026-030');
+    el('uwlv_json').value = 'not json'; var nt = toasts.length; uwLvImport();
+    t('text that is not JSON is refused', /not valid JSON/.test(toasts.slice(nt).join('|')));
+    login('senior'); uwLevelsApprove();
+    t('approved, only the loaded levels are in force', UW_AUTHORITY_LEVELS.length === 2 && UW_AUTHORITY_LEVELS.every(function(l){ return l.source === 'AL-2026-030'; }));
+    t('a role with no level in the list is no longer constrained by levels (the line and state ceilings still apply)', uwLevelCheck('senior', { lob: 'trucking', state: 'TX', txn: 'new' }).ok && !uwLevelCheck('senior', { lob: 'trucking', state: 'TX', txn: 'new' }).constrained);
+    uwLevelsReset();
+    t('resetting returns the shipped placeholders and forgets the store', UW_AUTHORITY_LEVELS.length === 6 && uwLevelsArePlaceholder() && localStorage.getItem(UW_LEVELS_KEY) === null);
+
+    // ---------- a base-value edit is not a waiver
+    login('senior_uw');
+    var BE = mk('SUB-C29-BE', [rule('R-E', 'Fleet Age', 'Eligibility', 12, 10), rule('R-F2', 'Radius', 'Eligibility', 900, 500)]); use(BE);
+    renderAppetiteRules(BE.appetiteRules);
+    t('drawing the rules does not mark any of them as edited', !BE.appetiteRules[0].overridden && !BE.appetiteRules[1].overridden && uwEvaluateRules(BE).baseEditedCount === 0);
+    t('and a failed rule is no longer dropped from the risk score because it was drawn', calculateRiskScore(BE).factors.filter(function(f){ return /Appetite Rule Failures/.test(f.label); })[0].points === 30, JSON.stringify(calculateRiskScore(BE).factors.filter(function(f){ return /Appetite/.test(f.label); })));
+    var box1 = document.querySelector('.mga-override-input[data-rule-id="R-E"]'); box1.value = '15 Years'; validateMgaOverrideInput(box1);
+    renderAppetiteRules(BE.appetiteRules);
+    var ebe = uwEvaluateRules(BE);
+    t('editing a threshold marks that rule as edited, and it is judged against the edited value', BE.appetiteRules[0].overridden === true && BE.appetiteRules[0].pass === true && ebe.overriddenCount === 0 && ebe.passCount === 1 && ebe.referCount === 1 && ebe.baseEditedCount === 1 && ebe.results[0].baseEdited === true);
+    t('putting the original value back clears the mark', (function(){ var b = document.querySelector('.mga-override-input[data-rule-id="R-E"]'); b.value = '10 Years'; validateMgaOverrideInput(b); return BE.appetiteRules[0].overridden === false; })());
+    var box2 = document.querySelector('.mga-override-input[data-rule-id="R-F2"]'); box2.value = '600 Years'; validateMgaOverrideInput(box2); renderAppetiteRules(BE.appetiteRules);
+    t('the run card says so, beside the rule that still failed', /1 rule\(s\) with an edited threshold/.test(el('ruleRunContainer').innerText) && /threshold edited by the MGA/.test(el('ruleRunContainer').innerText), el('ruleRunContainer').innerText.slice(0, 260));
+    var BO = mk('SUB-C29-BO', [rule('R-F3', 'Radius', 'Eligibility', 900, 500)]); use(BO); renderAppetiteRules(BO.appetiteRules);
+    t('a rule nobody edited shows no such note', !/edited threshold|threshold edited/.test(el('ruleRunContainer').innerText));
+    uwApplyRuleOverride(BO, 'R-F3', 'The carrier waived the radius limit in writing.');
+    t('a real waiver is still counted as an override, not as an edit', uwEvaluateRules(BO).overriddenCount === 1 && uwEvaluateRules(BO).baseEditedCount === 0);
+    uwLevelsReset();
+    // ---------- audit
+    t('the new audit actions are labelled', ['uw_override_applied', 'uw_override_revoked', 'uw_override_blocked', 'uw_pricing_over_authority', 'uw_assessment_final'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+    t('the new containers are on the page', !!el('ruleRunContainer') && !!el('uwAssessmentContainer'));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 4).join(' | ')); }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

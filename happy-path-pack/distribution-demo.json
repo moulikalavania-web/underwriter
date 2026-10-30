@@ -1,0 +1,27 @@
+{
+  "tenants": [
+    { "id": "T-HOME", "name": "FUT Underwriting", "type": "mga" },
+    { "id": "T-CAR-VIK", "name": "Vikram & Sons", "type": "carrier", "naic": "00000" },
+    { "id": "T-WHS-AMW", "name": "Amwins Specialty Wholesale Brokerage", "type": "wholesaler", "producerNames": ["Amwins Specialty Wholesale Brokerage"] },
+    { "id": "T-BRK-MARSH", "name": "Marsh & McLennan Commercial Brokerage", "type": "broker", "producerNames": ["Marsh & McLennan Commercial Brokerage", "Marsh & McLennan"] },
+    { "id": "T-BRK-ARORA", "name": "Arora & Sons", "type": "broker", "producerNames": ["Arora & Sons"] }
+  ],
+  "agreements": [
+    { "id": "AGR-VIK-MGA", "parentId": null, "principal": "T-CAR-VIK", "distributor": "T-HOME", "type": "mga", "number": "DAA-DEMO-2026", "from": "2026-01-01", "to": "2027-06-30", "status": "active" },
+    { "id": "AGR-MGA-MARSH", "parentId": "AGR-VIK-MGA", "principal": "T-HOME", "distributor": "T-BRK-MARSH", "type": "agency", "number": "AG-MARSH-2026", "from": "2026-01-01", "to": "2026-12-31", "status": "active" },
+    { "id": "AGR-MGA-AMW", "parentId": "AGR-VIK-MGA", "principal": "T-HOME", "distributor": "T-WHS-AMW", "type": "wholesale", "number": "WH-AMW-2026", "from": "2026-01-01", "to": "2026-12-31", "status": "active" },
+    { "id": "AGR-AMW-ARORA", "parentId": "AGR-MGA-AMW", "principal": "T-WHS-AMW", "distributor": "T-BRK-ARORA", "type": "agency", "number": "AG-ARORA-2026", "from": "2026-01-01", "to": "2026-12-31", "status": "active" }
+  ],
+  "baas": [
+    { "id": "BAA-VIK-2026", "agreementId": "AGR-VIK-MGA", "number": "BAA-DEMO-2026", "yearOfAccount": 2026, "canQuote": true, "canBind": true, "canIssue": true, "canEndorse": true, "canCancel": true, "claimsAuthority": "report", "currency": "USD", "from": "2026-01-01", "to": "2027-06-30" }
+  ],
+  "limits": [
+    { "id": "LIM-1", "baaId": "BAA-VIK-2026", "lob": "*", "state": "*", "classCode": "*", "coverage": "*", "limitType": "premium", "amount": 2000000, "currency": "USD", "breachAction": "refer", "from": "2026-01-01", "to": "2027-06-30" },
+    { "id": "LIM-2", "baaId": "BAA-VIK-2026", "lob": "gl_cas", "state": "*", "classCode": "*", "coverage": "*", "limitType": "premium", "amount": 750000, "currency": "USD", "breachAction": "refer", "from": "2026-01-01", "to": "2027-06-30" },
+    { "id": "LIM-3", "baaId": "BAA-VIK-2026", "lob": "*", "state": "*", "classCode": "*", "coverage": "*", "limitType": "policy_limit", "amount": 10000000, "currency": "USD", "breachAction": "refer", "from": "2026-01-01", "to": "2027-06-30" },
+    { "id": "LIM-4", "baaId": "BAA-VIK-2026", "lob": "*", "state": "*", "classCode": "*", "coverage": "*", "limitType": "tiv", "amount": 25000000, "currency": "USD", "breachAction": "decline", "from": "2026-01-01", "to": "2027-06-30" }
+  ],
+  "programs": [
+    { "id": "PRG-FLEET", "name": "Fleet Select", "adminTenant": "T-HOME", "capacity": [ { "carrier": "T-CAR-VIK", "baaId": "BAA-VIK-2026", "pct": 100, "lead": true, "fronting": false } ] }
+  ]
+}

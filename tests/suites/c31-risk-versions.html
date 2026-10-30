@@ -1,0 +1,192 @@
+<!-- Suite C31: risk versions. A submission version, an issued quote and the policy each keep a frozen copy of the risk; the case's own fields are the working copy.
+     Vehicles, drivers and locations keep a lineage key for life; coverages apply blanket, scheduled or to the policy; the bind is refused if the risk changed after the
+     quote; a bound policy's risk changes only by endorsement, which makes a new policy version. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var TODAY = new Date().toISOString().slice(0, 10);
+  function addDays(iso, n){ var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  var TOMORROW = addDays(TODAY, 1), NEXTMONTH = addDays(TODAY, 30);
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 5; s.completedSteps = [1, 2, 3, 4];
+    ['pasSync', 'quoteIssued', 'customerApproved', 'quoteNo', 'quote_id', 'riskVersions', 'riskLineage', 'coverageRisk', 'riskScheduleTerms', 'quoteRiskVersionId', 'submissionVersions', 'policyChanges', 'policyLedger', 'policyState', 'discretionaryPricing', 'importedRatingData', 'renewal', 'riskSource', 'sov', 'dataObservations', 'cancellation', 'authorityRef'].forEach(function(k){ delete s[k]; });
+    s.assignedTo = 'senior_uw'; s.exposureVal = 1000000; s.exposure = '$1,000,000'; s.address = '9 Elm Road, Dallas, TX 75201'; s.effectiveDate = TODAY; s.expirationDate = addDays(TODAY, 365);
+    s.vehicles = [{ id: 1, xid: 1, year: 2022, make: 'Volvo', model: 'VNL', vin: '1XKYD49X0NJ111111', stated_value: 120000 }, { id: 2, xid: 2, year: 2021, make: 'Kenworth', model: 'T680', vin: '1XKWD49X0NJ222222', stated_value: 98500 }, { id: 3, xid: 3, year: 2020, make: 'Peterbilt', model: '579', vin: '1XPWD49X0NJ333333', stated_value: 90000 }];
+    s.drivers = [{ name: 'Rahul Sharma', licenseNumber: 'D1234567', age: 34 }, { name: 'Ana Lopez', licenseNumber: 'D7654321', age: 41 }];
+    s.coverageRows = [{ line: 'Auto Liability', limit: '$1,000,000', ded: 'None' }, { line: 'Physical Damage', limit: 'Stated value', ded: '$2,500' }, { line: 'Motor Truck Cargo', limit: '$100,000', ded: '$1,000' }];
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; QUOTE_VERSIONS_DATASET.length = 0; }
+  function bind(s){ s.quoteIssued = true; s.customerApproved = true; s.pasSync = { status: 'success', policyNumber: 'PAS-C31-1', pasRecordId: 'R1', effectiveDate: TODAY, syncedBy: 'x', syncedAt: TODAY }; return recordQuoteVersion(s, true); }
+  function keys(c){ return c.objects.filter(function(o){ return o.status === 'active' && o.type === 'vehicle'; }).map(function(o){ return o.lineageKey; }); }
+  var bindGuard = function(){ return GUARD_REGISTRY.bind.guards.filter(function(g){ return g.name === 'risk changed since the quote'; })[0]; };
+  try {
+    login('senior_uw');
+    // ---------- lineage keys
+    var A = mk('SUB-C31-A'); use(A); rvEnsureLineage(A);
+    t('every vehicle and driver gets a key, in order', A.vehicles.map(function(v){ return v.lineageKey; }).join() === 'VEH-1,VEH-2,VEH-3' && A.drivers.map(function(d){ return d.lineageKey; }).join() === 'DRV-1,DRV-2');
+    A.vehicles.reverse(); rvEnsureLineage(A);
+    t('the order of the list does not matter: a unit keeps its key', A.vehicles[0].vin === '1XPWD49X0NJ333333' && A.vehicles[0].lineageKey === 'VEH-3' && A.vehicles[2].lineageKey === 'VEH-1');
+    A.vehicles.reverse();
+    var removed = A.vehicles.splice(1, 1)[0]; A.vehicles.push({ year: 2023, make: 'Mack', model: 'Anthem', vin: '1M1AN07Y0NM444444' }); rvEnsureLineage(A);
+    t('a new unit takes a new number; the removed number is not reused', A.vehicles[A.vehicles.length - 1].lineageKey === 'VEH-4' && !A.vehicles.some(function(v){ return v.lineageKey === 'VEH-2'; }));
+    var back = { year: 2021, make: 'Kenworth', model: 'T680', vin: '1xkwd49x0nj222222' }; A.vehicles.push(back); rvEnsureLineage(A);
+    t('the same VIN coming back (any case) gets its old key back', back.lineageKey === 'VEH-2');
+    var twin = { year: 2021, make: 'Kenworth', model: 'T680', vin: '1XKWD49X0NJ222222' }; A.vehicles.push(twin); rvEnsureLineage(A);
+    t('but two units cannot share a key', twin.lineageKey !== 'VEH-2' && twin.lineageKey === 'VEH-5');
+    t('a driver is matched on the licence number', (function(){ var d = A.drivers.splice(0, 1)[0]; var again = { name: 'R. Sharma', licenseNumber: 'd1234567' }; A.drivers.push(again); rvEnsureLineage(A); return again.lineageKey === 'DRV-1'; })());
+    t('the counters only go up', A.riskLineage.next.VEH === 5 && A.riskLineage.next.DRV === 2);
+
+    // ---------- content and coverage links
+    var B = mk('SUB-C31-B'); use(B); var c = rvContentOf(B);
+    t('the content has every unit with its key, item number and attributes, without the working-copy noise', c.objects.length === 5 && c.objects[1].lineageKey === 'VEH-2' && c.objects[1].itemNo === 2 && c.objects[1].attributes.make === 'Kenworth' && !('lineageKey' in c.objects[1].attributes));
+    t('there is a schedule for the vehicles and one for the drivers', c.schedules.map(function(s){ return s.id; }).join() === 'SCH-VEH,SCH-DRV' && c.schedules[0].itemKeys.join() === 'VEH-1,VEH-2,VEH-3');
+    var lk = {}; c.coverageLinks.forEach(function(l){ lk[l.coverageKey] = l; });
+    t('liability and cargo are blanket on the vehicles; physical damage is scheduled unit by unit', lk.autoliability.basis === 'blanket' && lk.autoliability.schedule === 'vehicle' && lk.autoliability.itemKeys === null && lk.motortruckcargo.basis === 'blanket' && lk.physicaldamage.basis === 'scheduled' && lk.physicaldamage.itemKeys.join() === 'VEH-1,VEH-2,VEH-3');
+    t('what covers a unit is answered from the version', rvCovered(c, 'autoliability', 'VEH-2') && rvCovered(c, 'physicaldamage', 'VEH-3') && !rvCovered(c, 'autoliability', 'DRV-1') && !rvCovered(c, 'physicaldamage', 'VEH-9'));
+    var P0 = rvDefaultLink('Commercial Property', { location: true });
+    t('property is blanket on locations, and anything else is on the policy', P0.basis === 'blanket' && P0.schedule === 'location' && rvDefaultLink('Workers Comp', { vehicle: true }).basis === 'policy');
+
+    // ---------- the rules for a link
+    var objs = c.objects;
+    t('a blanket coverage that also names units is refused', rvValidateLink({ basis: 'blanket', schedule: 'vehicle', items: ['VEH-1'] }, objs).length === 1);
+    t('a scheduled coverage must name at least one unit, and each must exist and be of the schedule\'s kind', rvValidateLink({ basis: 'scheduled', schedule: 'vehicle', items: [] }, objs).length === 1 && rvValidateLink({ basis: 'scheduled', schedule: 'vehicle', items: ['VEH-9'] }, objs).length === 1 && rvValidateLink({ basis: 'scheduled', schedule: 'vehicle', items: ['DRV-1'] }, objs).length === 1);
+    t('a coverage on the policy names neither', rvValidateLink({ basis: 'policy', schedule: 'vehicle' }, objs).length === 1 && rvValidateLink({ basis: 'policy' }, objs).length === 0);
+    t('a schedule with nothing on it, or no schedule, is refused', rvValidateLink({ basis: 'blanket', schedule: 'location' }, objs).length === 1 && rvValidateLink({ basis: 'blanket' }, objs)[0] === 'Pick the schedule the coverage applies to.' && rvValidateLink({ basis: 'nope' }, objs).length === 1);
+    login('admin'); t('someone without the data edit permission cannot set a link', rvSetCoverageLink(B, 'physicaldamage', { basis: 'blanket', schedule: 'vehicle' }).error === 'permission' || rvSetCoverageLink(B, 'physicaldamage', { basis: 'blanket', schedule: 'vehicle' }).ok === true);
+    login('junior');
+    t('an unknown coverage is refused', rvSetCoverageLink(B, 'nothing', { basis: 'policy' }).error === 'coverage');
+    t('an invalid link is refused with why, and nothing changes', (function(){ var r = rvSetCoverageLink(B, 'physicaldamage', { basis: 'scheduled', schedule: 'vehicle', items: [] }); return r.error === 'invalid' && /at least one unit/.test(r.errors[0]) && !B.coverageRisk; })());
+    t('physical damage can be scheduled to named units only', rvSetCoverageLink(B, 'physicaldamage', { basis: 'scheduled', schedule: 'vehicle', items: ['VEH-1', 'VEH-3'] }).ok && (function(){ var cc = rvContentOf(B); return rvCovered(cc, 'physicaldamage', 'VEH-1') && !rvCovered(cc, 'physicaldamage', 'VEH-2') && rvCovered(cc, 'physicaldamage', 'VEH-3'); })());
+    t('the choice is in the log', B.decisionLog.some(function(d){ return d.decision === 'risk_link_set' && /VEH-1, VEH-3/.test(d.notes); }));
+    t('terms on a schedule are kept with it, and a negative limit is refused', rvSetScheduleTerms(B, 'vehicle', { blanketLimit: 250000, basis: 'per unit', note: 'Cargo blanket' }).ok && rvContentOf(B).schedules[0].terms.blanketLimit === 250000 && rvSetScheduleTerms(B, 'vehicle', { blanketLimit: -1 }).error === 'limit' && rvSetScheduleTerms(B, 'nope', {}).error === 'type');
+
+    // ---------- freezing a copy
+    login('senior_uw');
+    var S = mk('SUB-C31-S'); use(S);
+    var v1 = rvCapture(S, 'submission', 'V1');
+    t('a frozen copy has an id, its context, its fingerprint, who and when', v1.id === 'RV-1' && v1.contextType === 'submission' && v1.contextRef === 'V1' && v1.isFrozen && /^[0-9a-f]+:\d+$/.test(v1.snapshotHash) && /David Chen/.test(v1.createdBy) && !!v1.frozenAt && v1.copiedFromId === null);
+    t('its content cannot be changed, and its fingerprint still matches', Object.isFrozen(v1.content) && Object.isFrozen(v1.content.objects[0].attributes) && rvVerify(v1) && (function(){ try { v1.content.objects[0].attributes.make = 'X'; } catch (e) { /* strict */ } return v1.content.objects[0].attributes.make === 'Volvo'; })());
+    t('the same risk again is not a new version', rvCapture(S, 'submission', 'V1b') === v1 && rvList(S).length === 1);
+    S.vehicles[0].make = 'Mack'; var v2 = rvCapture(S, 'submission', 'V2');
+    t('a change makes a new version that says what it was copied from, and the first does not move', v2.id === 'RV-2' && v2.copiedFromId === 'RV-1' && v1.content.objects[0].attributes.make === 'Volvo' && v2.content.objects[0].attributes.make === 'Mack');
+    var forged = Object.assign({}, v1, { content: clone(v1.content) }); forged.content.header.exposureVal = 5;
+    t('an altered copy fails its fingerprint', !rvVerify(forged) && rvVerify(v1) && rvVerify(v2));
+    var d12 = rvDiff(v1.content, v2.content);
+    t('two versions are compared by key: what changed, with old and new', d12.changed.length === 1 && d12.changed[0].lineageKey === 'VEH-1' && d12.changed[0].fields[0].path === 'make' && d12.changed[0].fields[0].from === 'Volvo' && d12.changed[0].fields[0].to === 'Mack' && d12.added.length === 0 && d12.removed.length === 0 && /VEH-1: make Volvo to Mack/.test(rvDiffText(d12)[0]));
+
+    // ---------- the quote freezes what it priced
+    var Q = mk('SUB-C31-Q'); use(Q); rvCapture(Q, 'submission', 'V1');
+    var q1 = recordQuoteVersion(Q, false);
+    var qrv = rvGet(Q, q1.riskVersionId);
+    t('issuing a quote freezes the risk, and the quote version points at it', !!qrv && qrv.contextType === 'quote' && qrv.contextRef === q1.versionId && Q.quoteRiskVersionId === qrv.id && rvVerify(qrv) && qrv.copiedFromId === 'RV-1');
+    Q.vehicles[1].make = 'Freightliner'; Q.vehicles[1].stated_value = 150000;
+    var dr = rvDrift(Q);
+    t('editing the working copy afterwards does not touch the quoted risk, and the drift says what differs', rvVerify(qrv) && qrv.content.objects[1].attributes.make === 'Kenworth' && dr.reference.id === qrv.id && dr.count === 1 && /VEH-2/.test(dr.changes[0]) && /make Kenworth to Freightliner/.test(dr.changes[0]));
+    var g = bindGuard();
+    var nT = toasts.length; var gr = g.check([Q.id]);
+    t('the bind is refused while the risk differs from the quote, and it is logged', gr === false && toasts.slice(nT).some(function(m){ return /Issue a new quote before binding/.test(m); }) && Q.decisionLog.some(function(d){ return d.decision === 'risk_bind_blocked'; }));
+    var q2 = recordQuoteVersion(Q, false); var qrv2 = rvGet(Q, q2.riskVersionId);
+    t('a revised quote takes its own copy; the first stays as quoted', qrv2.id !== qrv.id && qrv2.content.objects[1].attributes.make === 'Freightliner' && qrv.content.objects[1].attributes.make === 'Kenworth' && Q.quoteRiskVersionId === qrv2.id);
+    t('and with the quote matching the risk, the bind guard lets it through', g.check([Q.id]) === true && rvDrift(Q).count === 0);
+    t('the decision brief shows the risk matches', buildDecisionBrief(Q).checks.some(function(x){ return x.label === 'Risk version' && x.status === 'ok'; }));
+    Q.vehicles[0].year = 2019;
+    t('and warns when it does not', buildDecisionBrief(Q).checks.some(function(x){ return /^Risk since/.test(x.label) && x.status === 'warn' && /VEH-1/.test(x.detail); }));
+    Q.vehicles[0].year = 2022;
+
+    // ---------- the policy
+    var Pb = mk('SUB-C31-P'); use(Pb); rvCapture(Pb, 'submission', 'V1'); recordQuoteVersion(Pb, false);
+    var qb = rvGet(Pb, Pb.quoteRiskVersionId);
+    var bq = bind(Pb); var pol = rvLatest(Pb, 'policy');
+    t('binding freezes the policy\'s risk as a copy of the quoted risk, not of whatever is on the case now', !!pol && pol.contextType === 'policy' && pol.copiedFromId === qb.id && pol.snapshotHash === qb.snapshotHash && bq.riskVersionId === qb.id && bq.policyRiskVersionId === pol.id && pol.effectiveFrom === TODAY && !pol.effectiveTo);
+    t('it is the risk in force today, and it holds the units with their keys', rvPolicyRisk(Pb).id === pol.id && keys(pol.content).join() === 'VEH-1,VEH-2,VEH-3');
+    Pb.vehicles[0].make = 'Mack'; Pb.vehicles.splice(2, 1); Pb.exposureVal = 5000000;
+    t('editing the case after bind does not change the policy\'s risk', rvVerify(pol) && pol.content.objects[0].attributes.make === 'Volvo' && keys(rvPolicyRisk(Pb).content).length === 3 && rvPolicyRisk(Pb).content.header.exposureVal === 1000000);
+    var dp = rvDrift(Pb);
+    t('and the drift says those changes are not in force', dp.reference.id === pol.id && dp.count >= 3 && dp.changes.some(function(x){ return /VEH-3 \(VEH-3\) removed/.test(x) || /VEH-3/.test(x); }) && dp.changes.some(function(x){ return /exposureVal/.test(x); }));
+    rvRender(Pb);
+    t('the screen says so, and that a change to a bound policy is an endorsement', /not in force|differs from RV/.test(el('riskVersionsContainer').innerText) && /endorsement/.test(el('riskVersionsContainer').innerText) && el('riskVersionsContainer2').innerText === el('riskVersionsContainer').innerText);
+    Pb.vehicles[0].make = 'Volvo'; Pb.vehicles.push(clone(pol.content.objects[2].attributes)); Pb.vehicles[2].lineageKey = 'VEH-3'; Pb.exposureVal = 1000000;
+    t('putting the case back as it was clears the drift', rvDrift(Pb).count === 0);
+
+    // after bind the risk fields cannot be edited in the data form
+    editSubmissionTargetId = Pb.id; var f = document.createElement('div'); f.id = 'c31_form'; f.innerHTML = '<input id="editSubField_address" value="1 New Street, Austin, TX 78701"><input id="editSubField_insured" value="' + Pb.insured + '"><input id="editSubField_fein" value="' + Pb.fein + '"><input id="editSubField_exposureVal" value="' + Pb.exposureVal + '">'; document.body.appendChild(f);
+    var addrBefore = Pb.address, nE = toasts.length; saveSubmissionDataEdit();
+    t('an address changed in the data form after bind is refused: it is an endorsement', Pb.address === addrBefore && toasts.slice(nE).some(function(m){ return /policy is bound.*address.*endorsement/.test(m); }) && Pb.decisionLog.some(function(d){ return d.decision === 'risk_edit_blocked'; }));
+    document.body.removeChild(f);
+
+    // ---------- endorsements make new policy versions
+    var N = mk('SUB-C31-N'); use(N); rvCapture(N, 'submission', 'V1'); recordQuoteVersion(N, false); bind(N); var pol0 = rvLatest(N, 'policy');
+    var bad1 = rvValidateChange(N, { action: 'add', type: 'vehicle', attributes: { model: 'Anthem' }, effective: TOMORROW });
+    t('adding a vehicle needs a VIN, or a year and make', bad1.length === 1 && /VIN, or a year and make/.test(bad1[0]));
+    t('a vehicle already on the policy cannot be added again', rvValidateChange(N, { action: 'add', type: 'vehicle', attributes: { vin: '1xkyd49x0nj111111' }, effective: TOMORROW }).some(function(e){ return /already on the policy \(VEH-1\)/.test(e); }));
+    t('removing or changing needs a unit that is on the policy', rvValidateChange(N, { action: 'remove', type: 'vehicle', lineageKey: 'VEH-9', effective: TOMORROW }).length === 1 && rvValidateChange(N, { action: 'modify', type: 'vehicle', lineageKey: 'VEH-1', attributes: {}, effective: TOMORROW }).length === 1);
+    t('a change cannot start before the version in force, nor name an unknown coverage', rvValidateChange(N, { action: 'remove', type: 'vehicle', lineageKey: 'VEH-1', effective: addDays(TODAY, -3) }).some(function(e){ return /before the current risk version starts/.test(e); }) && rvValidateChange(N, { action: 'remove', type: 'vehicle', lineageKey: 'VEH-1', effective: TOMORROW, coverages: ['zzz'] }).some(function(e){ return /unknown coverage/.test(e); }) && rvValidateChange(N, { action: 'x', type: 'vehicle', effective: TOMORROW }).length === 1 && rvValidateChange(N, { action: 'add', type: 'boat', effective: TOMORROW }).length === 1);
+    var e1 = rvEndorse(N, { action: 'add', type: 'vehicle', attributes: { year: 2024, make: 'Mack', model: 'Anthem', vin: '1M1AN07Y0RM555555', stated_value: 140000 }, effective: TOMORROW, ref: 'END-1' });
+    var pol1 = e1.version;
+    t('adding a vehicle makes a new policy version from the one in force, with the next key', e1.ok && e1.lineageKey === 'VEH-4' && pol1.contextType === 'policy' && pol1.copiedFromId === pol0.id && pol1.contextRef === 'END-1' && pol1.effectiveFrom === TOMORROW && keys(pol1.content).join() === 'VEH-1,VEH-2,VEH-3,VEH-4');
+    t('the version before ends the day the new one starts, and has not changed', pol0.effectiveTo === TOMORROW && keys(pol0.content).join() === 'VEH-1,VEH-2,VEH-3' && rvVerify(pol0) && rvVerify(pol1));
+    t('"in force on a date" is one lookup: today the old risk, tomorrow the new', rvPolicyRisk(N, TODAY).id === pol0.id && rvPolicyRisk(N, TOMORROW).id === pol1.id && rvPolicyRisk(N, NEXTMONTH).id === pol1.id);
+    t('the working copy was brought into line, so there is no drift, and the unit has its key', rvDrift(N).count === 0 && N.vehicles.filter(function(v){ return v.lineageKey === 'VEH-4'; }).length === 1);
+    t('a blanket coverage takes the new unit in by itself; a scheduled one only if it is named', rvCovered(pol1.content, 'autoliability', 'VEH-4') && rvCovered(pol1.content, 'motortruckcargo', 'VEH-4') && !rvCovered(pol1.content, 'physicaldamage', 'VEH-4') && !rvCovered(pol0.content, 'autoliability', 'VEH-4'));
+    var e2 = rvEndorse(N, { action: 'add', type: 'vehicle', attributes: { year: 2024, make: 'Mack', model: 'Pinnacle', vin: '1M2AN07Y0RM666666' }, effective: addDays(TOMORROW, 1), coverages: ['physicaldamage'], ref: 'END-2' });
+    t('naming the coverage adds it to the schedule', e2.ok && e2.lineageKey === 'VEH-5' && rvCovered(e2.version.content, 'physicaldamage', 'VEH-5') && rvCovered(e2.version.content, 'physicaldamage', 'VEH-1') && !rvCovered(e2.version.content, 'physicaldamage', 'VEH-4'));
+    var e3 = rvEndorse(N, { action: 'remove', type: 'vehicle', lineageKey: 'VEH-2', effective: addDays(TOMORROW, 2), ref: 'END-3' });
+    var pol3 = e3.version, ex = pol3.content.objects.filter(function(o){ return o.lineageKey === 'VEH-2'; })[0];
+    t('removing a vehicle keeps it on the record as removed, with the date, and takes it off the schedules', e3.ok && ex.status === 'excluded' && ex.removedEffective === addDays(TOMORROW, 2) && keys(pol3.content).join() === 'VEH-1,VEH-3,VEH-4,VEH-5' && pol3.content.schedules[0].itemKeys.indexOf('VEH-2') === -1 && !rvCovered(pol3.content, 'autoliability', 'VEH-2') && !rvCovered(pol3.content, 'physicaldamage', 'VEH-2'));
+    t('vehicle 3 is still vehicle 3, and the next one is not number 2', pol3.content.objects.filter(function(o){ return o.lineageKey === 'VEH-3'; })[0].itemNo === 3 && rvEndorse(N, { action: 'add', type: 'vehicle', attributes: { year: 2025, make: 'Volvo', vin: '4V4NC9EH0SN777777' }, effective: addDays(TOMORROW, 3), ref: 'END-4' }).lineageKey === 'VEH-6');
+    t('and the earlier versions still show vehicle 2 in force', rvCovered(rvPolicyRisk(N, TODAY).content, 'autoliability', 'VEH-2') && rvCovered(rvPolicyRisk(N, TOMORROW).content, 'autoliability', 'VEH-2') && !rvCovered(rvPolicyRisk(N, addDays(TOMORROW, 2)).content, 'autoliability', 'VEH-2'));
+    var e5 = rvEndorse(N, { action: 'modify', type: 'vehicle', lineageKey: 'VEH-1', attributes: { stated_value: 130000 }, effective: addDays(TOMORROW, 4), ref: 'END-5' });
+    t('a change to a unit is a new version with that one value changed', e5.ok && e5.version.content.objects[0].attributes.stated_value === 130000 && e5.version.content.objects[0].attributes.make === 'Volvo' && N.vehicles[0].stated_value === 130000 && rvDrift(N).count === 0, JSON.stringify(rvDrift(N).changes));
+    t('a driver and a location are endorsed the same way', rvEndorse(N, { action: 'add', type: 'driver', attributes: { name: 'Omar Hassan', licenseNumber: 'D5550001' }, effective: addDays(TOMORROW, 5), ref: 'END-6' }).lineageKey === 'DRV-3' && rvEndorse(N, { action: 'add', type: 'location', attributes: { address: '5 Yard Road, Fort Worth, TX 76102' }, effective: addDays(TOMORROW, 6), ref: 'END-7' }).lineageKey === 'LOC-1');
+    t('every version in the chain is still intact, in order', rvList(N).filter(function(r){ return r.contextType === 'policy'; }).length === 8 && rvList(N).every(rvVerify) && rvList(N).filter(function(r){ return r.contextType === 'policy'; }).every(function(r, i, a){ return i === 0 || r.copiedFromId === a[i - 1].id; }));
+    t('the endorsement is in the log with the version it made', N.decisionLog.some(function(d){ return d.decision === 'risk_endorsed' && /Vehicle 4 added/.test(d.notes) && /END-1/.test(d.notes) && new RegExp(pol1.id).test(d.notes); }));
+
+    // ---------- through the Policy Changes form
+    login('senior'); var F = mk('SUB-C31-F'); use(F); rvCapture(F, 'submission', 'V1'); recordQuoteVersion(F, false); bind(F);
+    showWorkflowPage(BIND_STEP); renderPolicyChangesCard(F);
+    t('the endorsement form gains the schedule change, with the units on the policy to pick from', !!el('rv_action') && !!el('rv_item') && el('rv_item').options.length === 1 + 3 + 2 && !!el('rv_a_vin') && document.querySelectorAll('.rv-cov-cb').length === 1);
+    el('pc_endType').value = 'vehicle'; el('pc_endEff').value = TODAY; el('pc_endDesc').value = 'Add a new tractor to the schedule'; el('pc_endPrem').value = '0'; el('rv_action').value = 'add'; el('rv_a_year').value = '2024'; el('rv_a_make').value = 'Volvo'; el('rv_a_model').value = 'VNL 860'; el('rv_a_vin').value = '4V4NC9EH0RN888888'; el('rv_a_value').value = '155000';
+    var chBefore = (F.policyChanges || []).length; pcIssueEndorsement();
+    var evn = (F.policyChanges || [])[(F.policyChanges || []).length - 1];
+    t('issuing it records the endorsement and the new risk version together', (F.policyChanges || []).length === chBefore + 1 && !!evn.riskVersionId && /Vehicle 4 added/.test(evn.riskChange) && rvGet(F, evn.riskVersionId).contextRef === evn.id && keys(rvLatest(F, 'policy').content).length === 4 && F.vehicles.length === 4);
+    t('the vehicle added by the form is covered by liability but not by scheduled physical damage', rvCovered(rvLatest(F, 'policy').content, 'autoliability', 'VEH-4') && !rvCovered(rvLatest(F, 'policy').content, 'physicaldamage', 'VEH-4'));
+    renderPolicyChangesCard(F); el('pc_endType').value = 'vehicle'; el('pc_endEff').value = TODAY; el('pc_endDesc').value = 'Add another tractor to the schedule'; el('rv_action').value = 'add'; el('rv_a_model').value = 'only a model';
+    var c2 = (F.policyChanges || []).length, nF = toasts.length; pcIssueEndorsement();
+    t('an incomplete schedule change stops the endorsement and says why', (F.policyChanges || []).length === c2 && toasts.slice(nF).some(function(m){ return /VIN, or a year and make/.test(m); }));
+    renderPolicyChangesCard(F); el('pc_endType').value = 'limits'; el('pc_endEff').value = TODAY; el('pc_endDesc').value = 'Raise the cargo limit for the account'; var c3 = (F.policyChanges || []).length, vc = rvList(F).length; pcIssueEndorsement();
+    t('an endorsement that does not touch the schedule makes no risk version', (F.policyChanges || []).length === c3 + 1 && rvList(F).length === vc);
+
+    // ---------- renewal keeps the keys, starts new versions
+    login('senior_uw'); var R = mk('SUB-C31-R'); use(R); rvCapture(R, 'submission', 'V1'); recordQuoteVersion(R, false); bind(R); var rpol = rvLatest(R, 'policy');
+    var rc = rnCreateRenewalSubmission(R, addDays(TODAY, 300));
+    t('a renewal has no risk versions of its own yet, but its units keep their keys', rc && !rc.riskVersions && !rc.quoteRiskVersionId && rc.vehicles.map(function(v){ return v.lineageKey; }).join() === 'VEH-1,VEH-2,VEH-3' && rc.riskLineage.next.VEH === 3);
+    t('and says which risk it started from', rc && rc.riskSource && rc.riskSource.subId === R.id && rc.riskSource.riskVersionId === rpol.id && rc.riskSource.policyNumber === 'PAS-C31-1' && R.riskVersions.length === rvList(R).length);
+    t('a unit added on the renewal gets the next number, not an old one', (function(){ rc.vehicles.push({ year: 2025, make: 'Volvo', vin: '4V4NC9EH5SN999999' }); rvEnsureLineage(rc); return rc.vehicles[3].lineageKey === 'VEH-4'; })());
+
+    // ---------- the screens
+    login('senior_uw'); var U = mk('SUB-C31-U'); use(U); rvCapture(U, 'submission', 'V1'); recordQuoteVersion(U, false); U.vehicles[0].make = 'Mack'; U.currentStep = 6;
+    rvRender(U); var txt = el('riskVersionsContainer').innerText;
+    t('the card lists each version with what it was copied from, its fingerprint and that it is intact', /Risk versions and schedules/.test(txt) && /RV-1/.test(txt) && /RV-2/.test(txt) && /Quote /.test(txt) && /Frozen, intact/.test(txt));
+    t('it lists the units with their keys and what covers each', /VEH-1/.test(txt) && /DRV-2/.test(txt) && /Auto Liability/.test(txt) && /Physical Damage/.test(txt) && /No coverage/.test(txt));
+    t('it says how each coverage applies', /Blanket on the schedule/.test(txt) && /Scheduled units only/.test(txt) && /VEH-1, VEH-2, VEH-3/.test(txt));
+    t('and shows the working copy differs from the quote, and that the bind is refused', /1 change\(s\) not in RV-2|differs from RV-2/.test(txt) && /bind is refused/.test(txt));
+    var sel = el('rv_basis_physicaldamage'); sel.value = 'blanket'; rvUiLinkBasis(U.id, 'physicaldamage');
+    t('the basis can be changed on the page before bind', U.coverageRisk && U.coverageRisk.physicaldamage.basis === 'blanket' && /Blanket on the schedule/.test(el('riskVersionsContainer').innerText));
+    rvList(U)[1].content = Object.assign({}, clone(rvList(U)[1].content), { header: Object.assign({}, rvList(U)[1].content.header, { exposureVal: 7 }) }); rvRender(U);
+    t('a copy whose content was altered shows as altered', /Altered/.test(el('riskVersionsContainer').innerText));
+    var bnd = mk('SUB-C31-V'); use(bnd); rvCapture(bnd, 'submission', 'V1'); recordQuoteVersion(bnd, false); bind(bnd); rvRender(bnd);
+    t('after bind the basis can no longer be changed on the page', !el('rv_basis_physicaldamage') && /changes by endorsement/.test(el('riskVersionsContainer').innerText) && rvSetCoverageLink(bnd, 'physicaldamage', { basis: 'blanket', schedule: 'vehicle' }).error === 'bound');
+    t('the containers are on the page and the audit actions are labelled', !!el('riskVersionsContainer') && !!el('riskVersionsContainer2') && ['risk_policy_frozen', 'risk_endorsed', 'risk_bind_blocked', 'risk_edit_blocked', 'risk_link_set', 'risk_renewal_source'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 5).join(' | ')); }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

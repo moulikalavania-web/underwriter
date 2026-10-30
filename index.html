@@ -566,6 +566,8 @@
 
         <!-- Submission completeness checklist (js/submission-completeness.js) -->
         <div id="completenessContainer" data-views="confirm"></div>
+        <div id="dataDiscrepancyContainer" data-views="confirm"></div>
+        <div id="aiReviewContainer" data-views="confirm"></div>
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -660,6 +662,8 @@
                   </tbody>
                 </table>
               </div>
+
+              <div id="ruleRunContainer"></div>
 
               <!-- Interactive Knockout Test Button -->
               <div class="simulation-tool-box">
@@ -797,6 +801,8 @@
         <div id="lossRunAnalysisContainer" class="mt-4"></div>
         <div id="mvrAnalysisContainer" class="mt-4"></div>
         <div id="iftaAnalysisContainer" class="mt-4"></div>
+        <div id="dataEnrichmentContainer"></div>
+        <div id="dataDiscrepancyContainer2"></div>
         <div id="sovContainer" class="mt-4"></div>
       </section>
 
@@ -875,6 +881,8 @@
              Desk. Always visible — not collapsible, it's the final call to
              action on this screen. -->
         <div id="wbRiskScoreContainer" class="mb-3"></div>
+        <div id="uwAssessmentContainer" class="mb-3"></div>
+        <div id="riskVersionsContainer" class="mb-3"></div>
 
         <div class="step-guide-bar">
           <i class="ph ph-lightbulb"></i>
@@ -1054,6 +1062,7 @@
 
         <!-- Endorsements, cancellation and reinstatement (js/policy-changes.js) -->
         <div id="policyChangesContainer" data-views="bind"></div>
+        <div id="riskVersionsContainer2" data-views="bind"></div>
 
         <!-- Renewal status (js/renewals.js) -->
         <div id="renewalStatusContainer" data-views="bind"></div>
@@ -1073,6 +1082,9 @@
             <!-- Dynamically populated via renderStep7View() -->
           </div>
         </div>
+
+        <!-- What the rating engine sent back besides the premium: rate tables, steps, factor results, schedule rating, experience mod (js/rating-store.js) -->
+        <div id="ratingStoreContainer" data-views="quote bind"></div>
 
         <!-- Rating Engine Live JSON Payload Viewer & CSV Exporter — the raw
              payload getSubmissionRatingPayload() sends to/receives from the
@@ -1433,6 +1445,7 @@
           </div>
 
           <div class="mt-4">
+            <div id="declineOutcomesContainer"></div>
             <h4>Recent Rejected & Terminated Submissions (Audit Log)</h4>
             <table class="data-table mt-2">
               <thead>
@@ -1560,6 +1573,9 @@
         <button class="tab-btn" id="qiTabConfig" onclick="switchQuoteIntelTab('config')"><i class="ph ph-sliders-horizontal"></i> Rates &amp; Limits</button>
         <button class="tab-btn" id="qiTabBdx" onclick="switchQuoteIntelTab('bdx')"><i class="ph ph-table"></i> Bordereaux</button>
         <button class="tab-btn" id="qiTabPerf" onclick="switchQuoteIntelTab('perf')"><i class="ph ph-chart-line-up"></i> Performance</button>
+        <button class="tab-btn" id="qiTabProduct" onclick="switchQuoteIntelTab('product')"><i class="ph ph-package"></i> Product Studio</button>
+        <button class="tab-btn" id="qiTabAccess" onclick="switchQuoteIntelTab('access')"><i class="ph ph-shield-check"></i> Access Control</button>
+        <button class="tab-btn" id="qiTabAi" onclick="switchQuoteIntelTab('ai')"><i class="ph ph-robot"></i> AI Governance</button>
       </div>
 
       <!-- Panel: Version History (the quote ledger; was a separate Quote Versioning page) -->
@@ -1631,6 +1647,15 @@
 
       <!-- Panel: Underwriting performance (js/performance-reporting.js) -->
       <div id="qiPanelPerf" style="display:none;"><div id="performanceRoot"></div></div>
+
+      <!-- Panel: Product Studio, releases (js/product-studio.js) -->
+      <div id="qiPanelProduct" style="display:none;"><div id="productStudioRoot"></div></div>
+
+      <!-- Panel: Access control, policy versions and decisions (js/authorization.js) -->
+      <div id="qiPanelAccess" style="display:none;"><div id="accessControlRoot"></div></div>
+
+      <!-- Panel: AI governance (js/ai-governance.js) -->
+      <div id="qiPanelAi" style="display:none;"><div id="aiGovernanceRoot"></div></div>
 
       <!-- Panel: Old vs New (Renewal) Comparison -->
       <div id="qiPanelRenewal">
@@ -2200,6 +2225,12 @@
             <option value="Senior UW Decline">Senior UW Decline — rejected after executive review</option>
             <option value="Other">Other</option>
           </select>
+        </div>
+
+        <div class="form-group mb-3">
+          <label class="u-label-sm">Reason code (the one the declination notice uses)</label>
+          <select id="declineReasonCode" class="form-control"><option value="">Choose from the trigger point</option></select>
+          <label class="u-label-sm" style="margin-top:6px;"><input type="checkbox" id="declineConsumerReport"> A consumer report (for example a credit-based score) was relied on</label>
         </div>
 
         <div class="form-group mb-3">
@@ -2888,5 +2919,13 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/acord-forms.js"></script>
   <script src="js/step-actions.js"></script>
   <script src="js/notifications.js"></script>
-</body>
+  <script src="js/decline-center.js"></script>
+  <script src="js/rating-store.js"></script>
+  <script src="js/uw-decision-engine.js"></script>
+  <script src="js/data-observations.js"></script>
+  <script src="js/risk-versions.js"></script>
+  <script src="js/distribution.js"></script>
+  <script src="js/product-studio.js"></script>
+  <script src="js/authorization.js"></script>
+  <script src="js/ai-governance.js"></script></body>
 </html>

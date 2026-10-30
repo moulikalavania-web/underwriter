@@ -171,6 +171,7 @@ function renderAuditLogFeed() {
           <span class="lbl"><i class="ph ph-users text-warning"></i> Underwriters Active</span>
           <strong class="val text-warning">${activeUnderwriters}</strong>
         </div>
+        ${typeof azAuditGaps === "function" ? (function () { const g = azAuditGaps(entries); return `<div class="metric-box"><span class="lbl"><i class="ph ph-shield-check text-primary"></i> Sensitive actions with a decision</span><strong class="val ${g.withoutDecision ? "text-danger" : "text-success"}">${g.withDecision} / ${g.sensitive}</strong></div>`; })() : ""}
       </div>
     `;
   }
@@ -189,7 +190,8 @@ function renderAuditLogFeed() {
       (e.subId || "").toLowerCase().includes(searchTerm) ||
       (e.insured || "").toLowerCase().includes(searchTerm) ||
       (e.by || "").toLowerCase().includes(searchTerm) ||
-      (e.note || "").toLowerCase().includes(searchTerm)
+      (e.note || "").toLowerCase().includes(searchTerm) ||
+      (e.authorization ? e.authorization.decisionId.toLowerCase().includes(searchTerm) : false)
     );
   }
 
@@ -216,6 +218,7 @@ function renderAuditLogFeed() {
           <i class="ph ph-hash"></i> <code>${e.subId}</code> <span>&mdash;</span> <span>${e.insured}</span>
         </p>
         ${e.note ? `<div class="audit-log-item-note"><i class="ph ph-quotes"></i> ${e.note}</div>` : ""}
+        ${e.authorization ? `<div class="audit-log-item-note"><i class="ph ph-shield-check"></i> Authorization: <strong>${e.authorization.result}</strong> by policy ${e.authorization.policyVersionId}${e.authorization.policyVersion && e.authorization.policyVersionId !== "POL-0" ? " (" + e.authorization.policyVersion + ")" : ""}, decision <code>${e.authorization.decisionId}</code></div>` : (e.sensitive ? `<div class="audit-log-item-note text-danger"><i class="ph ph-warning"></i> No authorization decision was recorded for this action.</div>` : "")}
       </div>`;
   }).join("") + `</div>`;
 }

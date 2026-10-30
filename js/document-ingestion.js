@@ -540,7 +540,12 @@ async function diProcessFile(name, mime, bytes, parent, depth) {
       const provider = window.DOCUMENT_OCR_PROVIDER;
       if (typeof provider === "function") {
         r.method = "OCR (connected service)";
-        const o = await provider(name, bytes, info.kind);
+        const o = await (typeof aiGovernOcrCall === "function" ? aiGovernOcrCall(provider, name, bytes, info.kind) : provider(name, bytes, info.kind));   // js/ai-governance.js: refused (null) unless the use case and its model are approved
+        if (o === null) {
+          r.status = "needs_ocr"; r.method = "OCR refused by AI governance";
+          r.notes = (res.notes || []).concat(["An OCR service is connected, but AI governance has not approved its model for use, so nothing was read from this file. Evaluate and approve the OCR model in Quote Intelligence, AI Governance, or ask the sender for a text-based copy."]);
+          return out;
+        }
         res = { text: String((o && o.text) || ""), tables: (o && o.tables) || [], pages: (o && o.pages) || [], notes: [], confidence: o && typeof o.confidence === "number" ? o.confidence : null };
       } else {
         r.status = "needs_ocr"; r.method = "OCR required";

@@ -66,15 +66,59 @@ function lookupProducerRecord(brokerName) {
   return null;
 }
 
-/** State where the risk is located: a valid 2-letter garaging state, else the canonical JSON, else the address. */
+var PRODUCER_STATE_NAMES = { "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR", "CALIFORNIA": "CA", "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE", "DISTRICT OF COLUMBIA": "DC", "FLORIDA": "FL", "GEORGIA": "GA", "HAWAII": "HI", "IDAHO": "ID", "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA", "KANSAS": "KS", "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD", "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS", "MISSOURI": "MO", "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV", "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ", "NEW MEXICO": "NM", "NEW YORK": "NY", "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH", "OKLAHOMA": "OK", "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC", "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX", "UTAH": "UT", "VERMONT": "VT", "VIRGINIA": "VA", "WASHINGTON": "WA", "WEST VIRGINIA": "WV", "WISCONSIN": "WI", "WYOMING": "WY" };
+
+/** The state in a piece of address-like text: "..., Dallas, TX 75202", "Dallas, TX", "Dallas, Texas" or a bare "TX" or "Texas" as the whole value. Null when there is none. */
+function stateFromAddressText(text) {
+  const valid = c => (c && US_STATE_CODES_FOR_PRODUCER.indexOf(String(c).toUpperCase()) > -1) ? String(c).toUpperCase() : null;
+  const s = String(text || "").trim().replace(/[.;]+$/, "");
+  if (!s) return null;
+  let m = s.match(/\b([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/);
+  if (m && valid(m[1])) return valid(m[1]);
+  if (/^[A-Z]{2}$/.test(s)) return valid(s);
+  m = s.match(/,\s*([A-Z]{2})\s*$/);
+  if (m && valid(m[1])) return valid(m[1]);
+  const up = s.toUpperCase();
+  const names = Object.keys(PRODUCER_STATE_NAMES).sort((a, b) => b.length - a.length);
+  for (let i = 0; i < names.length; i++) {
+    const n = names[i];
+    if (up === n || new RegExp("(?:,|\\s)\\s*" + n + "(?:\\s+\\d{5}(?:-\\d{4})?)?\\s*$").test(up)) return PRODUCER_STATE_NAMES[n];
+  }
+  return null;
+}
+
+/**
+ * The state of the customer's own business, read from the email it came in. Only places that say where the business is are read: an Address
+ * line, "based in / located in / headquartered in City, ST", or a State line for the insured. "States operated" is where it drives, not where it is.
+ */
+function stateFromEmailText(raw) {
+  const t = String(raw || "");
+  if (!t) return null;
+  const lines = t.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*(?:(?:insured|business|mailing|principal|physical|garaging|risk|home)\s+)?address\s*:\s*(.+)$/i);
+    if (m) { const st = stateFromAddressText(m[1]); if (st) return st; }
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*(?:insured|business|mailing|principal|physical|garaging|risk|home)?\s*state\s*(?:of\s+(?:domicile|operations\s+base))?\s*:\s*(.+)$/i);
+    if (m && !/operat|licen[cs]e|filing/i.test(lines[i].split(":")[0])) { const st = stateFromAddressText(m[1]); if (st) return st; }
+  }
+  const b = t.match(/(?:based\s+(?:out\s+of|in)|located\s+(?:in|at)|headquartered\s+in)\s+([A-Za-z .'-]+,\s*[A-Za-z]{2,}(?:\s+\d{5})?)/);
+  return b ? stateFromAddressText(b[1]) : null;
+}
+
+/** State where the risk is located: a valid 2-letter garaging state, else the canonical JSON, else the address, else what the email says about where the business is. */
 function deriveRiskState(sub) {
   const valid = c => (c && US_STATE_CODES_FOR_PRODUCER.indexOf(String(c).toUpperCase()) > -1) ? String(c).toUpperCase() : null;
+  const stated = valid(sub.riskStateSet && sub.riskStateSet.state);   // a person set it on the producer card
+  if (stated) return stated;
   const fromInsured = valid(sub.insuredInfo && sub.insuredInfo.insured_garaging_state);
   if (fromInsured) return fromInsured;
   const fromCanon = valid(sub.canonicalJson && sub.canonicalJson.applicant && sub.canonicalJson.applicant.garaged_state);
   if (fromCanon) return fromCanon;
-  const m = String(sub.address || "").match(/\b([A-Z]{2})\s+\d{5}\b/);
-  return m ? valid(m[1]) : null;
+  const fromAddress = stateFromAddressText(sub.address);
+  if (fromAddress) return fromAddress;
+  return stateFromEmailText(sub.rawEmailText);
 }
 
 function isoDate(d) { return d.toISOString().slice(0, 10); }
@@ -123,7 +167,7 @@ function evaluateProducerCompliance(sub, asOf, manual) {
 
   if (!state) {
     result.status = "cannot_determine";
-    result.checks.push({ id: "state", label: "Risk state", pass: false, detail: "The state where the risk is located could not be determined from the submission. Add the garaging state or address." });
+    result.checks.push({ id: "state", label: "Risk state", pass: false, detail: "The state of the customer's business could not be found on the case (garaging state, address) or in the email (an Address line, \"based in City, ST\", a State line). Set the state on this card, or add the address to the case." });
     return result;
   }
 
@@ -247,6 +291,23 @@ function producerRecheckClicked() {
   showToast("Producer licence and appointment check re-run.", "info");
 }
 
+/** A person states where the customer's business is when neither the case nor the email says. Logged; the check re-runs. */
+function producerSetRiskState() {
+  const sub = producerActiveSub();
+  if (!sub) return;
+  if (!hasPermission("producerLicensing", "edit")) { denyPermission("producerLicensing", "edit"); return; }
+  const el = document.getElementById("plRiskState");
+  const code = el ? el.value.trim().toUpperCase() : "";
+  if (US_STATE_CODES_FOR_PRODUCER.indexOf(code) < 0) { showToast("⛔ Choose the state where the customer's business is located.", "danger"); return; }
+  const before = deriveRiskState(sub);
+  sub.riskStateSet = { state: code, by: producerActor(), at: producerNow() };
+  producerLog(sub, "producer_risk_state_set", `Risk state set to ${code} by ${sub.riskStateSet.by}${before ? ` (it was read as ${before})` : " (none could be read from the case or the email)"}.`);
+  runProducerCheck(sub, "risk state set");
+  renderProducerCard(sub);
+  if (typeof renderClearanceHold === "function") renderClearanceHold(sub);
+  showToast(`Risk state set to ${code} and the check re-run.`, "success");
+}
+
 function producerRecordManualVerification() {
   const sub = producerActiveSub();
   if (!sub) return;
@@ -291,6 +352,45 @@ var PRODUCER_STATE_UI = {
   not_checked:       { badge: "badge-light",   icon: "ph-hourglass",    label: "Not Checked" }
 };
 
+/** What the loaded registry holds for this case's producer, risk state and carrier, to fill the verification form. Null when there is no record by name. */
+function producerPrefill(sub) {
+  const rec = lookupProducerRecord(sub.broker);
+  if (!rec) return null;
+  const state = deriveRiskState(sub), carrier = sub.carrier || PRODUCER_DEFAULT_CARRIER;
+  const lic = (rec.licenses || []).filter(l => l.state === state)[0];
+  const appt = (rec.appointments || []).filter(a => a.carrier === carrier && a.state === state)[0];
+  const missing = [];
+  if (!lic) missing.push("licence");
+  if (!appt) missing.push("appointment");
+  return { name: rec.names[0], npn: rec.npn || "", licenseNumber: lic ? lic.number : "", licenseExpires: lic ? lic.expires : "", appointmentEffective: appt ? appt.effective : "", missing: missing };
+}
+
+/** The producer's record as read from the loaded registry file: NPN, every licence and every appointment, with the ones that decide this case marked. */
+function producerRegistryRecordHtml(sub, result) {
+  if (!PRODUCER_REGISTRY.length) return "";
+  const meta = typeof REF_META !== "undefined" ? REF_META.registry : null;
+  const from = meta ? ` (${producerEsc(meta.fileName)}, loaded ${producerEsc(meta.loadedAt)})` : "";
+  const rec = lookupProducerRecord(sub.broker);
+  if (!rec) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-magnifying-glass"></i> The loaded registry${from} has ${PRODUCER_REGISTRY.length.toLocaleString("en-US")} producer(s), but none matches "${producerEsc(sub.broker)}". Check the producer name in the file against the case.</div>`;
+  const state = result ? result.riskState : deriveRiskState(sub), carrier = result ? result.carrier : (sub.carrier || PRODUCER_DEFAULT_CARRIER);
+  const licRow = l => `<tr><td>${producerEsc(l.state)}</td><td class="font-mono">${producerEsc(l.number)}</td><td>${producerEsc((l.lines || []).join(", ") || "-")}</td><td>${producerEsc(l.status)}</td><td>${producerEsc(l.expires)}</td></tr>`;
+  const appRow = a => `<tr><td>${producerEsc(a.carrier)}</td><td>${producerEsc(a.state)}</td><td>${producerEsc((a.lobs || []).map(producerLobLabel).join(", ") || "-")}</td><td>${producerEsc(a.status)}</td><td>${producerEsc(a.effective)}</td></tr>`;
+  const licHead = "<thead><tr><th>Licence state</th><th>Licence number</th><th>Lines of authority</th><th>Status</th><th>Expires</th></tr></thead>";
+  const appHead = "<thead><tr><th>Appointed by</th><th>State</th><th>Lines of business</th><th>Status</th><th>Effective</th></tr></thead>";
+  const inState = l => l.state === state;
+  const licHere = (rec.licenses || []).filter(inState), licElse = (rec.licenses || []).filter(l => !inState(l));
+  const appHere = (rec.appointments || []).filter(inState), appElse = (rec.appointments || []).filter(a => !inState(a));
+  const none = what => `<tr><td colspan="5" class="text-muted">The file has no ${what} for ${producerEsc(state || "this state")}.</td></tr>`;
+  const others = licElse.length + appElse.length ? `<details style="margin-top:8px;"><summary class="text-xs text-muted">Other states in the file (${licElse.length} licence(s), ${appElse.length} appointment(s))</summary>${licElse.length ? `<div class="rules-table-container"><table class="data-table">${licHead}<tbody>${licElse.map(licRow).join("")}</tbody></table></div>` : ""}${appElse.length ? `<div class="rules-table-container" style="margin-top:6px;"><table class="data-table">${appHead}<tbody>${appElse.map(appRow).join("")}</tbody></table></div>` : ""}</details>` : "";
+  if (!state) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-map-pin"></i> ${producerEsc(rec.names[0])} (NPN <span class="font-mono">${producerEsc(rec.npn)}</span>) is in the registry${from}, but the state of the customer's business is not known, so no state's details can be shown. Set the state below.</div>`;
+  return `<div style="margin-bottom:12px;">
+      <div class="text-xs" style="margin-bottom:6px;"><i class="ph ph-database"></i> <strong>Read from the licensing registry${from} for ${producerEsc(state)}, where the customer's business is:</strong> ${producerEsc(rec.names[0])}, NPN <span class="font-mono">${producerEsc(rec.npn)}</span>.</div>
+      <div class="rules-table-container"><table class="data-table">${licHead}<tbody>${licHere.map(licRow).join("") || none("licence")}</tbody></table></div>
+      <div class="rules-table-container" style="margin-top:8px;"><table class="data-table">${appHead}<tbody>${appHere.map(appRow).join("") || none("appointment")}</tbody></table></div>
+      ${others}
+    </div>`;
+}
+
 function renderProducerCard(sub) {
   const box = document.getElementById("producerLicensingContainer");
   if (!box || !sub) return;
@@ -320,20 +420,32 @@ function renderProducerCard(sub) {
       ${sub.producerCheck.manual ? `<div class="clean-meta-row"><span class="meta-label">Manual verification</span><span class="meta-value">${producerEsc(sub.producerCheck.manual.source)} · ref ${producerEsc(sub.producerCheck.manual.reference)} · ${producerEsc(sub.producerCheck.manual.by)}</span></div>` : ""}
     </div>` : "";
 
+  const registryBlock = state !== "not_applicable" ? producerRegistryRecordHtml(sub, result) : "";
+
   const recheck = canEdit && state !== "not_applicable"
     ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="producerRecheckClicked()"><i class="ph ph-arrows-clockwise"></i> Re-run check</button>` : "";
 
   const needsManual = ["failed", "not_found", "cannot_determine"].indexOf(state) > -1;
-  let manualForm = "";
+  const stateForm = state === "cannot_determine" && canEdit ? `
+      <div class="simulation-tool-box" style="display:block; margin-top:14px;">
+        <span class="tool-label" style="display:block; margin-bottom:8px;"><i class="ph ph-map-pin"></i> Set the risk state (the state where the customer's business is located)</span>
+        <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <select id="plRiskState" class="form-control" style="width:200px;"><option value="">Choose a state</option>${US_STATE_CODES_FOR_PRODUCER.map(c => `<option value="${c}">${c}</option>`).join("")}</select>
+          <button class="btn btn-sm btn-primary" style="width:auto;" onclick="producerSetRiskState()"><i class="ph ph-check"></i> Set &amp; re-check</button>
+        </div>
+      </div>` : "";
+  let manualForm = stateForm;
   if (needsManual && canApprove) {
-    manualForm = `
+    const pre = producerPrefill(sub), pv = k => producerEsc(pre ? pre[k] : "");
+    manualForm += `
       <div class="simulation-tool-box" style="display:block; margin-top:14px;">
         <span class="tool-label" style="display:block; margin-bottom:8px;"><i class="ph ph-clipboard-text"></i> Record a verified lookup (replaces the registry record for this submission)</span>
+        ${pre ? `<p class="text-xs text-muted" style="margin:0 0 8px;"><i class="ph ph-magic-wand"></i> Filled in from the loaded registry's record for ${producerEsc(pre.name)}${pre.missing.length ? " (the registry has no " + producerEsc(pre.missing.join(" or ")) + " for this state and carrier, so that is left blank)" : ""}. Check the values against the source before recording.</p>` : ""}
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-          <input id="plNpn" class="form-control" style="width:130px;" placeholder="NPN">
-          <input id="plLicNo" class="form-control" style="width:170px;" placeholder="Licence number">
-          <label class="text-xs text-muted" style="font-size:12px;">Licence expires <input id="plLicExp" type="date" class="form-control" style="width:150px;"></label>
-          <label class="text-xs text-muted" style="font-size:12px;">Appointment effective <input id="plApptEff" type="date" class="form-control" style="width:150px;"></label>
+          <input id="plNpn" class="form-control" style="width:130px;" placeholder="NPN" value="${pv("npn")}">
+          <input id="plLicNo" class="form-control" style="width:170px;" placeholder="Licence number" value="${pv("licenseNumber")}">
+          <label class="text-xs text-muted" style="font-size:12px;">Licence expires <input id="plLicExp" type="date" class="form-control" style="width:150px;" value="${pv("licenseExpires")}"></label>
+          <label class="text-xs text-muted" style="font-size:12px;">Appointment effective <input id="plApptEff" type="date" class="form-control" style="width:150px;" value="${pv("appointmentEffective")}"></label>
           <label style="font-size:12.5px;"><input type="checkbox" id="plSurplus"> Holds a surplus lines licence in this state</label>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
@@ -344,7 +456,7 @@ function renderProducerCard(sub) {
         </div>
       </div>`;
   } else if (needsManual) {
-    manualForm = `<p class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-lock"></i> Recording a verified lookup needs a user with producer-licensing approval authority (for example the Chief Underwriting Officer).</p>`;
+    manualForm += `<p class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-lock"></i> Recording a verified lookup needs a user with producer-licensing approval authority (for example the Chief Underwriting Officer).</p>`;
   }
 
   box.innerHTML = `
@@ -356,6 +468,7 @@ function renderProducerCard(sub) {
       <div class="card-body">
         ${banner}
         ${meta}
+        ${registryBlock}
         <div class="rules-table-container">
           <table class="data-table">
             <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
@@ -402,6 +515,7 @@ function producerGuardBind(source, subId) {
     AUDIT_ACTION_META.producer_license_verified = { label: "Producer Licence & Appointment Verified", icon: "ph-identification-card", badge: "badge-success", outcome: "outcome-approve" };
     AUDIT_ACTION_META.producer_license_failed = { label: "Producer Licence / Appointment Check Failed", icon: "ph-identification-card", badge: "badge-danger", outcome: "outcome-decline" };
     AUDIT_ACTION_META.producer_manual_verification = { label: "Producer Verification Recorded Manually", icon: "ph-clipboard-text", badge: "badge-info", outcome: "outcome-comm" };
+    AUDIT_ACTION_META.producer_risk_state_set = { label: "Producer Check: Risk State Set", icon: "ph-map-pin", badge: "badge-info", outcome: "outcome-comm" };
     AUDIT_ACTION_META.producer_bind_blocked = { label: "Bind Blocked — Producer Check", icon: "ph-prohibit", badge: "badge-danger", outcome: "outcome-decline" };
   }
 

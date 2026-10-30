@@ -1,0 +1,75 @@
+{
+  "_note": "Illustrative only. Figures, table codes and the ratingDetail shape are placeholders until the rating engine's owner confirms the real response. Import this on a case in Quote and Bind to see the stored detail.",
+  "quote": {
+    "finalPremium": 52840,
+    "coveragePremium": 49100,
+    "tax": 2240,
+    "countyTax": 0,
+    "fees": [],
+    "discounts": [],
+    "coverages": [],
+    "creditsNotApplied": []
+  },
+  "coverages": [
+    { "name": "Commercial Auto Liability", "subtotal": 41200, "limit": "$1,000,000 CSL", "deductible": "$0" },
+    { "name": "Physical Damage", "subtotal": 7900, "limit": "Stated value", "deductible": "$2,500" }
+  ],
+  "ratingDetail": {
+    "engineName": "Example rating engine",
+    "engineVersion": "2026.2",
+    "requestId": "REQ-DEMO-0001",
+    "ratedAt": "2026-10-28 14:05",
+    "productReleaseId": "PRL-DEMO-1",
+    "rateTables": [
+      {
+        "tableCode": "AL_BASE_RATE",
+        "name": "Liability base rate by radius and class",
+        "version": "7",
+        "effectiveDate": "2026-07-01",
+        "dimensions": [
+          { "code": "radius", "name": "Radius of operation (miles)", "dataType": "range" },
+          { "code": "class", "name": "Rating class", "dataType": "text" }
+        ],
+        "rows": [
+          { "rowNo": 1, "conditions": { "radius": { "from": 0, "to": 100 }, "class": "LOCAL_HAUL" }, "value": 3100 },
+          { "rowNo": 2, "conditions": { "radius": { "from": 101, "to": 300 }, "class": "INTERMEDIATE" }, "value": 3650 },
+          { "rowNo": 3, "conditions": { "radius": { "from": 301, "to": 9999 }, "class": "LONG_HAUL" }, "value": 4200 }
+        ]
+      },
+      {
+        "tableCode": "ILF",
+        "name": "Increased limits factor",
+        "version": "3",
+        "dimensions": [ { "code": "limit", "name": "Liability limit", "dataType": "number" } ],
+        "rows": [
+          { "rowNo": 1, "conditions": { "limit": 750000 }, "value": 0.93 },
+          { "rowNo": 2, "conditions": { "limit": 1000000 }, "value": 1.0 }
+        ]
+      }
+    ],
+    "algorithmSteps": [
+      { "stepNo": 1, "code": "BASE", "name": "Base rate per power unit", "operation": "lookup", "inputValue": "INTERMEDIATE, 250 miles", "outputValue": 3650 },
+      { "stepNo": 2, "code": "ILF", "name": "Apply increased limits factor", "operation": "multiply", "inputValue": 3650, "outputValue": 3650 },
+      { "stepNo": 3, "code": "FLEET", "name": "Fleet size factor", "operation": "multiply", "inputValue": 3650, "outputValue": 3358 },
+      { "stepNo": 4, "code": "SCHED", "name": "Schedule rating", "operation": "multiply", "inputValue": 3358, "outputValue": 3224 }
+    ],
+    "factorResults": [
+      { "factorCode": "liab_baserate", "name": "Base rate", "category": "base", "coverage": "Commercial Auto Liability", "stepNo": 1, "rateTableCode": "AL_BASE_RATE", "matchedRow": 2, "value": 3650, "premiumBefore": null, "premiumAfter": 3650 },
+      { "factorCode": "liab_ilf_factor", "name": "Increased limits factor", "category": "limit", "coverage": "Commercial Auto Liability", "stepNo": 2, "rateTableCode": "ILF", "matchedRow": 2, "value": 1.0, "premiumBefore": 3650, "premiumAfter": 3650 },
+      { "factorCode": "liab_fleet_factor", "name": "Fleet size factor", "category": "fleet", "coverage": "Commercial Auto Liability", "stepNo": 3, "rateTableCode": null, "matchedRow": null, "value": 0.92, "premiumBefore": 3650, "premiumAfter": 3358 }
+    ],
+    "scheduleRating": [
+      { "category": "management", "label": "Management", "modifierPct": -4, "minPct": -25, "maxPct": 25, "reason": "Documented safety meetings and driver coaching." },
+      { "category": "fleet_condition", "label": "Fleet condition", "modifierPct": 0, "minPct": -25, "maxPct": 25, "reason": "Average age in line with class." },
+      { "category": "safety_programme", "label": "Safety programme", "modifierPct": -5, "minPct": -25, "maxPct": 25, "reason": "Telematics on every unit." }
+    ],
+    "experienceMod": {
+      "category": "loss_experience",
+      "value": 0.94,
+      "source": "Loss runs 2023-2025 supplied with the submission",
+      "periodFrom": "2023-01-01",
+      "periodTo": "2025-12-31",
+      "reason": "Loss ratio better than expected for the class."
+    }
+  }
+}

@@ -1,0 +1,80 @@
+<!-- Suite C38: who sees what in the Submission Intake queue. Anyone who may approve work sees every submission; the others see only what is assigned or referred to them. Every sign-in opens on All Submissions.
+     The Broker, Direct and Senior Referrals tabs appear only while a referral is waiting on that user, never because of an assignment. An approver may open any case they can see; a user without approval access opens only what is assigned or referred to them. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id, over){ var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 4; ['pasSync', 'quoteIssued', 'authorityRef', 'assignedTo'].forEach(function(k){ delete s[k]; }); for (var k in (over || {})) s[k] = over[k]; return s; }
+  function ids(){ return (el('submissionsTableBody').innerHTML.match(/openCaseAtCurrentStep\('([^']+)'\)/g) || []).map(function(x){ return x.replace(/.*\('/, '').replace(/'\).*/, ''); }).filter(function(v, i, a){ return a.indexOf(v) === i; }).sort().join(','); }
+  function shown(id){ return el(id).style.display !== 'none'; }
+  var EXTRA = ['tabFilterBroker', 'tabFilterDirect', 'tabFilterReferrals'];
+  try {
+    var A = mk('Q-A', { assignedTo: 'senior_uw', channelType: 'broker' }), B = mk('Q-B', { assignedTo: 'junior', channelType: 'direct', broker: '' }), C = mk('Q-C', { channelType: 'broker' });
+    function reset(){ [A, B, C].forEach(function(s){ delete s.authorityRef; }); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(A, B, C); currentLOBFilter = 'all'; currentSearchTerm = ''; }
+    reset();
+
+    // ---------- who sees every submission
+    login('admin'); t('the Head of Underwriting sees all three', ids() === 'Q-A,Q-B,Q-C', ids());
+    login('senior'); t('the CUO, who may approve, sees all three though none is assigned to them', ids() === 'Q-A,Q-B,Q-C', ids());
+    login('senior_uw'); t('the Senior Underwriter sees all three, including one assigned to a colleague and one unassigned', ids() === 'Q-A,Q-B,Q-C', ids());
+    login('junior'); t('the Underwriter I, who may approve workflow steps, sees all three', ids() === 'Q-A,Q-B,Q-C', ids());
+    login('assistant'); t('the Assistant has no approval access, so sees only what is assigned to them: nothing yet', ids() === '', ids());
+    C.assignedTo = 'assistant'; login('assistant'); t('and once one is assigned, only that one', ids() === 'Q-C', ids());
+    t('who may see all follows the approval permission', (function(){ var r = {}; ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].forEach(function(x){ currentUserRole = x; r[x] = canSeeAllSubmissions(); }); return r.assistant === false && r.junior && r.senior_uw && r.senior && r.admin; })());
+    delete C.assignedTo;
+
+    // ---------- every sign-in opens on All Submissions, with no other tab
+    login('senior_uw'); filterSubmissionsTable('broker'); t('with no referral waiting, picking another tab leaves the queue on All', currentTableFilter === 'all', currentTableFilter);
+    EXTRA.forEach(function(id){ el(id).style.display = ''; });
+    ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].forEach(function(r){
+      currentTableFilter = 'broker'; login(r);
+      t(r + ': signing in opens All Submissions as the only tab', currentTableFilter === 'all' && el('tabFilterAll').classList.contains('active') && shown('tabFilterAll') && EXTRA.every(function(id){ return !shown(id) && !el(id).classList.contains('active'); }));
+    });
+
+    // ---------- an assignment does not open the other tabs
+    login('junior'); t('a case assigned to Sarah gives her no extra tab', B.assignedTo === 'junior' && EXTRA.every(function(id){ return !shown(id); }));
+
+    // ---------- a referral does
+    A.authorityRef = { status: 'pending', requiredRole: 'senior_uw', raisedBy: 'Sarah Jenkins (Underwriter I)', raisedAt: '2026-10-29 10:00', note: 'Over my limit.' };
+    login('senior_uw');
+    t('a referral to David opens the Broker, Direct and Senior Referrals tabs for David', EXTRA.every(function(id){ return shown(id); }) && currentTableFilter === 'all' && el('tabFilterAll').classList.contains('active'));
+    t('and it still opens on All Submissions, not on a referral tab', ids() === 'Q-A,Q-B,Q-C');
+    filterSubmissionsTable('referral'); t('the Senior Referrals tab then lists the case referred', /Q-A/.test(ids()) && currentTableFilter === 'referral', ids());
+    filterSubmissionsTable('direct'); t('the Direct tab lists direct business only', ids() === 'Q-B', ids());
+    filterSubmissionsTable('broker'); t('the Broker tab lists broker business only', ids() === 'Q-A,Q-C', ids());
+    login('senior'); t('a referral to David gives Marcus no extra tabs', EXTRA.every(function(id){ return !shown(id); }));
+    login('junior'); t('nor Sarah, who raised it', EXTRA.every(function(id){ return !shown(id); }));
+    login('admin'); t('nor the Head of Underwriting', EXTRA.every(function(id){ return !shown(id); }));
+    A.authorityRef.requiredRole = 'senior'; login('senior'); t('referred to Marcus instead, the tabs are his', EXTRA.every(function(id){ return shown(id); }));
+    login('senior_uw'); t('and David loses them', EXTRA.every(function(id){ return !shown(id); }));
+
+    // ---------- when the referral is decided the tabs go and a leftover selection returns to All
+    A.authorityRef.requiredRole = 'senior_uw'; login('senior_uw'); filterSubmissionsTable('referral');
+    A.authorityRef.status = 'approved'; renderSubmissionsTable();
+    t('once decided, the tabs hide and the queue is back on All Submissions', EXTRA.every(function(id){ return !shown(id); }) && currentTableFilter === 'all' && el('tabFilterAll').classList.contains('active') && ids() === 'Q-A,Q-B,Q-C');
+
+    // ---------- an approver may open any submission they can see, assigned to them or not
+    reset(); login('junior'); var tn = toasts.length; openCaseAtCurrentStep('Q-A');
+    t('an approver can open a case assigned to someone else', activeSubmissionId === 'Q-A' && !toasts.slice(tn).some(function(m){ return /not you/.test(m); }));
+    openCaseAtCurrentStep('Q-C'); t('and an unassigned one', activeSubmissionId === 'Q-C' && !toasts.some(function(m){ return /is Unassigned/.test(m); }));
+    login('senior'); openCaseAtCurrentStep('Q-B'); t('the CUO too', activeSubmissionId === 'Q-B');
+
+    // ---------- a user who may not approve is still held to the assignment
+    login('assistant'); var before = activeSubmissionId; tn = toasts.length; openCaseAtCurrentStep('Q-A');
+    t('a user without approval access cannot open a case assigned to someone else', toasts.slice(tn).some(function(m){ return /assigned to David Chen, not you/.test(m); }) && activeSubmissionId === before);
+    openCaseAtCurrentStep('Q-C'); t('nor an unassigned one', toasts.some(function(m){ return /Q-C is Unassigned/.test(m); }) && activeSubmissionId === before);
+    A.authorityRef = { status: 'pending', requiredRole: 'assistant', raisedBy: 'x', raisedAt: '2026-10-29 10:00', note: 'n' }; openCaseAtCurrentStep('Q-A');
+    t('a referral to the user does let them open it', activeSubmissionId === 'Q-A');
+    C.assignedTo = 'assistant'; openCaseAtCurrentStep('Q-C'); t('and so does an assignment', activeSubmissionId === 'Q-C');
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 4).join(' | ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

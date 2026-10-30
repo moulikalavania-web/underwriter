@@ -43,10 +43,11 @@
     t('referral rule: premium counts as well as the limit (new)', authNeedsReferral(a4) && !authNeedsReferral(a5));
     t('referral rule: an unknown state alone is not a referral', !authNeedsReferral(mk('A7', { address: 'nowhere in particular' })) && authNeedsReferral(a6));
     SUBMISSIONS_DATASET.length = 0; [a1, a2, a3, a4].forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = a2.id;
+    a1.authorityRef = { status: 'pending', requiredRole: 'admin', raisedBy: 'x', raisedAt: '2026-10-29 10:00', note: 'n' };   // the referral tab shows only while a referral waits on the user
     currentTableFilter = 'referral'; currentUserRole = 'admin'; renderSubmissionsTable();
     var html = el('submissionsTableBody').innerHTML;
     t('the queue\'s referral filter uses the same rule', /A1/.test(html) && /A4/.test(html) && !/>A2</.test(html) && !/>A3</.test(html), (html.match(/openCaseAtCurrentStep\('[^']+'\)/g) || []).join(' '));
-    currentTableFilter = 'all';
+    currentTableFilter = 'all'; delete a1.authorityRef;
     // the authority desk screen
     currentUserRole = 'junior'; renderAuthorityScreen(a1);
     t('authority screen flags the over-authority case for the acting role', /Senior Referral Required/.test(el('authCheckBadge').innerHTML));

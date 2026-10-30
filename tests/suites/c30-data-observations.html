@@ -1,0 +1,215 @@
+<!-- Suite C30: source data. Every value any source gives is kept as an observation (document, page, method, confidence, date); a conflict, a missing
+     required value, expired provider data, or a case rated on a value that later changed is a discrepancy that blocks rating, the quote or the bind until a
+     person resolves it; resolutions form a chain (47, 42, 44); provider orders record cost and freshness and their answers are compared with the documents. -->
+<script>
+(function(){
+  var out = [], errs = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  var toasts = []; window.showToast = function(m){ toasts.push(m); };
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 4; s.completedSteps = [1, 2, 3]; s.documentExtractions = [];
+    ['pasSync', 'quoteIssued', 'authorityRef', 'lifecycleStatus', 'dataObservations', 'dataDiscrepancies', 'dataResolutions', 'enrichmentRequests', 'enrichmentResponses', 'ratingPins', 'obsCollected'].forEach(function(k){ delete s[k]; });
+    s.assignedTo = 'senior_uw'; for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function doc(name, text, pages, over){ var d = { name: name, kind: 'pdf', label: 'PDF', method: 'PDF text extraction', status: 'extracted', text: text, pages: pages || [], notes: [] }; for (var k in (over || {})) d[k] = over[k]; return d; }
+  var s1 = doc('application.pdf', 'Business Name: Links\nFEIN: 74-9842109\nVehicle Count: 2\nEffective Date: 01/01/2027', [{ page: 1, text: 'Business Name: Links\nFEIN: 74-9842109' }, { page: 2, text: 'Vehicle Count: 2\nEffective Date: 01/01/2027' }]);
+  var s2 = doc('schedule.xlsx', 'Business Name: Links LLC\nFEIN: 12-3456789\nUS DOT: 1234567', [], { kind: 'xlsx', label: 'Excel', method: 'Spreadsheet parser (XLSX)' });
+  function openOf(sub, path){ return (sub.dataDiscrepancies || []).filter(function(d){ return d.path === path && d.status === 'open'; })[0]; }
+  try {
+    // ---------- comparing values
+    t('the same insured written two ways is one value', obsNorm('insured', 'Links, L.L.C.') === obsNorm('insured', 'LINKS LLC') && obsNorm('insured', 'Links') === obsNorm('insured', 'Links LLC') && obsNorm('insured', 'Links') !== obsNorm('insured', 'Links Freight'));
+    t('an address written two ways is one value', obsNorm('address', '12 Main Street, Suite 4, Dallas TX 75201-1234') === obsNorm('address', '12 main st ste 4 dallas tx 75201'));
+    t('FEIN, DOT, dates and amounts compare on their digits and meaning', obsNorm('fein', '74-9842109') === obsNorm('fein', '749842109') && obsNorm('dot', '0123456') === obsNorm('dot', '123456') && obsNorm('effectiveDate', '01/01/2027') === obsNorm('effectiveDate', '2027-01-01') && obsNorm('exposureVal', '$1,000,000') === obsNorm('exposureVal', '1000000'));
+
+    // ---------- what the documents said is kept in full
+    login('senior_uw'); var S = mk('SUB-C30-A'); use(S);
+    var draft = diConsolidate(S, [s1, s2]); emailIngestionDraftBySubId[S.id] = draft;
+    var fein = obsLive(S).filter(function(o){ return o.path === 'fein'; });
+    t('both documents\' FEINs are kept, not only the one the form shows', fein.length === 2 && draft.fein === '74-9842109' && fein.some(function(o){ return o.value === '12-3456789' && o.sourceRef === 'schedule.xlsx'; }));
+    var f1 = fein.filter(function(o){ return o.sourceRef === 'application.pdf'; })[0];
+    t('an observation holds the source, page, method, confidence, date and who read it', f1.sourceType === 'DOCUMENT' && f1.page === 1 && /PDF text/.test(f1.method) && f1.confidence === 0.95 && /^\d{4}-\d{2}-\d{2}$/.test(f1.asOf) && f1.observedBy === 'System' && /74-9842109/.test(f1.snippet) && f1.status === 'current');
+    var effObs = obsLive(S).filter(function(o){ return o.path === 'effectiveDate'; })[0];
+    t('the page is the page the value is on', effObs.page === 2);
+    var ocrDoc = doc('scan.png', 'Business Name: Links\nFEIN: 74-9842109', [], { method: 'OCR', confidence: 0.82 });
+    var S0 = mk('SUB-C30-0'); diConsolidate(S0, [ocrDoc]);
+    t('a reading by OCR carries the OCR service\'s own confidence', obsLive(S0).filter(function(o){ return o.path === 'fein'; })[0].confidence === 0.82);
+    t('the email text is an EMAIL source', (function(){ var S9 = mk('SUB-C30-9'); diConsolidate(S9, [doc('Email text', 'Business Name: Links\nFEIN: 74-9842109', [], { kind: 'email', method: 'Email body' })]); var o = obsLive(S9).filter(function(x){ return x.path === 'fein'; })[0]; return o.sourceType === 'EMAIL' && o.confidence === 0.85; })());
+
+    // ---------- discrepancies
+    t('two different FEINs are a discrepancy that blocks the quote', openOf(S, 'fein') && openOf(S, 'fein').type === 'value_mismatch' && openOf(S, 'fein').blocksStage === 'quote' && openOf(S, 'fein').severity === 'high' && openOf(S, 'fein').candidateIds.length === 2);
+    t('"Links" and "Links LLC" are not', !openOf(S, 'insured'));
+    t('a value only one source gives is resolved by itself, as a single source', obsCurrentRes(S, 'dot').method === 'auto_single' && obsResolvedValue(S, 'dot') === '1234567' && !openOf(S, 'dot'));
+    t('the case does not use a value that is still in conflict', obsCurrentRes(S, 'fein') === null);
+    t('blockers are by stage: the FEIN blocks the quote and the bind, not rating', obsBlockers(S, 'rating').length === 0 && obsBlockers(S, 'quote').length === 1 && obsBlockers(S, 'bind').length === 1);
+    t('a step maps to its stage', obsStageOfStep(RATING_STEP) === 'rating' && obsStageOfStep(QUOTE_STEP) === 'quote' && obsStageOfStep(BIND_STEP) === 'bind' && obsStageOfStep(ENRICH_STEP) === null);
+
+    // ---------- gates
+    S.currentStep = 10; var n0 = toasts.length; goToWorkflowStep(QUOTE_STEP);
+    t('the case cannot enter the quote while the FEIN is open', currentWorkflowStep < QUOTE_STEP && toasts.slice(n0).some(function(m){ return /block the quote|block the quote:/.test(m) || /Open data discrepancies block the quote/.test(m); }) , toasts.slice(n0).join('|'));
+    t('the toast names the field and what is wrong', toasts.slice(n0).some(function(m){ return /FEIN \/ Tax ID \(value mismatch\)/.test(m); }));
+    var n1 = toasts.length; currentWorkflowStep = RATING_STEP; goToNextStep();
+    t('and Next from rating is refused too, without marking the step done', currentWorkflowStep === RATING_STEP && toasts.slice(n1).some(function(m){ return /Open data discrepancies/.test(m); }) && !(S.completedSteps || []).includes(RATING_STEP));
+    aiPending(S).forEach(function(x){ aiReview(x.id, { decision: 'accepted' }); });   // the reading is reviewed, so only the data rule is under test
+    var ni = toasts.length; var qr = (typeof issueQuoteAction === 'function') ? issueQuoteAction() : undefined;
+    t('issuing the quote is refused and logged', qr === undefined && toasts.slice(ni).some(function(m){ return /block the quote/.test(m); }) && S.decisionLog.some(function(d){ return d.decision === 'data_blocked'; }));
+    var nb = toasts.length; var br = (typeof simulatePASBindSync === 'function') ? simulatePASBindSync(S.id) : undefined;
+    t('so is the bind', br === undefined && toasts.slice(nb).some(function(m){ return /block the bind/.test(m); }));
+    t('the stage is part of each message', true);
+
+    // ---------- resolving
+    login('admin');
+    t('someone without the completeness edit permission cannot resolve', obsResolve(S, 'fein', { observationId: f1.id, reasonCode: 'document_newer', reason: 'The application is the later document.' }).error === 'permission' && openOf(S, 'fein'));
+    login('senior_uw');
+    t('a reason code and a written reason are required', obsResolve(S, 'fein', { observationId: f1.id, reasonCode: 'nope', reason: 'The application is the later document.' }).error === 'code' && obsResolve(S, 'fein', { observationId: f1.id, reasonCode: 'document_newer', reason: 'short' }).error === 'reason' && openOf(S, 'fein'));
+    t('an observation that is not a candidate is refused', obsResolve(S, 'fein', { observationId: 'OBS-999', reasonCode: 'document_newer', reason: 'The application is the later document.' }).error === 'observation');
+    t('an empty value is refused', obsResolve(S, 'fein', { value: ' ', reasonCode: 'typo', reason: 'Typed it wrong in the schedule.' }).error === 'value');
+    var r1 = obsResolve(S, 'fein', { observationId: f1.id, reasonCode: 'document_newer', reason: 'The application is the later document.' });
+    t('choosing a candidate resolves it, by the person, with the code and reason', r1.ok && r1.resolution.method === 'user_selected' && r1.resolution.chosenObservationId === f1.id && r1.resolution.value === '74-9842109' && /David Chen/.test(r1.resolution.resolvedBy) && r1.resolution.reasonCode === 'document_newer' && r1.resolution.supersedesId === null && !r1.resolution.validTo);
+    t('the discrepancy is resolved and the case uses the value', !openOf(S, 'fein') && S.dataDiscrepancies.filter(function(d){ return d.path === 'fein'; })[0].status === 'resolved' && S.fein === '74-9842109' && obsBlockers(S, 'quote').length === 0);
+    t('the decision log says what was chosen and why', S.decisionLog.some(function(d){ return d.decision === 'data_resolved' && /FEIN/.test(d.notes) && /later document/.test(d.notes); }));
+    S.currentStep = 10; var n2 = toasts.length; goToWorkflowStep(QUOTE_STEP);
+    t('with it resolved, no data message stops the quote', !toasts.slice(n2).some(function(m){ return /Open data discrepancies/.test(m); }));
+
+    // ---------- the chain: 47, 42, 44
+    var r2 = obsResolve(S, 'fein', { value: '74-9842110', reasonCode: 'insured_confirmed', reason: 'The producer sent the IRS letter with the corrected number.' });
+    var r3 = obsResolve(S, 'fein', { observationId: fein.filter(function(o){ return o.sourceRef === 'schedule.xlsx'; })[0].id, reasonCode: 'official_record', reason: 'Matches the IRS letter received on the 5th.' });
+    var chain = obsChain(S, 'fein');
+    t('each resolution closes the last and points back at it', chain.length === 3 && chain[1].supersedesId === chain[0].id && chain[2].supersedesId === chain[1].id && !!chain[0].validTo && !!chain[1].validTo && !chain[2].validTo && chain.filter(function(r){ return !r.validTo; }).length === 1);
+    t('the history reads in order, ending in what is used now', obsChainText(S, 'fein') === '74-9842109 → 74-9842110 → 12-3456789' && obsResolvedValue(S, 'fein') === '12-3456789' && S.fein === '12-3456789');
+    t('a typed value is itself an observation by the person', obsLive(S).some(function(o){ return o.path === 'fein' && o.sourceType === 'USER' && o.value === '74-9842110' && o.confidence === 1; }));
+    t('the earlier values stay on the record', S.dataResolutions.filter(function(r){ return r.path === 'fein'; }).length === 3);
+
+    // ---------- waiving
+    var dobs = obsAdd(S, { path: 'effectiveDate', value: '02/01/2027', sourceType: 'DOCUMENT', sourceRef: 'extra.pdf', confidence: 0.9 }); obsDetect(S);
+    var dEff = openOf(S, 'effectiveDate');
+    t('a conflicting effective date blocks rating', dEff && dEff.blocksStage === 'rating' && obsBlockers(S, 'rating').length === 1);
+    login('junior'); t('an Underwriter I cannot waive', obsWaive(S, dEff.id, 'The later date is a renewal term and fine.').error === 'permission' && openOf(S, 'effectiveDate'));
+    login('senior_uw');
+    t('a waiver needs a reason', obsWaive(S, dEff.id, 'no').error === 'reason');
+    S.currentStep = 9; var n3 = toasts.length; goToWorkflowStep(RATING_STEP);
+    t('the open effective date stops rating', currentWorkflowStep < RATING_STEP && toasts.slice(n3).some(function(m){ return /block rating/.test(m); }));
+    t('a person who may waive can accept it with a reason', obsWaive(S, dEff.id, 'The later date is the renewal term and is fine.').ok && S.dataDiscrepancies.filter(function(d){ return d.path === 'effectiveDate'; })[0].status === 'waived' && obsBlockers(S, 'rating').length === 0);
+    obsAdd(S, { path: 'effectiveDate', value: '03/01/2027', sourceType: 'DOCUMENT', sourceRef: 'third.pdf', confidence: 0.9 }); obsDetect(S);
+    t('new evidence reopens a waived discrepancy', !!openOf(S, 'effectiveDate'));
+
+    // ---------- the documents are read again
+    var S2 = mk('SUB-C30-B'); use(S2); diConsolidate(S2, [s1, s2]); var ids = obsLive(S2).map(function(o){ return o.id; }).join(',');
+    obsResolve(S2, 'fein', { observationId: obsLive(S2).filter(function(o){ return o.path === 'fein'; })[0].id, reasonCode: 'document_newer', reason: 'Application is the later document.' });
+    diConsolidate(S2, [s1, s2]);
+    t('reading the same documents again keeps the same observations and the resolution', obsLive(S2).map(function(o){ return o.id; }).join(',') === ids && !openOf(S2, 'fein') && obsChain(S2, 'fein').length === 1);
+    diConsolidate(S2, [s1]);
+    t('a document taken away withdraws its observations without deleting them', obsLive(S2).filter(function(o){ return o.sourceRef === 'schedule.xlsx'; }).length === 0 && S2.dataObservations.filter(function(o){ return o.sourceRef === 'schedule.xlsx' && o.status === 'withdrawn'; }).length >= 2);
+    t('and the conflict that depended on it settles by itself', !openOf(S2, 'fein') && obsResolvedValue(S2, 'fein') === '74-9842109');
+
+    // an automatic resolution does not write over what is already on the case; only a person's resolution does
+    var K = mk('SUB-C30-K', { insured: 'Entered By Hand LLC', fein: '11-1111111', vehicles: [{ year: 2022, make: 'Volvo' }] }); use(K); diConsolidate(K, [s1]);
+    t('reading documents does not overwrite values already on the case', K.insured === 'Entered By Hand LLC' && K.fein === '11-1111111' && K.vehicles[0].make === 'Volvo' && obsCurrentRes(K, 'fein').method === 'auto_single');
+    login('senior_uw'); obsResolve(K, 'fein', { value: '22-2222222', reasonCode: 'insured_confirmed', reason: 'Producer confirmed the number.' });
+    t('a resolution by a person does', K.fein === '22-2222222');
+
+    // ---------- missing required values
+    var M = mk('SUB-C30-M'); use(M); diConsolidate(M, [doc('note.txt', 'Business Name: Links\nVehicle Count: 2')]);
+    t('a required value no source gives is a discrepancy', openOf(M, 'fein') && openOf(M, 'fein').type === 'missing' && openOf(M, 'dot') && openOf(M, 'dot').type === 'missing' && !openOf(M, 'insured'));
+    t('a missing FEIN blocks the quote', obsBlockers(M, 'quote').some(function(d){ return d.path === 'fein'; }));
+    var rm = obsResolve(M, 'fein', { value: '74-9842109', reasonCode: 'insured_confirmed', reason: 'Producer gave it by phone.' });
+    t('entering it settles it, as an observation by the person', rm.ok && !openOf(M, 'fein') && obsLive(M).some(function(o){ return o.path === 'fein' && o.sourceType === 'USER'; }) && M.fein === '74-9842109');
+
+    // ---------- a value typed over at Confirm
+    var C = mk('SUB-C30-C'); use(C); var dc = diConsolidate(C, [s1]); emailIngestionDraftBySubId[C.id] = dc;
+    var box = document.createElement('div'); box.id = 'c30_form'; box.innerHTML = '<input id="normField_insured" value="Links Freight Inc"><input id="normField_fein" value="74-9842109"><input id="normField_dot" value="">'; document.body.appendChild(box);
+    applyNormalizedDataToSubmission(C.id);
+    var ci = obsLive(C).filter(function(o){ return o.path === 'insured' && o.sourceType === 'USER'; })[0];
+    t('a value changed in the Confirm form is an observation by the person and a resolution', ci && ci.value === 'Links Freight Inc' && obsCurrentRes(C, 'insured').method === 'user_entered' && obsResolvedValue(C, 'insured') === 'Links Freight Inc' && C.insured === 'Links Freight Inc');
+    t('a value left as it was is not recorded again', !obsLive(C).some(function(o){ return o.path === 'fein' && o.sourceType === 'USER'; }));
+    t('the change is in the log with the old value', C.decisionLog.some(function(d){ return d.decision === 'data_resolved' && /changed to Links Freight Inc at Confirm/.test(d.notes) && /was /.test(d.notes); }));
+    document.body.removeChild(box);
+
+    // ---------- provider orders, cost and freshness
+    login('junior'); var E = mk('SUB-C30-E', { assignedTo: 'junior' }); use(E); diConsolidate(E, [doc('app.pdf', 'Business Name: Links LLC\nFEIN: 74-9842109\nUS DOT: 1234567\nAddress: 12 Main Street, Dallas TX 75201')]);
+    t('the catalogue lists government sources with their cost and how long an answer stays fresh', DATA_PRODUCTS.length === 4 && DATA_PRODUCTS.every(function(p){ return p.ttlHours > 0 && p.code && p.provider; }) && enrProduct('FMCSA_SAFER').unitCost === 0 && enrProduct('STATE_MVR').unitCost === null && enrProduct('NHTSA_VPIC').ttlHours === 8760);
+    t('a product that does not apply to the line is refused', (function(){ var G = mk('SUB-C30-G', { lobKey: 'gl_cpc' }); return enrichOrder(G, 'FMCSA_SAFER', {}).error === 'line'; })() && enrichOrder(E, 'NOPE', {}).error === 'product');
+    var o1 = enrichOrder(E, 'FMCSA_SAFER', { reason: 'Verify the legal name and DOT.' });
+    t('an order is recorded with who, when and the expected cost; nothing is fetched', o1.ok && o1.request.status === 'sent' && o1.request.estimatedCost === 0 && /Sarah Jenkins/.test(o1.request.requestedBy) && E.decisionLog.some(function(d){ return d.decision === 'data_ordered' && /no fee/.test(d.notes); }));
+    t('the same product is not ordered twice while one waits', enrichOrder(E, 'FMCSA_SAFER', {}).error === 'open');
+    var bad = enrichReceive(E, o1.request.id, { values: { nonsense: 'x' } });
+    t('an unknown field in a response is refused and the order stays open', bad.error === 'path' && bad.bad[0] === 'nonsense' && o1.request.status === 'sent');
+    t('a cost that is not a number, or a match outside 0 to 100%, is refused', enrichReceive(E, o1.request.id, { values: { dot: '1' }, costAmount: -3 }).error === 'cost' && enrichReceive(E, o1.request.id, { values: { dot: '1' }, matchConfidence: 1.4 }).error === 'match' && enrichReceive(E, o1.request.id, { values: {} }).error === 'values');
+    var parsed = enrParseValues('dot: 7654321\ninsured = LINKS LLC\n\nwhat is this\naddress: 12 Main St, Dallas TX 75201');
+    t('response lines are read as field and value, and lines that are not are reported', parsed.values.dot === '7654321' && parsed.values.insured === 'LINKS LLC' && parsed.values.address.indexOf('12 Main St') === 0 && parsed.bad.length === 1 && parsed.bad[0] === 'what is this');
+    var rc = enrichReceive(E, o1.request.id, { values: parsed.values, matchConfidence: 0.9 });
+    var po = obsLive(E).filter(function(o){ return o.sourceType === 'PROVIDER'; });
+    t('the response is kept with its cost, match, date and expiry', rc.ok && rc.response.costAmount === 0 && rc.response.matchConfidence === 0.9 && /^\d{4}-\d{2}-\d{2}T/.test(rc.response.receivedAt) && Date.parse(rc.response.expiresAt) - Date.parse(rc.response.receivedAt) === 720 * 3600000 && o1.request.status === 'received' && o1.request.responseId === rc.response.id);
+    t('each value becomes a provider observation with the match as its confidence and the expiry', po.length === 3 && po.every(function(o){ return o.confidence === 0.9 && o.expiresAt === rc.response.expiresAt && o.responseId === rc.response.id && o.sourceRef === 'FMCSA_SAFER'; }));
+    t('the answer is compared with the documents: a different DOT is a discrepancy', openOf(E, 'dot') && openOf(E, 'dot').type === 'value_mismatch' && openOf(E, 'dot').candidateIds.length === 2 && openOf(E, 'dot').blocksStage === 'quote');
+    t('while the same name and address in other words are not', !openOf(E, 'insured') && !openOf(E, 'address'));
+    var fr = enrFreshness(rc.response);
+    t('freshness says until when', fr.state === 'fresh' && fr.until === rc.response.expiresAt.slice(0, 10) && fr.hoursLeft > 700);
+    var again = enrichOrder(E, 'FMCSA_SAFER', {});
+    t('an answer that is still fresh is not bought again, and the message says until when', again.error === 'fresh' && again.until === fr.until && !!enrichOrder(E, 'FMCSA_SAFER', { force: true }).ok);
+    var o2 = E.enrichmentRequests[E.enrichmentRequests.length - 1];
+    var rc2 = enrichReceive(E, o2.id, { values: { dot: '1234567', insured: 'LINKS LLC' }, matchConfidence: 1 });
+    t('a newer answer supersedes the old one, which stays on the record', rc2.ok && E.dataObservations.filter(function(o){ return o.responseId === rc.response.id && o.status === 'superseded'; }).length === 3 && obsLive(E).filter(function(o){ return o.sourceType === 'PROVIDER' && o.responseId === rc2.response.id; }).length === 2);
+    t('and with the new answer agreeing with the documents the discrepancy settles', !openOf(E, 'dot'));
+    var mvr = enrichOrder(E, 'STATE_MVR', {});
+    var rmvr = enrichReceive(E, mvr.request.id, { values: { 'driver.1.licenseStatus': 'Valid' }, costAmount: 12.5 });
+    t('a state record has no standard fee, so the cost is entered and totalled', mvr.request.estimatedCost === null && rmvr.ok && rmvr.response.costAmount === 12.5 && enrTotalCost(E) === 12.5);
+    var nm = enrichOrder(E, 'NHTSA_VPIC', {}); var rnm = enrichReceive(E, nm.request.id, { values: {}, status: 'no_match' });
+    t('"no match" and a failed request are recorded and add no values', rnm.ok && rnm.response.status === 'no_match' && nm.request.status === 'received' && !obsLive(E).some(function(o){ return o.sourceRef === 'NHTSA_VPIC'; }));
+    t('a no-match response does not count as a fresh answer', enrLatestResponse(E, 'NHTSA_VPIC') && enrLatestResponse(E, 'NHTSA_VPIC').status === 'no_match');
+
+    // provider data expires
+    var latest = obsLive(E).filter(function(o){ return o.sourceType === 'PROVIDER' && o.path === 'dot'; })[0];
+    latest.expiresAt = new Date(Date.now() - 86400000).toISOString(); rc2.response.expiresAt = latest.expiresAt; obsDetect(E);
+    t('provider data past its window is a stale discrepancy', openOf(E, 'dot') && openOf(E, 'dot').type === 'stale' && openOf(E, 'dot').blocksStage === 'quote' && enrFreshness(rc2.response).state === 'expired');
+    var o3 = enrichOrder(E, 'FMCSA_SAFER', {}); t('an expired answer may be ordered again without force', o3.ok);
+    enrichReceive(E, o3.request.id, { values: { dot: '1234567' }, matchConfidence: 1 });
+    t('a fresh answer settles it', !openOf(E, 'dot'));
+
+    // ---------- rated on a value that has since changed
+    login('senior_uw'); var P = mk('SUB-C30-P'); use(P); diConsolidate(P, [s1, doc('dot.txt', 'US DOT: 1234567')]); P.currentStep = 10; goToWorkflowStep(RATING_STEP);
+    t('entering rating notes which resolved values the case is rated on', !!P.ratingPins && P.ratingPins.pins.fein === obsCurrentRes(P, 'fein').id && P.ratingPins.pins.insured === obsCurrentRes(P, 'insured').id);
+    var before = P.ratingPins.at; goToWorkflowStep(RATING_STEP);
+    t('going back to rating does not quietly move the pins', P.ratingPins.at === before);
+    obsResolve(P, 'fein', { value: '74-9842199', reasonCode: 'insured_confirmed', reason: 'Producer corrected the FEIN after rating.' });
+    var dp = openOf(P, 'fein');
+    t('changing a value after rating is a discrepancy that blocks the quote', dp && dp.type === 'stale_rating' && dp.blocksStage === 'quote' && obsBlockers(P, 'quote').length === 1 && obsBlockers(P, 'rating').length === 0);
+    t('and the history shows what it was rated on and what it is now', obsChainText(P, 'fein') === '74-9842109 → 74-9842199');
+    t('re-rating clears it, and needs the permission', (function(){ login('admin'); var d = obsRepin(P); login('senior_uw'); return d.error === 'permission' && !!openOf(P, 'fein') && obsRepin(P).ok && !openOf(P, 'fein') && P.ratingPins.pins.fein === obsCurrentRes(P, 'fein').id; })());
+
+    // ---------- the brief
+    use(S); var brief = buildDecisionBrief(S); var sd = brief.checks.filter(function(c){ return c.label === 'Source data'; })[0];
+    t('the decision brief shows the open discrepancies and asks for more information, not a quote', !!sd && sd.status === 'fail' && /Effective Date/.test(sd.detail) && brief.recommendation === 'info' && /Source data disagrees/.test(brief.reasons.join(' ')), sd && sd.detail);
+    use(S2); var br2 = buildDecisionBrief(S2).checks.filter(function(c){ return c.label === 'Source data'; })[0];
+    t('and says all resolved when they are', br2 && br2.status === 'ok' && /all resolved/.test(br2.detail), br2 && br2.detail);
+
+    // ---------- the screens
+    login('senior_uw'); use(S); renderDataObservations(S);
+    var card = el('dataDiscrepancyContainer').innerText;
+    t('the Confirm step shows the open items with every candidate, its source, page, confidence and date', /Source data: conflicts and gaps/.test(card) && /Effective Date/.test(card) && /extra\.pdf/.test(card) && /application\.pdf/.test(card) && /90%/.test(card));
+    t('the same card is on the Enrich step, with the change history', !!el('dataDiscrepancyContainer2') && el('dataDiscrepancyContainer2').innerText === card && /74-9842109 → 74-9842110 → 12-3456789/.test(card));
+    t('every value and where it came from is listed', /Where each value came from/.test(card) && /DOCUMENT: schedule\.xlsx/.test(card));
+    var dd = openOf(S, 'effectiveDate'); el('obs_code_' + dd.id).value = 'document_newer'; el('obs_reason_' + dd.id).value = 'The January document is the later one.';
+    var pickBtn = el('dataDiscrepancyContainer').querySelector('[data-disc="' + dd.id + '"] button'); pickBtn.click();
+    t('"Use this" on the page resolves it with the reason typed there', S.dataDiscrepancies.filter(function(d){ return d.path === 'effectiveDate' && d.type === 'value_mismatch'; })[0].status === 'resolved' && obsCurrentRes(S, 'effectiveDate').reason === 'The January document is the later one.' && obsCurrentRes(S, 'effectiveDate').method === 'user_selected');
+    t('and because the case had entered rating on the earlier value, the change is flagged for re-rating', !!openOf(S, 'effectiveDate') && openOf(S, 'effectiveDate').type === 'stale_rating');
+    login('junior'); use(E); renderEnrichment(E); var ec = el('dataEnrichmentContainer').innerText;
+    t('the Enrich step lists each product with cost, freshness and status, and says no provider is connected', /No provider is connected/.test(ec) && /Company Snapshot/.test(ec) && /set by the state/.test(ec) && /no fee/.test(ec) && /Spent on this case: \$12\.50/.test(ec) && /Fresh until/.test(ec));
+    login('senior_uw'); var G2 = mk('SUB-C30-U', { assignedTo: 'senior_uw' }); use(G2); diConsolidate(G2, [s1]); renderEnrichment(G2);
+    enrUiOrder(G2.id, 'NHTSA_VPIC');
+    var req = G2.enrichmentRequests[0];
+    t('"Order" on the page records the request and opens a box for the answer', !!req && req.status === 'sent' && !!el('enr_vals_' + req.id) && !!el('enr_cost_' + req.id) && !!el('enr_match_' + req.id));
+    el('enr_vals_' + req.id).value = 'vehicle.1.make: Volvo\nvehicle.1.year: 2022'; el('enr_cost_' + req.id).value = '0'; el('enr_match_' + req.id).value = '95'; enrUiRecord(G2.id, req.id);
+    t('"Record the response" stores it and the page then shows it as fresh', req.status === 'received' && obsLive(G2).filter(function(o){ return o.sourceType === 'PROVIDER'; }).length === 2 && obsLive(G2).filter(function(o){ return o.sourceType === 'PROVIDER'; })[0].confidence === 0.95 && /Fresh until/.test(el('dataEnrichmentContainer').innerText));
+    t('the new containers are on the page', !!el('dataDiscrepancyContainer') && !!el('dataDiscrepancyContainer2') && !!el('dataEnrichmentContainer'));
+    t('the audit actions are labelled', ['data_resolved', 'data_waived', 'data_blocked', 'data_repinned', 'data_ordered', 'data_received'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+  } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 4).join(' | ')); }
+  if (errs.length) out.push('PAGE ERRORS: ' + errs.join(' || '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

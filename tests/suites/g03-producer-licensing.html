@@ -51,6 +51,25 @@
     var noState = clone(marsh); noState.address = 'Somewhere'; noState.insuredInfo.insured_garaging_state = 'Houston'; delete noState.canonicalJson;
     t('no state -> cannot_determine', evaluateProducerCompliance(noState, TODAY).status === 'cannot_determine');
 
+    // an unknown risk state can be set on the card by someone who may edit; it is logged, wins over the case, and the check re-runs
+    var ns = clone(noState); ns.id = 'SUB-G03-NS'; ns.apiSourced = true; ns.decisionLog = []; ns.rawEmailText = ''; delete ns.producerCheck;
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(ns); activeSubmissionId = ns.id;
+    document.getElementById('loginUserSelect').value = 'senior_uw'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    runProducerCheck(ns, 'test'); renderProducerCard(ns);
+    var nsTx = document.getElementById('producerLicensingContainer').innerText;
+    t('with the state unknown the card says where it looked and offers a way to set it', /could not be found on the case/.test(nsTx) && !!document.getElementById('plRiskState') && /Set the risk state/.test(nsTx));
+    var tn = ns.decisionLog.length; document.getElementById('plRiskState').value = ''; producerSetRiskState();
+    t('choosing no state sets nothing', !ns.riskStateSet && ns.decisionLog.length === tn);
+    document.getElementById('plRiskState').value = 'TX'; producerSetRiskState();
+    t('setting TX is recorded with who and when, logged, and the check re-runs on it', ns.riskStateSet.state === 'TX' && /David Chen/.test(ns.riskStateSet.by) && ns.decisionLog.some(function(d){ return d.decision === 'producer_risk_state_set' && /Risk state set to TX/.test(d.notes); }) && deriveRiskState(ns) === 'TX' && producerCurrent(ns).riskState === 'TX' && producerCurrent(ns).status !== 'cannot_determine');
+    t('the set state wins over the address on the case', deriveRiskState(Object.assign(clone(ns), { address: '5 Ave, Reno, NV 89501' })) === 'TX' && deriveRiskState({ riskStateSet: { state: 'ZZ' }, address: '5 Ave, Reno, NV 89501' }) === 'NV');
+    document.getElementById('loginUserSelect').value = 'assistant'; submitLogin();
+    var nt = clone(noState); nt.id = 'SUB-G03-NT'; nt.apiSourced = true; nt.decisionLog = []; nt.rawEmailText = ''; SUBMISSIONS_DATASET.push(nt); activeSubmissionId = nt.id;
+    document.getElementById('plRiskState') && document.getElementById('plRiskState').remove(); producerSetRiskState();
+    t('someone who may not edit cannot set it', !nt.riskStateSet);
+    document.getElementById('loginUserSelect').value = 'senior_uw'; submitLogin();
+    t('the audit action is labelled', !!AUDIT_ACTION_META.producer_risk_state_set);
+
     r = evaluateProducerCompliance(marsh, new Date('2027-04-01T12:00:00Z'));
     t('licence expires after 2027-03-31 -> failed', r.status === 'failed' && checkOf(r,'license').pass === false);
 
@@ -136,6 +155,46 @@
     t('both guards pass -> e-signature opens', modal.style.display === 'flex');
     modal.style.display = 'none';
     t('XSS-safe', producerEsc('<script>') === '&lt;script&gt;');
+
+    // --- the risk state is where the customer's business is, read from the email when the case has no address of its own
+    var DEMO_EMAIL = 'Please quote auto liability for Delta Haulers LLC, a for-hire dry-freight carrier based in Dallas, TX.\n\nInsured: Delta Haulers LLC\nAddress: 1200 Commerce St, Dallas, TX 75202\nStates Operated: OK, NM, AZ\n';
+    t('an address with a ZIP gives the state', stateFromAddressText('1200 Commerce St, Dallas, TX 75202') === 'TX' && stateFromAddressText('9 Elm Road, Tulsa, OK 74103-1234') === 'OK');
+    t('so does City, ST with no ZIP, City, State name, or a bare state', stateFromAddressText('Dallas, TX') === 'TX' && stateFromAddressText('Dallas, Texas') === 'TX' && stateFromAddressText('Texas') === 'TX' && stateFromAddressText('OK') === 'OK' && stateFromAddressText('Santa Fe, New Mexico 87501') === 'NM');
+    t('a street suffix that looks like a state code is not read as one', stateFromAddressText('500 Main St NE') === null && stateFromAddressText('(Pending)') === null && stateFromAddressText('') === null && stateFromAddressText('Dallas, ZZ') === null);
+    t('the email\'s Address line is read, and "states operated" is not', stateFromEmailText(DEMO_EMAIL) === 'TX' && stateFromEmailText('States Operated: OK, NM\n') === null);
+    t('"based in City, ST", "located in" and a State line are read too', stateFromEmailText('We are based in Tulsa, OK and need cover.') === 'OK' && stateFromEmailText('Our office is located in Boise, Idaho.') === 'ID' && stateFromEmailText('Insured: A\nState: Ohio\n') === 'OH' && stateFromEmailText('Licence State: TX\n') === null);
+    t('a case with only the email text takes the state from it', deriveRiskState({ address: '(Pending)', rawEmailText: DEMO_EMAIL }) === 'TX' && deriveRiskState({ address: '', rawEmailText: 'We are based in Tulsa, OK.' }) === 'OK');
+    t('a stated address wins over the email, and the garaging state wins over both', deriveRiskState({ address: '5 Ave, Reno, NV 89501', rawEmailText: DEMO_EMAIL }) === 'NV' && deriveRiskState({ address: '5 Ave, Reno, NV 89501', insuredInfo: { insured_garaging_state: 'CA' }, rawEmailText: DEMO_EMAIL }) === 'CA');
+    t('no state anywhere is still unknown', deriveRiskState({ address: '(Pending)', rawEmailText: 'Hi, please quote us.' }) === null && deriveRiskState({}) === null);
+
+    // --- the verification form is filled from the loaded registry; the demo registry file passes the check
+    var savedReg = PRODUCER_REGISTRY.slice(), savedCarrier = PRODUCER_DEFAULT_CARRIER;
+    var CSV = 'producer_name,npn,license_state,license_number,license_lines,license_status,license_expires,appointment_carrier,appointment_state,appointment_lobs,appointment_status,appointment_effective\n' +
+      'Marsh & McLennan Commercial Brokerage,12345678,TX,TX-DEMO-0001,Property & Casualty,Active,2028-12-31,Vikram & Sons,TX,trucking,Active,2025-01-01\n' +
+      'Marsh & McLennan Commercial Brokerage,12345678,OK,OK-DEMO-0001,Property & Casualty,Active,2028-12-31,Vikram & Sons,OK,trucking,Active,2025-01-01\n';
+    var parsed = refParseRegistry(CSV);
+    PRODUCER_REGISTRY.length = 0; parsed.records.forEach(function(x){ PRODUCER_REGISTRY.push(x); }); PRODUCER_DEFAULT_CARRIER = 'Vikram & Sons';
+    var demo = clone(marsh); demo.carrier = undefined; demo.lobKey = 'trucking';
+    t('the demo registry file reads cleanly and a case from that broker passes all four checks', parsed.skipped.length === 0 && parsed.counts.producers === 1 && parsed.counts.licences === 2 && evaluateProducerCompliance(demo, TODAY).status === 'verified', evaluateProducerCompliance(demo, TODAY).checks.map(function(c){ return c.id + ':' + c.pass; }).join());
+    var pf = producerPrefill(demo);
+    t('the form values come from the registry record for the risk state and carrier', pf && pf.npn === '12345678' && pf.licenseNumber === 'TX-DEMO-0001' && pf.licenseExpires === '2028-12-31' && pf.appointmentEffective === '2025-01-01' && pf.missing.length === 0);
+    runProducerCheck(demo, 'test'); renderProducerCard(demo);
+    function shown(){ var c = document.getElementById('producerLicensingContainer').cloneNode(true); [].forEach.call(c.querySelectorAll('details'), function(d){ d.remove(); }); return c.textContent; }
+    var cardTx = document.getElementById('producerLicensingContainer').innerText, cardHtml = document.getElementById('producerLicensingContainer').innerHTML;
+    t('the card shows what the registry file holds for the customer state: producer, NPN, that state licence and appointment', /Read from the licensing registry/.test(cardTx) && /for TX, where the customer's business is/.test(cardTx) && /12345678/.test(cardTx) && /TX-DEMO-0001/.test(cardTx) && /Property & Casualty/.test(cardTx) && /Vikram & Sons/.test(cardTx) && /2028-12-31/.test(cardTx) && /2025-01-01/.test(cardTx));
+    t('the other states in the file are kept out of sight in a collapsed list, with their counts', !/OK-DEMO-0001/.test(shown()) && /TX-DEMO-0001/.test(shown()) && /<details[^>]*>\s*<summary[^>]*>Other states in the file \(1 licence\(s\), 1 appointment\(s\)\)/.test(cardHtml) && /OK-DEMO-0001/.test(cardHtml));
+    var okCase = clone(demo); okCase.insuredInfo = { insured_garaging_state: 'OK' }; runProducerCheck(okCase, 'test'); renderProducerCard(okCase);
+    t('a case in another state shows that state licence instead', /for OK, where the customer's business is/.test(shown()) && /OK-DEMO-0001/.test(shown()) && !/TX-DEMO-0001/.test(shown()));
+    var nmCase = clone(demo); nmCase.insuredInfo = { insured_garaging_state: 'NM' }; runProducerCheck(nmCase, 'test'); renderProducerCard(nmCase);
+    t('a state the file has nothing for says so, for both the licence and the appointment', (shown().match(/The file has no (licence|appointment) for NM/g) || []).length === 2);
+    var unknownP = clone(demo); unknownP.broker = 'Nobody Brokerage Group'; runProducerCheck(unknownP, 'test'); renderProducerCard(unknownP);
+    t('a registry with no match for the producer says so instead of showing another record', /none matches "Nobody Brokerage Group"/.test(document.getElementById('producerLicensingContainer').innerText));
+    var gap = clone(demo); gap.insuredInfo = { insured_garaging_state: 'TX' }; gap.address = '1 Main St, Dallas, TX 75202';
+    PRODUCER_REGISTRY[0].appointments = PRODUCER_REGISTRY[0].appointments.filter(function(a){ return a.state !== 'TX'; });
+    var pg = producerPrefill(gap);
+    t('a registry with the licence but no appointment fills what it has and says what is missing', pg && pg.licenseNumber === 'TX-DEMO-0001' && pg.appointmentEffective === '' && pg.missing.join() === 'appointment');
+    t('a producer not in the registry gets no prefill', producerPrefill(Object.assign(clone(demo), { broker: 'Nobody Brokerage Group' })) === null);
+    PRODUCER_REGISTRY.length = 0; PRODUCER_DEFAULT_CARRIER = savedCarrier; savedReg.forEach(function(x){ PRODUCER_REGISTRY.push(x); });
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

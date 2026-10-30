@@ -207,6 +207,8 @@ function refAfterLoad(kind) {
     if (kind === "watchlist" && typeof renderSanctionsCard === "function") renderSanctionsCard(sub);
     if (kind === "registry" && typeof renderProducerCard === "function") renderProducerCard(sub);
     if (typeof renderSanctionsCard === "function" && kind === "registry") renderSanctionsCard(sub);
+    // The hold banner at the top of Step 2 reads the same checks, so it follows them.
+    if (typeof renderClearanceHold === "function") renderClearanceHold(sub);
   }
 }
 

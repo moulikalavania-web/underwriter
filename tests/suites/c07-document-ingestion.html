@@ -110,6 +110,9 @@
     var scannedPdf = await one('scan.pdf', u8('%PDF-1.4\n1 0 obj\n<< /Subtype /Image /Width 10 /Length 4 >>\nstream\nabcd\nendstream\nendobj'));
     t('a PDF with only page images is reported as a scan needing OCR', scannedPdf.status === 'needs_ocr');
     window.DOCUMENT_OCR_PROVIDER = async function(){ return { text: 'Business Name: Scan Co\nFEIN: 12-3456789', confidence: 0.9 }; };
+    var refused = await one('scan.png', PNG);
+    t('a connected OCR service is refused until its model is approved under AI governance', refused.status === 'needs_ocr' && /refused by AI governance/.test(refused.method) && /not approved/.test(refused.notes.join(' ')) && AI.executions.some(function(x){ return x.useCaseCode === 'ocr_reading' && x.status === 'blocked_by_policy'; }));
+    ai.model('MDL-OCR').status = 'approved';   // the approval path itself is tested in suite c34
     var ocr = await one('scan.png', PNG);
     t('a connected OCR service is used, with its confidence recorded', ocr.status === 'extracted' && /OCR/.test(ocr.method) && ocr.confidence === 0.9 && fieldsOf(ocr).insured === 'Scan Co');
     delete window.DOCUMENT_OCR_PROVIDER;
