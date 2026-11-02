@@ -79,7 +79,6 @@ let currentLOBFilter = "trucking"; // 'trucking' | 'property' | 'mpl' | 'gl_cpc'
 let currentTableFilter = "all"; // 'all' | 'broker' | 'direct' | 'referral'
 let currentQueueSort = "priority"; // 'priority' | 'fifo' | 'exposure'
 let currentSearchTerm = "";
-let exposureScenario = "within"; // 'within' | 'exceeds'
 let currentScreenId = "screen-1";
 let currentUserRole = "assistant"; // 'assistant' | 'junior' | 'senior_uw' | 'senior' | 'admin'
 let modalCurrentInspectingStep = 1;

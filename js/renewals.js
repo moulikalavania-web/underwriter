@@ -204,7 +204,7 @@ var RN_RESET_FIELDS = ["pasSync", "quoteIssued", "customerApproved", "customerAp
   "subjectivityItems", "_subjMirror", "subjectivityBindDate", "_subjOverdueKey", "sanctions", "_sanctionsBindScreenAt", "producerCheck", "tria", "notices", "adverseTermsRequiresNotice", "completeness",
   "importedRatingData", "isQuoteImported", "discretionaryPricing", "eSignature", "submissionVersions", "communicationThread", "missingItems", "lifecycleStatus", "lifecycleStatusAt",
   "declinedBy", "declineReason", "declineTriggerPoint", "isReferral", "registryEnrichment", "riskScore", "riskScoreOverridden", "riskScoreAutoCalculated", "archived", "archivedAt", "archivedBy", "renewal",
-  "marketClearance", "borRecords", "borHistory", "commission", "commissionOverride"];
+  "marketClearance", "borRecords", "borHistory", "commission", "commissionOverride", "policyVersions", "policyTransactions", "policyReferrals", "policyTerm", "endorsement_number"];
 
 function rnPriorPolicyRecord(sub, f) {
   const losses = sub.losses || [];
@@ -396,16 +396,98 @@ function rnDownloadNotice(subId) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-/** When a renewal submission is bound, close out the expiring policy. */
+/**
+ * The renewal offer: what the renewal submission has reached, read from the submission itself. Rating happens in the
+ * renewal's own workflow (the prototype has no rating engine of its own); here the result is set against the expiring
+ * premium so the underwriter can evaluate the terms. A rise above the conditional-renewal threshold on a plain renewal
+ * is flagged: the terms need the underwriter's review and the notice rules checked.
+ */
+function rnOffer(old) {
+  const r = rnRecord(old), sub = r.renewalSubmissionId && rnSub(r.renewalSubmissionId);
+  if (!sub) return null;
+  const expiring = rnFacts(old).annual, premium = typeof getSubmissionPremium === "function" ? getSubmissionPremium(sub) : 0;
+  const state = sub.pasSync && sub.pasSync.policyNumber ? "bound" : (sub.customerApproved ? "accepted" : (sub.quoteIssued ? "offered" : (premium > 0 ? "rated" : "awaiting_rating")));
+  const changePct = expiring > 0 && premium > 0 ? Math.round((premium - expiring) / expiring * 1000) / 10 : null;
+  const flags = [];
+  if (changePct !== null && changePct > RENEWAL_CONDITIONAL_PREMIUM_PCT && r.decision === "renew") flags.push(`premium is ${changePct}% above the expiring premium, over the ${RENEWAL_CONDITIONAL_PREMIUM_PCT}% threshold, on a plain renewal with no conditional-renewal notice`);
+  const ref = sub.authorityRef;
+  return { submissionId: sub.id, state, expiring, premium, changePct, flags, approval: ref ? ref.status : (typeof authNeedsReferral === "function" && authNeedsReferral(sub) ? "referral needed" : "within desk authority") };
+}
+var RN_OFFER_LABEL = { awaiting_rating: "Awaiting rating", rated: "Rated, quote not yet issued", offered: "Offered to the insured", accepted: "Accepted by the insured", bound: "Bound" };
+
+var RN_SOURCES = [
+  { key: "registry", label: "Registry check (VIN, DOT, licences)", clears: "Updated schedules (vehicles, drivers, locations)" },
+  { key: "mvr", label: "Motor vehicle records", clears: null },
+  { key: "lossRuns", label: "Loss runs", clears: "Currently valued loss runs from every carrier for the look-back period" }
+];
+var RN_SOURCE_STATUS = { received: "received", failed: "service failed", not_connected: "not connected" };
+
+/** Asks each connected outside service for fresh data. A service that is not connected is recorded as such; nothing is invented. */
+function rnPullSources(sub, f) {
+  const out = {};
+  RN_SOURCES.forEach(s => {
+    const fn = typeof EXTERNAL_SERVICES !== "undefined" ? EXTERNAL_SERVICES[s.key] : null;
+    if (typeof fn !== "function") { out[s.key] = { status: "not_connected" }; return; }
+    try {
+      const res = fn({ subId: sub.id, insured: sub.insured, policyNumber: f.policyNumber, vehicles: sub.vehicles || [], drivers: sub.drivers || [] });
+      out[s.key] = res && res.ok ? { status: "received", summary: res.summary || "", at: rnNow() } : { status: "failed", error: (res && res.error) || "The service returned no data.", at: rnNow() };
+    } catch (e) { out[s.key] = { status: "failed", error: e.message, at: rnNow() }; }
+  });
+  return out;
+}
+
+/** The rating service's figure for the renewal term, or null when none is connected or it gives none. */
+function rnRateRenewal(sub, f) {
+  if (typeof EXTERNAL_SERVICES === "undefined" || typeof EXTERNAL_SERVICES.rating !== "function") return null;
+  try { const r = EXTERNAL_SERVICES.rating({ kind: "renewal", subId: sub.id, annualPremium: f.annual }); return r && typeof r.premium === "number" ? r.premium : null; }
+  catch (e) { console.warn("Rating service failed:", e); return null; }
+}
+
+/**
+ * The renewal batch. For every policy inside the review window it starts the review and takes a snapshot of the risk as
+ * carried into renewal. The prototype does not pull outside data: the snapshot lists what must be refreshed.
+ */
+function rnRunBatch(today) {
+  if (!hasPermission("renewals", "edit")) { denyPermission("renewals", "edit"); return 0; }
+  let n = 0;
+  rnPolicies(today).forEach(p => {
+    const r = rnRecord(p.sub);
+    if (r.status !== "not_started" || p.days < 0 || p.days > RENEWAL_REVIEW_START_DAYS) return;
+    r.status = "under_review"; r.reviewStartedAt = rnNow(); r.reviewStartedBy = "Renewal batch";
+    r.riskRefresh = { at: rnNow(), expiringPremium: p.f.annual, vehicles: (p.sub.vehicles || []).length, drivers: (p.sub.drivers || []).length, claims: (p.sub.losses || []).length, toRefresh: RN_INFO_CHECKLIST.slice(), sources: rnPullSources(p.sub, p.f), indicatedPremium: null };
+    RN_SOURCES.forEach(s => { if (r.riskRefresh.sources[s.key].status === "received" && s.clears) r.riskRefresh.toRefresh = r.riskRefresh.toRefresh.filter(x => x !== s.clears); });
+    const rated = rnRateRenewal(p.sub, p.f);
+    if (rated !== null) r.riskRefresh.indicatedPremium = rated;
+    rnLog(p.sub, "renewal_review_started", `Renewal batch: review started for policy ${p.f.policyNumber} (expires ${p.f.expiration}, ${p.days} days). Carried into renewal: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es); expiring premium ${rnMoney(p.f.annual)}. ${RN_SOURCES.map(s => s.label + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${rated !== null ? " Rating service indicates " + rnMoney(rated) + "." : " No rating service connected: the renewal is priced in its own workflow."} Still to refresh: ${r.riskRefresh.toRefresh.join("; ") || "nothing"}.`);
+    n++;
+  });
+  if (n) { rnPersist(); renderRenewalPipeline(); }
+  showToast(n ? `Renewal batch: review started for ${n} polic${n === 1 ? "y" : "ies"}.` : "Renewal batch: nothing is due.", n ? "success" : "info");
+  return n;
+}
+
+/** When a renewal submission is bound, close out the expiring policy and open the new term. */
 function rnOnBound(sub) {
   if (!sub || !sub.renewalOf || !(sub.pasSync && sub.pasSync.policyNumber)) return;
   const old = rnSub(sub.renewalOf);
   if (!old) return;
   const r = rnRecord(old);
   if (r.status === "renewed") return;
+  const offer = rnOffer(old);
   r.status = "renewed"; r.renewedPolicyNumber = sub.pasSync.policyNumber; r.renewedBy = sub.id; r.renewedAt = rnNow();
+  r.accepted = offer ? { expiring: offer.expiring, premium: offer.premium, changePct: offer.changePct } : null;
   rnLog(old, "renewal_completed", `Renewed as ${sub.pasSync.policyNumber} (submission ${sub.id}).`);
   rnLog(sub, "renewal_completed", `Bound as the renewal of ${old.id} (policy ${rnFacts(old).policyNumber}).`);
+  // the new policy term, with its transaction and first policy version
+  const f = rnFacts(sub), oldTerm = old.policyTerm ? old.policyTerm.termNo : 1;
+  sub.policyTerm = { termNo: oldTerm + 1, effective: f.effective, expiration: f.expiration, policyNumber: sub.pasSync.policyNumber, priorPolicyNumber: rnFacts(old).policyNumber, priorSubmissionId: old.id };
+  if (!old.policyTerm) old.policyTerm = { termNo: 1, effective: rnFacts(old).effective, expiration: rnFacts(old).expiration, policyNumber: rnFacts(old).policyNumber, priorPolicyNumber: null, priorSubmissionId: null };
+  if (typeof pcRecordTransaction === "function" && typeof pcVersions === "function") {
+    const ev = { id: `RNW-${sub.id}`, type: "renewal", effective: f.effective, by: rnActor(), at: rnNow() };
+    const txn = pcRecordTransaction(sub, ev, { linkedTo: old.id });
+    const v = pcVersions(sub)[0]; v.kind = "renewal"; v.transactionId = txn.id; txn.versionNo = v.version;
+    rnLog(sub, "renewal_term_created", `Policy term ${sub.policyTerm.termNo} ${f.effective} to ${f.expiration}: transaction ${txn.id}, policy version ${v.version}, premium ${rnMoney(v.annualPremium)}${offer && offer.changePct !== null ? " (" + (offer.changePct >= 0 ? "+" : "") + offer.changePct + "% on the expiring term)" : ""}.`);
+  }
   rnPersist();
 }
 
@@ -426,6 +508,19 @@ var rnUI = { bucket: "all", stage: "all", selected: null };
 
 function rnSetFilter(kind, v) { rnUI[kind] = v; renderRenewalPipeline(); }
 function rnSelect(id) { rnUI.selected = id; renderRenewalPipeline(); }
+
+function rnOfferHtml(sub) {
+  const r = rnRecord(sub), o = rnOffer(sub);
+  const refresh = r.riskRefresh ? `<div class="text-xs text-muted" style="margin-top:8px;">Risk carried into renewal on ${rnEsc(r.riskRefresh.at)}: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es). ${RN_SOURCES.map(s => rnEsc(s.label) + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${r.riskRefresh.indicatedPremium !== null ? " Rating service: " + rnMoney(r.riskRefresh.indicatedPremium) + "." : ""} Still to refresh: ${rnEsc(r.riskRefresh.toRefresh.join("; ") || "nothing")}.</div>` : "";
+  if (!o) return refresh;
+  const flags = o.flags.map(x => `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> ${rnEsc(x.charAt(0).toUpperCase() + x.slice(1))}. Underwriting must review the terms before the quote is issued.</div>`).join("");
+  return `${refresh}<h4 style="margin:12px 0 6px;">Renewal offer</h4>
+    <div class="clean-meta-list">
+      <div class="clean-meta-row"><span class="meta-label">Status</span><span class="meta-value">${rnEsc(RN_OFFER_LABEL[o.state])}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Premium</span><span class="meta-value">${o.premium > 0 ? rnMoney(o.premium) + (o.changePct !== null ? ` (${o.changePct >= 0 ? "+" : ""}${o.changePct}% on the expiring ${rnMoney(o.expiring)})` : "") : "Not rated yet; the renewal submission is priced in its own workflow"}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Underwriting approval</span><span class="meta-value">${rnEsc(o.approval)}</span></div>
+    </div>${flags}`;
+}
 
 function rnDetailHtml(p) {
   const sub = p.sub, r = rnRecord(sub), canEdit = hasPermission("renewals", "edit"), canApprove = hasPermission("renewals", "approve"), canOverride = hasPermission("renewals", "override");
@@ -485,6 +580,7 @@ function rnDetailHtml(p) {
     <div class="card-body">
       <div class="text-xs text-muted" style="margin-bottom:8px;">Expires ${rnEsc(p.f.expiration)} (${p.days >= 0 ? p.days + " days" : -p.days + " days ago"}) · annual premium ${rnMoney(p.f.annual)} · risk state ${rnEsc(p.state || "unknown")}</div>
       <div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Milestone</th><th>Date</th><th>Status</th></tr></thead><tbody>${ms}</tbody></table></div>
+      ${rnOfferHtml(sub)}
       <div style="margin-top:12px;">${actions}</div>
       <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> Notice days default to ${RENEWAL_NOTICE_DEFAULTS.nonrenewal} (non-renewal) and ${RENEWAL_NOTICE_DEFAULTS.conditional} (conditional renewal) and are placeholders: state law governs. A conditional renewal applies above a ${RENEWAL_CONDITIONAL_PREMIUM_PCT}% premium rise or any reduction in cover.</p>
     </div></div>`;
@@ -534,6 +630,7 @@ function renderRenewalPipeline() {
     <div class="card">
       <div class="card-header"><h3><i class="ph ph-calendar-check"></i> Renewal Pipeline</h3><span class="text-xs text-muted">${total} bound polic${total === 1 ? "y" : "ies"}</span></div>
       <div class="card-body">
+        ${hasPermission("renewals", "edit") ? `<div style="margin-bottom:10px;"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRunBatch()"><i class="ph ph-queue"></i> Run renewal batch</button> <span class="text-xs text-muted">Starts review for every policy inside ${RENEWAL_REVIEW_START_DAYS} days of expiry and records the risk carried into renewal.</span></div>` : ""}
         <div style="margin-bottom:10px;">${summary || '<span class="text-xs text-muted">No bound policies yet. A policy appears here once it has been bound with an expiry date.</span>'}</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
           <select class="form-control" style="width:230px;" onchange="rnSetFilter('bucket', this.value)">${[["all", "Any expiry date"], ["30", "Expiring within 30 days"], ["60", "Within 60 days"], ["90", "Within 90 days"], ["120", "Within 120 days"]].map(o => `<option value="${o[0]}" ${rnUI.bucket === o[0] ? "selected" : ""}>${o[1]}</option>`).join("")}</select>
@@ -582,7 +679,8 @@ function renderRenewalChip(sub) {
     AUDIT_ACTION_META.nonrenewal_notice_issued = m("Non-Renewal Notice Issued", "ph-prohibit", "badge-danger", "outcome-decline");
     AUDIT_ACTION_META.nonrenewal_rescinded = m("Non-Renewal Rescinded", "ph-arrow-counter-clockwise", "badge-success", "outcome-approve");
     AUDIT_ACTION_META.renewal_completed = m("Renewal Completed", "ph-check-circle", "badge-success", "outcome-bind");
-    AUDIT_ACTION_META.renewal_lapsed = m("Policy Lapsed — No Renewal Decision", "ph-warning-circle", "badge-danger", "outcome-refer");
+    AUDIT_ACTION_META.renewal_term_created = m("Renewal Term Created", "ph-calendar-plus", "badge-success", "outcome-bind");
+    AUDIT_ACTION_META.renewal_lapsed =m("Policy Lapsed — No Renewal Decision", "ph-warning-circle", "badge-danger", "outcome-refer");
   }
 
   // Quote Intelligence gets a third tab
@@ -635,5 +733,5 @@ function renderRenewalChip(sub) {
 
 window.rnStartReview = rnStartReview; window.rnRequestInfo = rnRequestInfo; window.rnDecide = rnDecide;
 window.rnRescindNonRenewal = rnRescindNonRenewal; window.rnOpenRenewalSubmission = rnOpenRenewalSubmission;
-window.rnDownloadNotice = rnDownloadNotice; window.rnSetFilter = rnSetFilter; window.rnSelect = rnSelect;
+window.rnRunBatch = rnRunBatch; window.rnDownloadNotice = rnDownloadNotice; window.rnSetFilter = rnSetFilter; window.rnSelect = rnSelect;
 window.renderRenewalPipeline = renderRenewalPipeline; window.renderRenewalChip = renderRenewalChip;

@@ -38,12 +38,21 @@ var AUTH_ROLE_ORDER = ["assistant", "junior", "senior_uw", "senior"];   // lowes
 // role, lob ("*" = any), states ("*" = any, or a list), ceilings. Most specific match wins.
 var AUTH_RULES = [
   { id: "JR-ALL",  role: "junior",    lob: "*",      states: "*",          maxPremium: 250000,  maxLimit: 2000000,  note: "Standard junior authority (limit from the former role limit)" },
-  { id: "JR-CAS",  role: "junior",    lob: "gl_cas", states: "*",          maxPremium: 0,       maxLimit: 0,        note: "High-hazard casualty and surplus classes are withheld from junior authority" },
   { id: "JR-CAT",  role: "junior",    lob: "property", states: ["FL", "LA"], maxPremium: 0,     maxLimit: 0,        note: "Catastrophe-exposed states for property are withheld from junior authority" },
   { id: "SU-ALL",  role: "senior_uw", lob: "*",      states: "*",          maxPremium: 1000000, maxLimit: 10000000, note: "Senior line authority" },
   { id: "SU-CAS",  role: "senior_uw", lob: "gl_cas", states: "*",          maxPremium: 500000,  maxLimit: 5000000,  note: "Reduced ceiling for high-hazard casualty" },
   { id: "CUO-ALL", role: "senior",    lob: "*",      states: "*",          maxPremium: 5000000, maxLimit: 25000000, note: "Chief underwriting officer authority" }
 ];
+
+// SPECIALITY: which lines each underwriter handles. An underwriter refers a case to a colleague when the line is not one of
+// their specialities, whatever the premium (Step 9). The premium and limit ceilings above are judged separately (Quote, Bind).
+// ILLUSTRATIVE PLACEHOLDERS, like the ceilings: the real list comes from the company's underwriting guidelines.
+var UW_LINE_NAMES = { trucking: "Commercial Auto / Trucking", property: "Commercial Property", mpl: "MPL - Professional Liability", gl_cpc: "GL CPC - Commercial Package & Contractors", gl_cas: "GL CAS - High Hazard Casualty & Surplus" };
+var UW_SPECIALTIES = {
+  junior:    ["trucking", "property", "gl_cpc"],
+  senior_uw: ["trucking", "property", "gl_cpc", "mpl", "gl_cas"],
+  senior:    ["trucking", "property", "gl_cpc", "mpl", "gl_cas"]
+};
 
 // Delegated authority from each carrier. "*" under lines is the default for a line not listed.
 var CARRIER_AUTHORITY = {
@@ -166,10 +175,29 @@ function authCarrierCheck(sub, m, dataset, today) {
   return { carrier: carrier, ok: why.length === 0, reasons: why, agreement: ag.agreementRef };
 }
 
+/** Is the case's line one of the role's specialities? A case with no line set cannot be judged and is not held up. */
+function authSpecialty(sub, role) {
+  var lob = sub.lobKey || "";
+  if (!lob) return { ok: true, judged: false, lob: "", name: "", reasons: [] };
+  var name = UW_LINE_NAMES[lob] || sub.lobName || lob, ok = (UW_SPECIALTIES[role] || []).indexOf(lob) > -1;
+  return { ok: ok, judged: true, lob: lob, name: name, reasons: ok ? [] : [authRoleLabel(role) + " does not underwrite " + name + " (not one of their specialities)"] };
+}
+/** Lowest internal role that handles the line, or null. */
+function authSpecialistRole(lob) {
+  for (var i = 1; i < AUTH_ROLE_ORDER.length; i++) { if ((UW_SPECIALTIES[AUTH_ROLE_ORDER[i]] || []).indexOf(lob) > -1) return AUTH_ROLE_ORDER[i]; }
+  return null;
+}
+/** The referral awaiting a decision, whichever kind: a speciality referral (Step 9) or a premium-authority referral (Quote, Bind). */
+function authPendingReferral(sub) {
+  var s = sub && sub.specialtyRef, a = sub && sub.authorityRef;
+  return s && s.status === "pending" ? s : (a && a.status === "pending" ? a : null);
+}
+
 /** People who prepared, repriced or referred the risk. They may not approve it. */
 function authPreparers(sub) {
   var s = {};
   if (sub.authorityRef && sub.authorityRef.raisedBy) s[sub.authorityRef.raisedBy] = true;
+  if (sub.specialtyRef && sub.specialtyRef.raisedBy) s[sub.specialtyRef.raisedBy] = true;
   if (sub.discretionaryPricing && sub.discretionaryPricing.appliedBy) s[sub.discretionaryPricing.appliedBy] = true;   // whoever priced it
   if (sub.authPreparedBy) Object.keys(sub.authPreparedBy).forEach(function (k) { s[k] = true; });
   return Object.keys(s);
@@ -200,7 +228,11 @@ function authAssess(sub, actorRole, dataset) {
     else blockers.push(authRoleLabel(actorRole) + " lacks authority (" + own.reasons.join("; ") + "). It needs " + authRoleLabel(req) + " or above" + (ref && ref.status === "pending" ? "; a referral is awaiting decision." : "."));
   }
   if (!carrierCovered) blockers.push("Outside the carrier's delegated authority: " + carrier.reasons.join("; ") + ". The carrier's approval must be recorded.");
-  return { measures: m, own: own, requiredRole: req, ref: ref, refValid: refValid, refStale: refStale, carrier: carrier, carrierApproval: ca, carrierCovered: carrierCovered, ok: blockers.length === 0, blockers: blockers };
+  // speciality (Step 9): a line the acting underwriter does not handle needs a specialist's sign-off, however small the premium
+  var sp = authSpecialty(sub, actorRole), spRef = sub.specialtyRef || null;
+  var spValid = !!(spRef && spRef.status === "approved" && spRef.lob === sp.lob);
+  if (!sp.ok && !spValid) blockers.push(sp.reasons[0] + ". A specialist must take it at the Authority Desk (Step 9)" + (spRef && spRef.status === "pending" ? "; a referral is awaiting decision." : "."));
+  return { measures: m, own: own, requiredRole: req, ref: ref, refValid: refValid, refStale: refStale, carrier: carrier, carrierApproval: ca, carrierCovered: carrierCovered, specialty: sp, specialtyRef: spRef, specialtyValid: spValid, ok: blockers.length === 0, blockers: blockers };
 }
 
 // ----------------------------------------------------------------------------
@@ -281,6 +313,47 @@ function authDecide(verb) {
   if (r.ok) renderAuthorityCard(sub);
 }
 
+/** Refers a case whose line is not one of the acting underwriter's specialities to an underwriter who handles it. */
+function authRaiseSpecialty(sub, note) {
+  var sp = authSpecialty(sub, currentUserRole), req = authSpecialistRole(sp.lob), prev = sub.specialtyRef || null;
+  if (!sub.authPreparedBy) sub.authPreparedBy = {};
+  sub.authPreparedBy[authActor()] = true;
+  sub.specialtyRef = { kind: "specialty", status: "pending", lob: sp.lob, lobName: sp.name, requiredRole: req, raisedBy: authActor(), raisedByRole: currentUserRole, raisedAt: authNow(), note: note, reasons: sp.reasons.slice(),
+    history: ((prev && prev.history) || []).concat(prev ? [{ status: prev.status, decidedBy: prev.decidedBy, decidedAt: prev.decidedAt }] : []) };
+  authLog(sub, "auth_specialty_referral_raised", "Referred to " + (req ? authRoleLabel(req) : "the carrier") + " because " + sp.name + " is not one of " + authRoleLabel(currentUserRole) + "'s specialities. Note: " + note);
+  if (typeof notify === "function") notify(req || "admin", { kind: "referral", title: "Referred to you (speciality): " + sub.insured, text: String(note || ""), caseId: sub.id, key: "spec-" + sub.id + "-" + sub.specialtyRef.raisedAt });
+  sub.statusText = "Referral — awaiting " + authRoleOwnerName(req);
+  sub.statusBadge = "badge-warning";
+  sub.isReferral = true;
+  authPersist();
+  return sub.specialtyRef;
+}
+/** Decide a pending speciality referral. Only an underwriter who handles the line, and did not prepare the case, may take it. */
+function authDecideSpecialty(sub, verb, note, quiet) {
+  var ref = sub.specialtyRef;
+  var fail = function (m) { if (!quiet) showToast("⛔ " + m, "danger"); return { ok: false, why: m }; };
+  if (!hasPermission("authority", "approve")) { if (!quiet) denyPermission("authority", "approve"); return { ok: false, why: "no permission" }; }
+  if (!ref || ref.status !== "pending") return fail("There is no speciality referral awaiting a decision.");
+  var me = authActor();
+  if (authPreparers(sub).indexOf(me) > -1) return fail("You prepared or referred this case, so you cannot take it. A different underwriter who handles the line must decide.");
+  if (verb !== "approve" && String(note || "").trim().length < 10) return fail("Give a reason for returning or declining (at least 10 characters).");
+  if (verb === "approve") {
+    var own = authSpecialty(sub, currentUserRole);
+    if (!own.ok) return fail(own.reasons[0] + ". It must go to " + (authSpecialistRole(own.lob) ? authRoleLabel(authSpecialistRole(own.lob)) + " or above." : "the carrier."));
+    ref.status = "approved";
+  } else ref.status = verb === "return" ? "returned" : "declined";
+  ref.decidedBy = me; ref.decidedAt = authNow(); ref.decisionNote = note || "";
+  var who = authRoleOwnerName(currentUserRole);
+  sub.isReferral = false;
+  if (verb === "approve") { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
+  else if (verb === "return") { sub.statusText = "Returned by " + who + " for revision"; sub.statusBadge = "badge-warning"; }
+  else { sub.statusText = "Speciality referral declined by " + who; sub.statusBadge = "badge-danger"; }
+  if (typeof notify === "function" && ref.raisedByRole) notify(ref.raisedByRole, { kind: "decision", title: (verb === "approve" ? "Taken" : verb === "return" ? "Returned" : "Declined") + " by " + who + ": " + sub.insured, text: String(note || (verb === "approve" ? "The specialist has taken the case." : "")), caseId: sub.id, key: "spd-" + sub.id + "-" + ref.decidedAt });
+  authLog(sub, verb === "approve" ? "auth_specialty_referral_approved" : "auth_specialty_referral_closed", verb === "approve" ? "Specialist sign-off: " + ref.lobName + " taken by " + authRoleLabel(currentUserRole) + "." : "Speciality referral " + (verb === "return" ? "returned for revision" : "declined") + ": " + note);
+  authPersist();
+  return { ok: true };
+}
+
 function authRecordCarrier() {
   var sub = authActive(); if (!sub) return;
   if (!hasPermission("authority", "override")) { denyPermission("authority", "override"); return; }
@@ -347,10 +420,11 @@ function renderAuthorityCard(sub) {
   if (!c.ok && !bound && canOverride) carrierHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;"><input id="auth_cRef" class="form-control" style="width:150px;" placeholder="Carrier reference"><input id="auth_cUw" class="form-control" style="width:180px;" placeholder="Carrier underwriter"><input id="auth_cOn" type="date" class="form-control" style="width:140px;"><input id="auth_cTerms" class="form-control" style="width:260px;" placeholder="Terms approved"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authRecordCarrier()">Record carrier approval</button></div>';
   else if (!c.ok && !bound) carrierHtml += '<div class="text-xs text-muted" style="margin-top:6px;"><i class="ph ph-lock"></i> A senior user records the carrier\'s approval.</div>';
 
-  box.innerHTML = '<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-shield-star"></i> Underwriting Authority</h3>' + head + '</div><div class="card-body">' +
+  box.innerHTML = '<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-shield-star"></i> Underwriting Authority: Premium and Limit</h3>' + head + '</div><div class="card-body">' +
     '<div class="text-xs" style="margin-bottom:8px;">Risk: premium <strong>' + authMoney(m.premium) + '</strong>, policy limit <strong>' + authMoney(m.limit) + '</strong>, ' + authEsc(sub.lobName || m.lob) + ', ' + authEsc(m.state || "state unknown") + '.</div>' +
     '<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Level</th><th>Premium ceiling</th><th>Limit ceiling</th><th>For this risk</th></tr></thead><tbody>' + levels + '</tbody></table></div>' +
     (a.blockers.length && !a.own.ok ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-warning"></i> ' + authEsc(a.blockers[0]) + '</div>' : '') +
+    (!a.specialty.ok && !a.specialtyValid ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-user-gear"></i> ' + authEsc(a.specialty.reasons[0]) + '. A specialist takes it at the Authority Desk (Step 9).</div>' : '') +
     refHtml + actions + carrierHtml +
     '<p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> The ceilings shown are illustrative placeholders until the company\'s authority letters and the carrier\'s delegated authority agreement are loaded and signed off. Whoever prepared, repriced or referred a risk cannot approve it.</p></div></div>';
 }
@@ -377,7 +451,10 @@ function authGuardBind(source, subId) { return authGuard(source, subId ? authSub
     AUDIT_ACTION_META.auth_referral_raised = m("Authority Referral Raised", "ph-paper-plane-tilt", "badge-warning", "outcome-refer");
     AUDIT_ACTION_META.auth_referral_approved = m("Authority Referral Approved", "ph-stamp", "badge-success", "outcome-approve");
     AUDIT_ACTION_META.auth_referral_closed = m("Authority Referral Returned or Declined", "ph-arrow-counter-clockwise", "badge-warning", "outcome-refer");
-    AUDIT_ACTION_META.auth_carrier_approval = m("Carrier Approval Recorded", "ph-seal-check", "badge-info", "outcome-approve");
+    AUDIT_ACTION_META.auth_specialty_referral_raised = m("Speciality Referral Raised", "ph-paper-plane-tilt", "badge-warning", "outcome-refer");
+    AUDIT_ACTION_META.auth_specialty_referral_approved = m("Speciality Referral Taken by Specialist", "ph-stamp", "badge-success", "outcome-approve");
+    AUDIT_ACTION_META.auth_specialty_referral_closed = m("Speciality Referral Returned or Declined", "ph-arrow-counter-clockwise", "badge-warning", "outcome-refer");
+    AUDIT_ACTION_META.auth_carrier_approval =m("Carrier Approval Recorded", "ph-seal-check", "badge-info", "outcome-approve");
     AUDIT_ACTION_META.auth_quote_blocked = m("Quote Blocked — Authority", "ph-prohibit", "badge-danger", "outcome-decline");
     AUDIT_ACTION_META.auth_bind_blocked = m("Bind Blocked — Authority", "ph-prohibit", "badge-danger", "outcome-decline");
   }

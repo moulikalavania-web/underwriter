@@ -896,8 +896,8 @@
       <section id="screen-6" class="screen-view">
         <div class="screen-header">
           <div>
-            <h2>Underwriter Authority Matrix & Senior Referral</h2>
-            <p class="screen-desc">Exposure evaluation against assigned authority limit ($2M vs $5M+), senior underwriter referral workflow, and sign-off approval.</p>
+            <h2>Underwriter Authority Evaluation & Specialist Referral</h2>
+            <p class="screen-desc">Is this line one of the underwriter's specialities? If not, the case is referred to an underwriter who handles it. Premium and limit ceilings are checked separately at Quote and Bind.</p>
           </div>
           <div class="action-toolbar">
             <button class="btn btn-primary" onclick="generateAndDownloadFinalJson()">
@@ -918,39 +918,25 @@
           <div class="card">
             <div class="card-header">
               <h3><i class="ph ph-gavel"></i> Step 9: Underwriter Authority Evaluation</h3>
-              <span class="badge badge-success" id="authCheckBadge"><i class="ph ph-check"></i> Within Assigned Authority</span>
+              <span class="badge badge-success" id="authCheckBadge"><i class="ph ph-check"></i> Within Your Speciality</span>
             </div>
             <div class="card-body">
               <div class="authority-matrix-box">
                 <div class="auth-stat-row">
                   <span class="lbl">Active Underwriter Persona:</span>
-                  <strong class="val" id="authUnderwriterName">Sarah Jenkins (Underwriter I - $2M Limit)</strong>
+                  <strong class="val" id="authUnderwriterName">Underwriter</strong>
                 </div>
                 <div class="auth-stat-row">
-                  <span class="lbl">Maximum Single Risk Authority Limit:</span>
-                  <strong class="val font-mono" id="authMaxLimitDisplay">$2,000,000 Exposure</strong>
+                  <span class="lbl">Your Specialities:</span>
+                  <strong class="val" id="authSpecialtiesDisplay">None</strong>
                 </div>
                 <div class="auth-stat-row">
-                  <span class="lbl">Current Submission Exposure:</span>
-                  <strong class="val font-mono text-primary" id="currentAuthExposure">$1,850,000</strong>
+                  <span class="lbl">Line and Coverages on This Case:</span>
+                  <strong class="val text-primary" id="currentAuthLine">Line not set</strong>
                 </div>
                 <!-- Risk Score carried over from the Underwriting Workbench (Add-On) -->
                 <div id="authRiskScoreContainer"></div>
-                <div class="auth-meter-box">
-                  <div class="meter-bar-track">
-                    <div class="meter-bar-fill" id="authMeterFill" style="width: 92.5%;"></div>
-                  </div>
-                  <span class="meter-label" id="authMeterLabel">92.5% of Primary Authority ($1.85M / $2.00M)</span>
-                </div>
-              </div>
-
-              <!-- Authority Simulation Trigger -->
-              <div class="simulation-tool-box mt-3">
-                <span class="tool-label"><i class="ph ph-flask"></i> Test Exposure Limit Scenarios:</span>
-                <div class="btn-group">
-                  <button class="btn btn-sm btn-outline" onclick="setExposureScenario('within')"><i class="ph ph-check"></i> Normal ($1.85M - Within Limit)</button>
-                  <button class="btn btn-sm btn-outline-warning" onclick="setExposureScenario('exceeds')"><i class="ph ph-warning"></i> High Exposure ($15M - Referral Required)</button>
-                </div>
+                <div id="authSpecialtyDetail"></div>
               </div>
             </div>
           </div>

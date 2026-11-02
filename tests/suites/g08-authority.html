@@ -26,14 +26,14 @@
     t('junior covers a small TX GL risk', authRoleCovers('junior', M(100000, 1000000)).ok);
     t('junior premium ceiling', !authRoleCovers('junior', M(300000, 1000000)).ok && /premium/.test(authRoleCovers('junior', M(300000, 1000000)).reasons[0]));
     t('junior limit ceiling (the former $2M role limit)', !authRoleCovers('junior', M(100000, 2500000)).ok && authRoleCovers('junior', M(100000, 2000000)).ok);
-    t('junior has no authority for high-hazard casualty', !authRoleCovers('junior', M(1000, 1000, 'gl_cas')).ok);
+    t('the premium table no longer withholds a class from junior: casualty is a speciality matter (Step 9), judged by premium here', authRoleCovers('junior', M(1000, 1000, 'gl_cas')).ok && !authRoleCovers('junior', M(300000, 1000, 'gl_cas')).ok);
     t('junior has no authority for FL property but has for TX property', !authRoleCovers('junior', M(1000, 1000, 'property', 'FL')).ok && authRoleCovers('junior', M(1000, 1000, 'property', 'TX')).ok);
     t('most specific rule wins: senior UW casualty ceiling is lower', !authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cas')).ok && authRoleCovers('senior_uw', M(100000, 6000000, 'gl_cpc')).ok);
     t('CUO covers more', authRoleCovers('senior', M(4000000, 20000000)).ok && !authRoleCovers('senior', M(6000000, 20000000)).ok);
     t('unknown state: a role with a state-specific rule for the class cannot be confirmed (junior, property)', !authRoleCovers('junior', M(1, 1, 'property', null)).ok && authRoleCovers('junior', M(1, 1, 'property', null)).stateUnknown === true);
     t('unknown state: a role whose rules apply in every state is still judged on premium and limit (CUO covers $1,028,715 / $8,000,000; senior UW does not)', authRoleCovers('senior', M(1028715, 8000000, 'trucking', null)).ok && !authRoleCovers('senior_uw', M(1028715, 8000000, 'trucking', null)).ok && authRequiredRole(M(1028715, 8000000, 'trucking', null)) === 'senior');
     t('unknown state and beyond every level: the message names the state, not only the size', (function(){ var s = { id: 'X', lobKey: 'trucking', exposureVal: 90000000, discretionaryPricing: { finalPremium: 9000000 } }; var a = authAssess(s, 'senior', []); return a.blockers.some(function(b){ return /state could not be determined/.test(b); }); })());
-    t('required role is the lowest sufficient', authRequiredRole(M(100000,1000000))==='junior' && authRequiredRole(M(500000,1000000))==='senior_uw' && authRequiredRole(M(2000000,1000000))==='senior' && authRequiredRole(M(9000000,1000000))===null && authRequiredRole(M(1000,1000,'gl_cas'))==='senior_uw');
+    t('required role is the lowest sufficient', authRequiredRole(M(100000,1000000))==='junior' && authRequiredRole(M(500000,1000000))==='senior_uw' && authRequiredRole(M(2000000,1000000))==='senior' && authRequiredRole(M(9000000,1000000))===null && authRequiredRole(M(1000,1000,'gl_cas'))==='junior' && authRequiredRole(M(300000,1000,'gl_cas'))==='senior_uw');
 
     // ---------- carrier layer (pure)
     var S0 = mk('C0');
@@ -122,17 +122,34 @@
     C.discretionaryPricing.finalPremium = 100000; C.importedRatingData.quote.finalPremium = 100000;
 
     // ---------- existing Step-5 buttons
-    var E = mk('SUB-E', { exposureVal:3000000 }); SUBMISSIONS_DATASET.push(E); activeSubmissionId = E.id; currentUserRole = 'junior';
+    var E = mk('SUB-E', { exposureVal:3000000, lobKey:'gl_cas' }); SUBMISSIONS_DATASET.push(E); activeSubmissionId = E.id; currentUserRole = 'junior';
     setf({juniorEscalationText:'Please review the loss warranty'}); submitJuniorEscalation();
-    t('the existing "Refer to Senior" button creates a tracked referral', E.authorityRef && E.authorityRef.status==='pending' && /loss warranty/.test(E.authorityRef.note));
+    t('the Step 9 "Refer" button creates a tracked speciality referral', E.specialtyRef && E.specialtyRef.status==='pending' && /loss warranty/.test(E.specialtyRef.note) && !E.authorityRef);
     currentUserRole = 'senior_uw'; E.discretionaryPricing.appliedBy = authRoleIdent('senior_uw');
     seniorUWAction('approve');
-    t('existing sign-off button refuses the person who repriced the risk', E.authorityRef.status==='pending');
+    t('existing sign-off button refuses the person who repriced the risk', E.specialtyRef.status==='pending');
     delete E.discretionaryPricing.appliedBy; currentUserRole = 'senior'; seniorUWAction('approve');
-    t('existing sign-off button records the approval for an eligible approver', E.authorityRef.status==='approved' && E.authorityRef.decidedBy === authRoleIdent('senior'));
+    t('existing sign-off button records the specialist taking the case', E.specialtyRef.status==='approved' && E.specialtyRef.decidedBy === authRoleIdent('senior'));
     var E2 = mk('SUB-E2', { exposureVal:3000000 }); SUBMISSIONS_DATASET.push(E2); activeSubmissionId = E2.id; currentUserRole = 'junior';
     var st0 = E2.statusText; seniorUWAction('approve');
     t('a junior pressing sign-off on a risk beyond authority is refused', E2.statusText === st0 || E2.statusText !== 'Ready for Rating');
+
+
+    // ---------- speciality (Step 9) is separate from premium and limit (Quote, Bind)
+    t('speciality: junior does not handle casualty, senior UW and CUO do', !authSpecialty({ lobKey:'gl_cas' }, 'junior').ok && authSpecialty({ lobKey:'gl_cas' }, 'senior_uw').ok && authSpecialty({ lobKey:'gl_cas' }, 'senior').ok && authSpecialty({ lobKey:'trucking' }, 'junior').ok);
+    t('speciality: a case with no line cannot be judged and is not held up', authSpecialty({}, 'junior').ok === true && authSpecialty({}, 'junior').judged === false);
+    t('the specialist for a line is the lowest role that handles it', authSpecialistRole('gl_cas') === 'senior_uw' && authSpecialistRole('trucking') === 'junior' && authSpecialistRole('aviation') === null);
+    var S1 = mk('SUB-S1', { lobKey:'gl_cas', discretionaryPricing:{finalPremium:1000}, importedRatingData:{quote:{finalPremium:1000,tax:0,countyTax:0,fees:[]}} }); SUBMISSIONS_DATASET.push(S1); activeSubmissionId = S1.id;
+    var aS = authAssess(S1, 'junior');
+    t('a tiny premium does not help: the line is outside the junior speciality, so the quote is held for a specialist', aS.own.ok && !aS.specialty.ok && !aS.ok && /does not underwrite/.test(aS.blockers[aS.blockers.length - 1]));
+    currentUserRole = 'junior'; setf({juniorEscalationText:'Casualty is outside my speciality, please take it'}); submitJuniorEscalation();
+    currentUserRole = 'senior_uw'; seniorUWAction('approve');
+    t('once a specialist takes it, the speciality no longer holds the quote', S1.specialtyRef.status === 'approved' && authAssess(S1, 'junior').specialtyValid && authAssess(S1, 'junior').ok);
+    S1.lobKey = 'mpl';
+    t('the sign-off belongs to the line: if the line changes, a new referral is needed', !authAssess(S1, 'junior').specialtyValid && !authAssess(S1, 'junior').ok);
+    var S2 = mk('SUB-S2', { lobKey:'trucking', discretionaryPricing:{finalPremium:300000}, importedRatingData:{quote:{finalPremium:300000,tax:0,countyTax:0,fees:[]}} }); SUBMISSIONS_DATASET.push(S2);
+    var aS2 = authAssess(S2, 'junior');
+    t('premium over the junior ceiling is not a speciality matter: the line is fine, the premium is what holds it', aS2.specialty.ok && !aS2.own.ok && !aS2.ok);
 
     t('XSS-safe', authEsc('<i>') === '&lt;i&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }

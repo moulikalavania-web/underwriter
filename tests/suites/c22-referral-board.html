@@ -1,4 +1,4 @@
-<!-- Suite C22: one referral system. The Refer button names the person whose authority covers the risk and records a tracked referral; the case reads
+<!-- Suite C22: one referral system (Step 9, speciality). The Refer button names the person who handles the line and records a tracked referral; the case reads
      "Awaiting <name>" for everyone else and "Referred to you" for that person; it counts on their board; the Head of Underwriting sees the referral list;
      the decision panel follows the referral (not a fixed role); nothing on the screen names a fixed person. -->
 <script>
@@ -20,22 +20,22 @@
   (async function(){
   try {
     login('admin');
-    var A = mk('REF-1'); SUBMISSIONS_DATASET.push(A);
+    var A = mk('REF-1', { lobKey: 'gl_cas', lobName: 'GL CAS - High Hazard Casualty & Surplus' }); SUBMISSIONS_DATASET.push(A);
     login('junior'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
 
     // ---------- the Refer button names the real target
     var btn = el('btnJuniorEscalate');
     t('exactly one Refer button, and it names the person whose authority covers the risk', !!btn && document.querySelectorAll('#btnJuniorEscalate').length === 1 && /David Chen \(Senior Underwriter\)/.test(btn.innerText) && !/Marcus|CUO/.test(btn.innerText), btn && btn.innerText);
-    t('the note box is pre-filled from the real reasons, not a fixed paragraph', /Underwriter I authority/.test(el('juniorEscalationText').value) && /2,000,000/.test(el('juniorEscalationText').value));
+    t('the note box is pre-filled from the real reason (the line and the role), not a fixed paragraph', /GL CAS/.test(el('juniorEscalationText').value) && /Underwriter I/.test(el('juniorEscalationText').value) && /specialities/.test(el('juniorEscalationText').value));
     t('the page names no fixed person in its labels', !/Marcus Vance|Sarah Jenkins/.test(el('referralCard').innerText.replace(/Refer to David Chen \(Senior Underwriter\)/g, '')), el('referralCard').innerText.slice(0, 200));
 
     // ---------- raising it
     el('juniorEscalationText').value = 'short';
     submitJuniorEscalation();
-    t('a note under 10 characters is refused', !A.authorityRef);
-    el('juniorEscalationText').value = 'Please decide: the limit is above my authority';
+    t('a note under 10 characters is refused', !A.specialtyRef);
+    el('juniorEscalationText').value = 'Please decide: casualty is outside my speciality';
     submitJuniorEscalation();
-    t('one tracked referral is recorded, to the right role', !!A.authorityRef && A.authorityRef.status === 'pending' && A.authorityRef.requiredRole === 'senior_uw');
+    t('one tracked referral is recorded, to the right role', !!A.specialtyRef && A.specialtyRef.status === 'pending' && A.specialtyRef.requiredRole === 'senior_uw' && A.specialtyRef.lob === 'gl_cas' && !A.authorityRef);
     t('the case itself reads "Referral - awaiting David"', /Referral/.test(A.statusText) && /awaiting David Chen/.test(A.statusText), A.statusText);
     t('the toast says where it went and no longer tells the user to find a header switch', /David Chen/.test(toasts[toasts.length - 1]) && !/header/i.test(toasts[toasts.length - 1]), toasts[toasts.length - 1]);
     t('the sender sees where it stands, and cannot send it twice', /Referred to David Chen/.test(el('juniorActionBox').innerText) && !el('btnJuniorEscalate') && /Awaiting David/.test(el('referralStatusBadge').textContent));
@@ -64,27 +64,27 @@
     // ---------- deciding: the panel follows the referral, not a fixed role
     login('senior_uw'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
     t('the person it was sent to gets the decision panel, with the sender and the note', getComputedStyle(el('seniorUWPanel')).display !== 'none' && /Sarah Jenkins/.test(el('primaryUWNoteAuthor').textContent) && /Please decide/.test(el('primaryUWNoteText').textContent));
-    t('its labels name the deciding role, not a fixed one', /Senior Underwriter authority/.test(el('btnSignOffApprove').innerText) && !/CUO/.test(el('btnSignOffApprove').innerText) && /Senior Underwriter/.test(el('seniorDecisionLabel').textContent));
+    t('its labels name the deciding role, not a fixed one', /Take the Case \(Senior Underwriter\)/.test(el('btnSignOffApprove').innerText) && !/CUO/.test(el('btnSignOffApprove').innerText) && /Senior Underwriter/.test(el('seniorDecisionLabel').textContent));
     el('seniorDecisionNote').value = '';
     seniorUWAction('revise');
-    t('returning needs a reason and leaves the referral pending', A.authorityRef.status === 'pending');
-    el('seniorDecisionNote').value = 'Approved: loss history is clean and the limit is within my authority';
+    t('returning needs a reason and leaves the referral pending', A.specialtyRef.status === 'pending');
+    el('seniorDecisionNote').value = 'Taken: casualty is my line and the loss history is clean';
     seniorUWAction('approve');
-    t('approving records it once, by the right person, and clears the case for pricing', A.authorityRef.status === 'approved' && /David Chen/.test(A.authorityRef.decidedBy) && A.statusText === 'Ready for Rating');
+    t('taking it records it once, by the right person, and clears the case for pricing', A.specialtyRef.status === 'approved' && /David Chen/.test(A.specialtyRef.decidedBy) && A.statusText === 'Ready for Rating');
     login('junior'); activeSubmissionId = A.id; selectSubmission(A.id, false); showWorkflowPage(AUTH_STEP);
-    t('the sender sees it approved, and by whom', /approved/i.test(el('juniorActionBox').innerText) && /David Chen/.test(el('juniorActionBox').innerText) && /Approved by David Chen/.test(el('referralStatusBadge').textContent));
+    t('the sender sees it taken, and by whom', /taken the case/i.test(el('juniorActionBox').innerText) && /David Chen/.test(el('juniorActionBox').innerText) && /Taken by David Chen/.test(el('referralStatusBadge').textContent));
     login('senior'); showIntakePage();
     t('the CUO is not asked to decide one that was not theirs', !/REFERRED TO YOU/i.test(rowText('REF-1')) && !/Decision needed/i.test(rowText('REF-1')));
 
-    // ---------- a risk beyond every internal level goes to the carrier
-    var B = mk('REF-2', { exposureVal: 60000000, exposure: '$60,000,000', authorityLimit: 60000000 }); SUBMISSIONS_DATASET.push(B);
+    // ---------- a line that no internal underwriter handles goes to the carrier
+    var B = mk('REF-2', { lobKey: 'aviation', lobName: 'Aviation' }); SUBMISSIONS_DATASET.push(B);
     login('junior'); activeSubmissionId = B.id; selectSubmission(B.id, false); showWorkflowPage(AUTH_STEP);
-    t('beyond every level the button says it goes to the carrier', /Refer to the carrier/.test(el('btnJuniorEscalate').innerText), el('btnJuniorEscalate') && el('btnJuniorEscalate').innerText);
+    t('a line nobody internal handles: the button says it goes to the carrier', /Refer to the carrier/.test(el('btnJuniorEscalate').innerText), el('btnJuniorEscalate') && el('btnJuniorEscalate').innerText);
 
-    // ---------- in authority: no referral, and the text names the role
-    var C = mk('REF-3', { exposureVal: 1000000, exposure: '$1,000,000', authorityLimit: 1000000 }); SUBMISSIONS_DATASET.push(C);
+    // ---------- within the speciality: no referral, and the text names the role
+    var C = mk('REF-3'); SUBMISSIONS_DATASET.push(C);
     activeSubmissionId = C.id; selectSubmission(C.id, false); showWorkflowPage(AUTH_STEP);
-    t('within authority: no button, and the message names the signed-in role and Subjectivities', !el('btnJuniorEscalate') && /Underwriter I authority/.test(el('juniorActionBox').innerText) && /Subjectivities/.test(el('juniorActionBox').innerText) && !/Screen 7/.test(el('juniorActionBox').innerText), el('juniorActionBox').innerText);
+    t('within the speciality: no button, and the message names the signed-in role and Subjectivities', !el('btnJuniorEscalate') && /Underwriter I/.test(el('juniorActionBox').innerText) && /Speciality Clear/.test(el('juniorActionBox').innerText) && /Subjectivities/.test(el('juniorActionBox').innerText) && !/Screen 7/.test(el('juniorActionBox').innerText), el('juniorActionBox').innerText);
 
     t('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }

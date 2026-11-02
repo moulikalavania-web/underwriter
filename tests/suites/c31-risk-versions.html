@@ -164,6 +164,17 @@
     renderPolicyChangesCard(F); el('pc_endType').value = 'limits'; el('pc_endEff').value = TODAY; el('pc_endDesc').value = 'Raise the cargo limit for the account'; var c3 = (F.policyChanges || []).length, vc = rvList(F).length; pcIssueEndorsement();
     t('an endorsement that does not touch the schedule makes no risk version', (F.policyChanges || []).length === c3 + 1 && rvList(F).length === vc);
 
+    // ---------- a referred endorsement keeps its schedule change and applies it when approved
+    login('junior'); activeSubmissionId = F.id; renderPolicyChangesCard(F);
+    el('pc_endType').value = 'vehicle'; el('pc_endEff').value = TODAY; el('pc_endDesc').value = 'Tractor added to the schedule'; el('pc_endPrem').value = '300000'; el('pc_endPremWhy').value = 'Rated by the rating system';
+    el('rv_action').value = 'add'; el('rv_a_year').value = '2024'; el('rv_a_make').value = 'Mack'; el('rv_a_model').value = 'Anthem'; el('rv_a_vin').value = '1M1AN4GY0PM999999';
+    var c4 = (F.policyChanges || []).length, vn = rvList(F).length; pcIssueEndorsement();
+    var rf = pcReferrals(F)[0];
+    t('a premium beyond a junior authority is referred with the schedule change attached; nothing is issued or changed yet', !!rf && !!rf.riskChange && rf.riskChange.action === 'add' && rf.riskChange.attributes.make === 'Mack' && (F.policyChanges || []).length === c4 && F.vehicles.length === 4 && rvList(F).length === vn);
+    login('senior'); activeSubmissionId = F.id; renderPolicyChangesCard(F); pcDecideReferral(rf.id, true);
+    var ev5 = (F.policyChanges || [])[(F.policyChanges || []).length - 1];
+    t('on approval the endorsement is issued and the schedule change is applied: new risk version, fifth vehicle', rf.status === 'approved' && (F.policyChanges || []).length === c4 + 1 && /Vehicle 5 added/.test(ev5.riskChange) && !!ev5.riskVersionId && rvGet(F, ev5.riskVersionId).contextRef === ev5.id && F.vehicles.length === 5 && keys(rvLatest(F, 'policy').content).length === 5 && /Schedule change applied/.test(F.decisionLog.filter(function(x){ return x.decision === 'policy_referral_approved'; })[0].notes));
+
     // ---------- renewal keeps the keys, starts new versions
     login('senior_uw'); var R = mk('SUB-C31-R'); use(R); rvCapture(R, 'submission', 'V1'); recordQuoteVersion(R, false); bind(R); var rpol = rvLatest(R, 'policy');
     var rc = rnCreateRenewalSubmission(R, addDays(TODAY, 300));

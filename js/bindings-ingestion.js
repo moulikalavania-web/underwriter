@@ -38,7 +38,6 @@ window.exportRatingPayloadToCSV = exportRatingPayloadToCSV;
 window.copyRatingJSON = copyRatingJSON;
 window.downloadRatingJSON = downloadRatingJSON;
 window.toggleJSONWrap = toggleJSONWrap;
-window.setExposureScenario = setExposureScenario;
 window.triggerDuplicateExit = triggerDuplicateExit;
 window.triggerAppetiteFailureExit = triggerAppetiteFailureExit;
 window.seniorUWAction = seniorUWAction;

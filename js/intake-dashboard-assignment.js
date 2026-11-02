@@ -21,17 +21,18 @@ function intakeToolbarHtml() {
 
 /** A pending authority referral puts the case on the desk of the role that must decide it, without anyone assigning it. */
 function referredToRole(sub, role) {
-  return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending" && sub.authorityRef.requiredRole === role);
+  const ref = authPendingReferral(sub);
+  return !!(ref && ref.requiredRole === role);
 }
 /** One definition of "referral" for the tab, its count and the row badge: an authority referral is needed or the status says Referral. Priority P1 is urgency, not a referral. */
 function isReferralCase(sub) { return !!sub && (authNeedsReferral(sub) || referralPending(sub) || String(sub.statusText || "").includes("Referral")); }
 /** A tracked referral that nobody has decided yet. */
-function referralPending(sub) { return !!(sub && sub.authorityRef && sub.authorityRef.status === "pending"); }
+function referralPending(sub) { return !!authPendingReferral(sub); }
 /** Badge beside the insured: "Referred to you" for the person who must decide, "Awaiting <name>" for everyone else. */
 function referralBadgeHtml(sub) {
   if (referralPending(sub)) {
     if (referredToRole(sub, currentUserRole)) return '<span class="badge badge-danger text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you</span>';
-    return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-hourglass-medium"></i> Awaiting ' + authEsc(authRoleOwnerName(sub.authorityRef.requiredRole)) + '</span>';
+    return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-hourglass-medium"></i> Awaiting ' + authEsc(authRoleOwnerName(authPendingReferral(sub).requiredRole)) + '</span>';
   }
   return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>';
 }
@@ -128,7 +129,7 @@ function renderManagerDashboardHtml() {
 
   // Referrals: what is waiting on someone's decision, who has to decide it, and for how long.
   const pendingRefs = liveSubmissions.filter(referralPending);
-  const decidedRefs = liveSubmissions.filter(s => s.authorityRef && s.authorityRef.status !== "pending");
+  const decidedRefs = liveSubmissions.filter(s => (s.authorityRef && s.authorityRef.status !== "pending") || (s.specialtyRef && s.specialtyRef.status !== "pending"));
   const referralsSection = (pendingRefs.length || decidedRefs.length) ? `
     <div class="card" id="referralOverviewCard">
       <div class="card-header">
@@ -139,7 +140,7 @@ function renderManagerDashboardHtml() {
         ${pendingRefs.length ? `<div class="table-responsive"><table class="data-table">
           <thead><tr><th>Submission</th><th>Insured</th><th>Referred to</th><th>Raised by</th><th>Waiting</th><th>Why</th><th></th></tr></thead>
           <tbody>${pendingRefs.map(sub => {
-            const ref = sub.authorityRef;
+            const ref = authPendingReferral(sub);
             return `<tr onclick="openCaseAtCurrentStep('${sub.id}')" style="cursor:pointer;">
               <td><span class="badge badge-light font-mono">${sub.id}</span></td>
               <td>${authEsc(sub.insured)}</td>
@@ -253,7 +254,7 @@ function renderWorkerDashboardHtml() {
     <div class="card mb-2" style="border-color:#fca5a5; background:#fef2f2;">
       <div class="card-body">
         <h3 style="margin:0 0 6px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you (${referredToMe.length})</h3>
-        ${referredToMe.map(r => `<div class="text-sm" style="margin:4px 0;"><strong>${authEsc(r.insured)}</strong> <code class="font-mono text-xs">${r.id}</code> from ${authEsc(String(r.authorityRef.raisedBy || "").split(" (")[0])}, ${referralAgeLabel(r.authorityRef)} ago: <span class="text-muted">${authEsc(String(r.authorityRef.note || "").slice(0, 120))}</span> <a href="#" onclick="openCaseAtCurrentStep('${r.id}'); return false;">Review &amp; decide</a></div>`).join("")}
+        ${referredToMe.map(r => { const ref = authPendingReferral(r); return `<div class="text-sm" style="margin:4px 0;"><strong>${authEsc(r.insured)}</strong> <code class="font-mono text-xs">${r.id}</code> from ${authEsc(String(ref.raisedBy || "").split(" (")[0])}, ${referralAgeLabel(ref)} ago: <span class="text-muted">${authEsc(String(ref.note || "").slice(0, 120))}</span> <a href="#" onclick="openCaseAtCurrentStep('${r.id}'); return false;">Review &amp; decide</a></div>`; }).join("")}
       </div>
     </div>` : "";
 

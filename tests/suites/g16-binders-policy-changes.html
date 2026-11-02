@@ -265,6 +265,109 @@
     currentUserRole = 'admin'; renderPolicyChangesCard(s3);
     t('admin sees the ledger but no forms', /Policy Changes/.test(el('policyChangesContainer').innerHTML) && !/Reinstate policy/.test(el('policyChangesContainer').innerHTML));
     t('XSS-safe', pcEsc('<x onclick=1>') === '&lt;x onclick=1&gt;');
+
+    // ---------- policy transactions, policy versions, referrals, rating indication
+    var s4 = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s4); activeSubmissionId = s4.id;
+    currentUserRole = 'junior'; renderPolicyChangesCard(s4);
+    setf({pc_endType:'limits', pc_endEff:TODAY, pc_endDesc:'Raise the limit of liability.', pc_endPrem:'200', pc_endPremWhy:'Re-rated', pc_endForm:'', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    var te1 = pcChanges(s4)[0];
+    t('an endorsement is a policy transaction that makes policy version 2', !!te1 && te1.transactionId === 'TXN-' + s4.id + '-1' && te1.versionNo === 2 && s4.policyVersions.length === 2 && s4.policyVersions[0].version === 1 && s4.policyVersions[1].annualPremium === 12200 && s4.policyTransactions[0].versionNo === 2);
+    t('the audit entry names the transaction and version', /Transaction TXN-.* policy version 2/.test(logs(s4, 'endorsement_issued')[0].notes));
+
+    setf({pc_endEff:TODAY, pc_endDesc:'Change the limit substantially.', pc_endPrem:'5000', pc_endPremWhy:'Re-rated'});
+    pcIssueEndorsement();
+    var pr1 = pcReferrals(s4)[0];
+    t('a change past the preparer\'s authority is referred, not issued', pcChanges(s4).length === 1 && !!pr1 && pr1.status === 'pending' && pr1.type === 'endorsement' && pr1.requiredRole === 'senior_uw' && logs(s4, 'policy_change_referred').length === 1);
+    t('the referral card shows it and the raiser cannot decide it', /Referrals/.test(el('policyChangesContainer').innerHTML) && /Waiting for/.test(el('policyChangesContainer').innerHTML));
+    pcDecideReferral(pr1.id, true);
+    t('the person who raised it cannot decide it (no override)', pr1.status === 'pending' && pcChanges(s4).length === 1);
+
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(s4);
+    pcDecideReferral(pr1.id, false);
+    t('declining needs a reason', pr1.status === 'pending');
+    pcDecideReferral(pr1.id, true);
+    t('the senior approves: issued as an endorsement, transaction and version 3', pr1.status === 'approved' && pcChanges(s4).length === 2 && pcChanges(s4)[1].referralId === pr1.id && pr1.eventId === pcChanges(s4)[1].id && pcChanges(s4)[1].versionNo === 3 && pcLedger(s4).currentAnnual === 17200 && logs(s4, 'policy_referral_approved').length === 1);
+
+    currentUserRole = 'junior'; renderPolicyChangesCard(s4);
+    setf({pc_endEff:TODAY, pc_endDesc:'Another large change to the limit.', pc_endPrem:'6000', pc_endPremWhy:'Re-rated'});
+    pcIssueEndorsement();
+    var pr2 = pcReferrals(s4)[1];
+    currentUserRole = 'senior'; renderPolicyChangesCard(s4);
+    setf({['pc_refNote_' + pr2.id]: 'Premium change is not supported by the file.'});
+    pcDecideReferral(pr2.id, false);
+    t('a declined referral issues nothing and keeps the reason', pr2.status === 'declined' && pcChanges(s4).length === 2 && /not supported/.test(pr2.decisionNote) && logs(s4, 'policy_referral_declined').length === 1);
+
+    // a hard failure (backdated without the statement) is refused, not referred
+    currentUserRole = 'junior'; renderPolicyChangesCard(s4);
+    var nref = pcReferrals(s4).length;
+    setf({pc_endEff:'2026-09-01', pc_endDesc:'Backdated addition of a vehicle.', pc_endPrem:'100', pc_endPremWhy:'Rated', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('a request that also fails a hard rule is refused, not referred', pcReferrals(s4).length === nref);
+
+    // rating indication
+    s4.vehicles = [{ vin:'1' }, { vin:'2' }, { vin:'3' }, { vin:'4' }];
+    var rate = pcRateIndication(s4, 'vehicle', 'add');
+    t('rating indication: annual premium shared over the scheduled vehicles', rate && rate.units === 4 && rate.annualChange === 4300 && /no rating engine/.test(rate.basis), JSON.stringify(rate));
+    t('removing a vehicle indicates a credit', pcRateIndication(s4, 'vehicle', 'remove').annualChange === -4300);
+    t('no indication for a change that is not a schedule change', pcRateIndication(s4, 'limits', 'add') === null && pcRateIndication(s4, 'vehicle', '') === null);
+    setf({pc_endType:'vehicle', rv_action:'add'}); pcRateChange();
+    t('"Rate the change" fills the premium fields', el('pc_endPrem').value === '4300' && /Indication/.test(el('pc_endPremWhy').value));
+
+    // reinstatement links back to the cancellation; a late one goes to review
+    var s5 = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s5); activeSubmissionId = s5.id;
+    currentUserRole = 'junior'; renderPolicyChangesCard(s5);
+    setf({pc_cxBy:'insured', pc_cxReason:'SOLD', pc_cxEff:TODAY, pc_cxNotes:'Business sold.'});
+    pcSubmitCancellation();
+    var cxl = pcChanges(s5)[0];
+    t('a cancellation is a policy transaction too', pcState(s5) === 'cancelled' && cxl.transactionId === 'TXN-' + s5.id + '-1' && s5.cancellation.transactionId === cxl.transactionId && !cxl.versionNo);
+    s5.cancellation.effective = plus(-40);
+    renderPolicyChangesCard(s5);
+    setf({pc_riType:'with_lapse', pc_riEff:TODAY, pc_riWhy:'Insured paid after 40 days, wants cover again.', pc_riPay:'', pc_riNoLoss:false});
+    pcReinstate();
+    var rrf = pcReferrals(s5)[0];
+    t('a late reinstatement goes to underwriting review', pcState(s5) === 'cancelled' && !!rrf && rrf.type === 'reinstatement' && rrf.status === 'pending');
+    currentUserRole = 'senior'; renderPolicyChangesCard(s5);
+    pcDecideReferral(rrf.id, true);
+    var rin2 = pcChanges(s5).filter(function(c){return c.type==='reinstatement';})[0];
+    t('approved: the reinstatement transaction links back to the cancellation', pcState(s5) === 'in_force' && !!rin2 && rin2.cancellationId === cxl.id && rin2.cancellationTransactionId === cxl.transactionId && rin2.referralId === rrf.id && s5.policyTransactions[1].linkedTo === cxl.transactionId && rin2.versionNo === 2);
+    t('the reinstatement notice names the cancellation it reverses', rin2.html.indexOf(cxl.id) > -1 && /reverses/.test(el('policyChangesContainer').innerHTML));
+
+    // ---------- the premium after the change must sit inside the preparer's own authority
+    t('validator: a premium beyond the preparer\'s authority needs senior authority', has(pcValidateEndorsement(Object.assign({}, ctx, { authorityReasons:function(n){ return n > 12500 ? ['premium $12,600 exceeds the $12,500 ceiling'] : []; } }), ev({annualPremiumChange:'600'})), /beyond your underwriting authority/) && pcValidateEndorsement(Object.assign({}, ctxO, { authorityReasons:function(){ return ['x']; } }), ev({annualPremiumChange:'600'})).length === 0);
+    setf({rv_action:''});   // the rating test above left a schedule action on the form
+    var s6 = mkSub(); s6.discretionaryPricing = { finalPremium: 249900 }; s6.importedRatingData.quote.finalPremium = 249900; SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s6); activeSubmissionId = s6.id;
+    currentUserRole = 'junior'; renderPolicyChangesCard(s6);
+    setf({pc_endType:'limits', pc_endEff:TODAY, pc_endDesc:'Add a small premium that takes the policy over the ceiling.', pc_endPrem:'200', pc_endPremWhy:'Rated', pc_endForm:'', pc_endNoLoss:false});
+    pcIssueEndorsement();
+    t('a junior whose change takes the premium over their $250,000 ceiling is referred', pcChanges(s6).length === 0 && pcReferrals(s6).length === 1 && /beyond your underwriting authority/.test(pcReferrals(s6)[0].reasons.join(' ')));
+    currentUserRole = 'senior_uw'; renderPolicyChangesCard(s6);
+    setf({pc_endEff:TODAY, pc_endDesc:'Add a small premium that takes the policy over the ceiling.', pc_endPrem:'200', pc_endPremWhy:'Rated'});
+    pcIssueEndorsement();
+    t('a senior with override authority issues it directly', pcChanges(s6).length === 1 && pcReferrals(s6).length === 1);
+
+    // ---------- every transaction goes to the policy admin system
+    var pas1 = pcChanges(s6)[0].pasSync;
+    t('with no PAS connected the send is simulated and says so', pas1.status === 'sent' && pas1.simulated === true && pas1.reference === 'PAS-' + pcChanges(s6)[0].transactionId && /simulated: no PAS is connected/.test(logs(s6, 'pas_transaction_sent')[0].notes) && /simulated/.test(el('policyChangesContainer').innerHTML));
+    var sentPayload = null;
+    EXTERNAL_SERVICES.pas = function(p){ sentPayload = p; return { ok:false, error:'PAS is down' }; };
+    setf({pc_endEff:TODAY, pc_endDesc:'Another small change to the policy.', pc_endPrem:'50', pc_endPremWhy:'Rated'});
+    pcIssueEndorsement();
+    var pe = pcChanges(s6)[1];
+    t('a PAS that refuses leaves the transaction marked failed, with the payload it was sent', pe.pasSync.status === 'failed' && pe.pasSync.error === 'PAS is down' && sentPayload.policyNumber === 'GLC-2026-111111' && sentPayload.annualPremium === 250150 && sentPayload.versionNo === 3 && sentPayload.type === 'endorsement' && logs(s6, 'pas_transaction_failed').length === 1 && /Retry PAS/.test(el('policyChangesContainer').innerHTML));
+    EXTERNAL_SERVICES.pas = function(){ return { ok:true, reference:'PAS-REAL-77' }; };
+    pcRetryPas(pe.id);
+    t('retry sends it, and the history keeps both attempts', pe.pasSync.status === 'sent' && pe.pasSync.reference === 'PAS-REAL-77' && !pe.pasSync.simulated && pe.pasHistory.length === 2);
+    EXTERNAL_SERVICES.pas = null;
+
+    // ---------- a connected rating service replaces the indication
+    s6.vehicles = [{ vin:'1' }, { vin:'2' }];
+    EXTERNAL_SERVICES.rating = function(q){ return { annualChange: q.action === 'add' ? 1234.5 : -1000, basis: 'Rating service quote Q-9' }; };
+    var rs = pcRateIndication(s6, 'vehicle', 'add');
+    t('the rating service\'s figure is used, with its own basis', rs.annualChange === 1234.5 && rs.basis === 'Rating service quote Q-9');
+    EXTERNAL_SERVICES.rating = function(){ return {}; };
+    t('a connected service that gives no figure gives no indication (no guess)', pcRateIndication(s6, 'vehicle', 'add') === null);
+    EXTERNAL_SERVICES.rating = null;
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

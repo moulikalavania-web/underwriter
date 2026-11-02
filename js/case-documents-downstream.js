@@ -1610,78 +1610,67 @@ function renderWbUwFactorsUwp(sub) {
     </div>`;
 }
 
-// Helper: Authority Screen in Screen 6
+// Helper: Authority Screen in Screen 6 (Step 9). It judges SPECIALITY only: is the case's line one the signed-in underwriter handles?
+// If not, the case is referred to an underwriter who does. The premium and limit ceilings are judged at Quote and Bind (js/authority.js).
 function renderAuthorityScreen(sub) {
-  const expLabel = document.getElementById("currentAuthExposure");
-  const meterFill = document.getElementById("authMeterFill");
-  const meterLbl = document.getElementById("authMeterLabel");
+  const lineLbl = document.getElementById("currentAuthLine");
   const authBadge = document.getElementById("authCheckBadge");
   const refCard = document.getElementById("referralCard");
   const uwName = document.getElementById("authUnderwriterName");
-  const maxLimit = document.getElementById("authMaxLimitDisplay");
+  const specList = document.getElementById("authSpecialtiesDisplay");
+  const detail = document.getElementById("authSpecialtyDetail");
   const juniorPanel = document.getElementById("juniorUWPanel");
   const seniorPanel = document.getElementById("seniorUWPanel");
   const noteText = document.getElementById("primaryUWNoteText");
 
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const effectiveLimit = roleConfig.limit;
-  const isExceeded = exposureScenario === "exceeds" || !authRoleCovers(currentUserRole, authMeasures(sub)).ok;
+  const esc = authEsc;
+  const sp = authSpecialty(sub, currentUserRole);
+  const isOutside = sp.judged && !sp.ok;
+  const mine = (UW_SPECIALTIES[currentUserRole] || []).map(k => UW_LINE_NAMES[k] || k);
+  const coverages = (sub.coverageRows || []).map(r => r.line).filter(Boolean);
 
-  if (uwName) {
-    uwName.textContent = `${roleConfig.name} (${roleConfig.title})`;
-  }
-
-  if (maxLimit) {
-    maxLimit.textContent = roleConfig.limitText;
-  }
-
-  if (expLabel) expLabel.textContent = isExceeded ? `${sub.exposure} (Exceeds Limit!)` : sub.exposure;
-
-  const pct = effectiveLimit > 0 ? Math.min(100, Math.round((sub.exposureVal / effectiveLimit) * 100)) : 100;
-  if (meterFill) {
-    meterFill.style.width = `${pct}%`;
-    meterFill.style.background = isExceeded ? "#ef4444" : "linear-gradient(90deg, #10b981 0%, #f59e0b 80%, #ef4444 100%)";
-  }
-
-  if (meterLbl) {
-    meterLbl.textContent = effectiveLimit > 0 
-      ? `${pct}% of Assigned Authority (${sub.exposure} / $${(effectiveLimit / 1000000).toFixed(1)}M)`
-      : `Exposure: ${sub.exposure} (${roleConfig.limitText})`;
+  if (uwName) uwName.textContent = `${roleConfig.name} (${roleConfig.title})`;
+  if (specList) specList.textContent = mine.length ? mine.join("; ") : "None (intake and triage only)";
+  if (lineLbl) lineLbl.textContent = (sub.lobName || sub.lobKey || "Line not set") + (coverages.length ? " — " + coverages.join(", ") : "");
+  if (detail) {
+    detail.innerHTML = `<table class="data-table" style="margin-top:10px;"><thead><tr><th>Underwriter</th><th>Handles this line</th></tr></thead><tbody>${AUTH_ROLE_ORDER.filter(r => r !== "assistant").map(r => {
+      const c = authSpecialty(sub, r);
+      return `<tr><td>${esc(authRoleLabel(r))}${r === currentUserRole ? ' <span class="badge badge-info text-xs">you</span>' : ""}</td><td>${!c.judged ? '<span class="badge badge-light text-xs">Line not set</span>' : (c.ok ? '<span class="badge badge-success text-xs">Yes</span>' : '<span class="badge badge-light text-xs">No</span>')}</td></tr>`;
+    }).join("")}</tbody></table>`;
   }
 
   if (authBadge) {
-    if (isExceeded) {
+    if (isOutside) {
       authBadge.className = "badge badge-danger";
-      authBadge.innerHTML = `<i class="ph ph-warning"></i> High Exposure → Senior Referral Required`;
+      authBadge.innerHTML = `<i class="ph ph-warning"></i> Outside Your Speciality → Specialist Referral Required`;
       if (refCard) refCard.style.border = "2px solid #f59e0b";
     } else {
-      authBadge.className = "badge badge-success";
-      authBadge.innerHTML = `<i class="ph ph-check"></i> Within Assigned Authority Limit`;
+      authBadge.className = "badge " + (sp.judged ? "badge-success" : "badge-light");
+      authBadge.innerHTML = sp.judged ? `<i class="ph ph-check"></i> Within Your Speciality` : `<i class="ph ph-question"></i> Line Not Set`;
       if (refCard) refCard.style.border = "1px solid var(--border-color)";
     }
   }
 
-  // The panel follows the tracked referral (sub.authorityRef), not the signed-in role. Whoever has the authority to decide a pending
-  // referral, and did not prepare it, sees the decision panel; everyone else sees where the referral stands.
-  const m = authMeasures(sub);
+  // The panel follows the tracked speciality referral (sub.specialtyRef), not the signed-in role. An underwriter who handles the line,
+  // and did not prepare the case, sees the decision panel for a pending referral; everyone else sees where the referral stands.
   const a = authAssess(sub, currentUserRole);
-  const ref = sub.authorityRef || null;
+  const ref = sub.specialtyRef || null;
   const pending = !!(ref && ref.status === "pending");
-  const canDecide = pending && authRoleCovers(currentUserRole, m).ok && hasPermission("authority", "approve") && authPreparers(sub).indexOf(authActor()) === -1;
+  const canDecide = pending && sp.ok && hasPermission("authority", "approve") && authPreparers(sub).indexOf(authActor()) === -1;
   const refBadge = document.getElementById("referralStatusBadge");
   const setBadge = (cls, txt) => { if (refBadge) { refBadge.className = "badge " + cls; refBadge.textContent = txt; } };
-  const esc = authEsc;
 
   if (canDecide) {
     if (juniorPanel) juniorPanel.style.display = "none";
     if (seniorPanel) { seniorPanel.style.display = "block"; seniorPanel.classList.remove("u-hidden"); }
     const author = document.getElementById("primaryUWNoteAuthor");
-    if (author) author.textContent = "Referred to you by " + ref.raisedBy + " on " + ref.raisedAt + ":";
+    if (author) author.textContent = "Referred to you by " + ref.raisedBy + " on " + ref.raisedAt + " (" + ref.lobName + "):";
     if (noteText) noteText.textContent = ref.note;
     const lbl = document.getElementById("seniorDecisionLabel");
-    if (lbl) lbl.textContent = "Decision & authority sign-off (" + authRoleLabel(currentUserRole) + "):";
+    if (lbl) lbl.textContent = "Take the case or send it back (" + authRoleLabel(currentUserRole) + "):";
     const ok = document.getElementById("btnSignOffApprove");
-    if (ok) ok.innerHTML = '<i class="ph ph-signature"></i> Approve & Sign-Off (' + esc(authRoleLabel(currentUserRole)) + ' authority)';
+    if (ok) ok.innerHTML = '<i class="ph ph-signature"></i> Take the Case (' + esc(authRoleLabel(currentUserRole)) + ')';
     const st = document.getElementById("signoffStamp");
     if (st) st.style.display = "none";
     setBadge("badge-warning", "Awaiting your decision");
@@ -1692,8 +1681,9 @@ function renderAuthorityScreen(sub) {
     const esc1 = document.getElementById("juniorEscalationText");
     const noteWrap = esc1 ? esc1.closest(".referral-note") : null;
     const showNoteBox = (on) => { if (noteWrap) noteWrap.style.display = on ? "block" : "none"; };
-    const targetName = a.requiredRole ? authRoleOwner(a.requiredRole) : "the carrier";
-    const last = ref && ref.status !== "pending" && !a.refValid
+    const specialist = isOutside ? authSpecialistRole(sp.lob) : null;
+    const targetName = specialist ? authRoleOwner(specialist) : "the carrier";
+    const last = ref && ref.status !== "pending" && !a.specialtyValid
       ? `<div class="text-xs text-muted" style="margin-bottom:8px;">Last referral: ${esc(ref.status)}${ref.decidedBy ? " by " + esc(ref.decidedBy) : ""}${ref.decisionNote ? " — " + esc(ref.decisionNote) : ""}.</div>` : "";
     if (pending) {
       showNoteBox(false);
@@ -1704,52 +1694,52 @@ function renderAuthorityScreen(sub) {
           <i class="ph ph-hourglass-medium"></i> <strong>Referred to ${esc(who)}.</strong> Sent by ${esc(ref.raisedBy)} on ${esc(ref.raisedAt)}. It shows on ${esc(authRoleOwnerName(ref.requiredRole))}'s board as "Referred to you", and nothing here moves until they decide.
           <div class="text-xs" style="margin-top:4px;">Note sent: ${esc(ref.note)}</div>
         </div>`;
-    } else if (a.refValid) {
+    } else if (a.specialtyValid && isOutside) {
       showNoteBox(false);
-      setBadge("badge-success", "Approved by " + (ref.decidedBy || "").split(" (")[0]);
+      setBadge("badge-success", "Taken by " + (ref.decidedBy || "").split(" (")[0]);
       if (jBox) jBox.innerHTML = `
         <div class="alert alert-success p-2 text-sm" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:4px; color:#166534;">
-          <i class="ph ph-check-circle"></i> <strong>Referral approved</strong> by ${esc(ref.decidedBy)} on ${esc(ref.decidedAt)}${ref.decisionNote ? ": " + esc(ref.decisionNote) : ""}. Continue to Subjectivities.
+          <i class="ph ph-check-circle"></i> <strong>Specialist has taken the case</strong> (${esc(ref.decidedBy)} on ${esc(ref.decidedAt)}${ref.decisionNote ? ": " + esc(ref.decisionNote) : ""}). Continue to Subjectivities. The premium and limit are checked again at Quote and Bind.
         </div>`;
-    } else if (isExceeded) {
+    } else if (isOutside) {
       showNoteBox(true);
       if (esc1 && (!esc1.value.trim() || esc1.dataset.auto === "1")) {
-        esc1.value = "Risk exceeds the " + authRoleLabel(currentUserRole) + " authority" + (a.own.reasons.length ? " (" + a.own.reasons.join("; ") + ")" : "") + ". Operations and safety metrics reviewed. Recommending approval.";
+        esc1.value = sp.name + " is not one of the " + authRoleLabel(currentUserRole) + "'s specialities. Please take this case, or tell me who should.";
         esc1.dataset.auto = "1";
       }
       setBadge(ref ? "badge-warning" : "badge-light", ref ? "Referral " + ref.status : "Not referred yet");
       if (jBox) jBox.innerHTML = `
         ${last}
         <div class="alert alert-warning p-2 mb-2 text-sm" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; color: #92400e; margin-bottom: 8px;">
-          <i class="ph ph-warning"></i> <strong>Exceeds Authority:</strong> this risk needs ${esc(a.requiredRole ? authRoleLabel(a.requiredRole) : "a written exception from the carrier")}. Refer it to ${esc(targetName)}.
+          <i class="ph ph-warning"></i> <strong>Not your speciality:</strong> ${esc(sp.name)} needs ${esc(specialist ? authRoleLabel(specialist) : "a written exception from the carrier")}. Refer it to ${esc(targetName)}.
         </div>
         <button class="btn btn-warning" id="btnJuniorEscalate" onclick="submitJuniorEscalation()">
           <i class="ph ph-paper-plane-tilt"></i> Refer to ${esc(targetName)}
         </button>`;
     } else {
       showNoteBox(false);
-      setBadge("badge-success", "Within authority");
+      setBadge("badge-success", sp.judged ? "Within your speciality" : "Line not set");
       if (jBox) jBox.innerHTML = `
         <div class="alert alert-success p-2 text-sm" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534;">
-          <i class="ph ph-check-circle"></i> <strong>Authority Clear:</strong> the risk is within your ${esc(authRoleLabel(currentUserRole))} authority (${esc(roleConfig.limitText)}). No referral needed. Continue to Subjectivities.
+          <i class="ph ph-check-circle"></i> <strong>Speciality Clear:</strong> ${sp.judged ? esc(sp.name) + " is one of the " + esc(authRoleLabel(currentUserRole)) + "'s specialities" : "no line is set on this case, so there is nothing to judge"}. No specialist referral needed. Continue to Subjectivities.
         </div>`;
     }
   }
 }
 
-/** "Refer to ..." button: sends the case to the person whose authority covers it, as a tracked referral on the case. */
+/** "Refer to ..." button: sends a case outside the signed-in underwriter's speciality to an underwriter who handles the line, as a tracked referral on the case. */
 function submitJuniorEscalation() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (!sub) return;
   if (!hasPermission("authority", "edit")) { denyPermission("authority", "edit"); return; }
-  const a = authAssess(sub, currentUserRole);
-  if (a.own.ok) { showToast("The risk is within your authority; no referral is needed. (The test exposure buttons only change what this screen shows.)", "info"); return; }
-  if (sub.authorityRef && sub.authorityRef.status === "pending") { showToast("⛔ A referral is already awaiting decision.", "danger"); return; }
+  const sp = authSpecialty(sub, currentUserRole);
+  if (sp.ok) { showToast("This line is one of your specialities; no specialist referral is needed.", "info"); return; }
+  if (sub.specialtyRef && sub.specialtyRef.status === "pending") { showToast("⛔ A referral is already awaiting decision.", "danger"); return; }
   const text = ((document.getElementById("juniorEscalationText") || {}).value || "").trim();
-  if (text.length < 10) { showToast("⛔ Explain the referral for the approver (at least 10 characters).", "danger"); return; }
-  authRaiseCore(sub, text);
-  const toName = authRoleOwnerName(sub.authorityRef.requiredRole);
-  showToast("📤 Referred to " + authRoleOwner(sub.authorityRef.requiredRole) + ". It shows on " + toName + "'s board as \"Referred to you\" and on this case as \"Awaiting " + toName + "\".", "warning");
+  if (text.length < 10) { showToast("⛔ Explain the referral for the specialist (at least 10 characters).", "danger"); return; }
+  authRaiseSpecialty(sub, text);
+  const toName = authRoleOwnerName(sub.specialtyRef.requiredRole);
+  showToast("📤 Referred to " + authRoleOwner(sub.specialtyRef.requiredRole) + ". It shows on " + toName + "'s board as \"Referred to you\" and on this case as \"Awaiting " + toName + "\".", "warning");
   renderSubmissionsTable();
   renderRoleDashboard();
   refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();

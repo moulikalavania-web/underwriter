@@ -49,11 +49,11 @@
     t('the queue\'s referral filter uses the same rule', /A1/.test(html) && /A4/.test(html) && !/>A2</.test(html) && !/>A3</.test(html), (html.match(/openCaseAtCurrentStep\('[^']+'\)/g) || []).join(' '));
     currentTableFilter = 'all'; delete a1.authorityRef;
     // the authority desk screen
-    currentUserRole = 'junior'; renderAuthorityScreen(a1);
-    t('authority screen flags the over-authority case for the acting role', /Senior Referral Required/.test(el('authCheckBadge').innerHTML));
-    t('exactly one "Refer to Senior" button exists', document.querySelectorAll('#btnJuniorEscalate').length === 1);
+    currentUserRole = 'junior'; var g1 = JSON.parse(JSON.stringify(a1)); g1.lobKey = 'gl_cas'; g1.lobName = 'GL CAS - High Hazard Casualty & Surplus'; renderAuthorityScreen(g1);
+    t('authority screen flags a line outside the acting underwriter speciality', /Specialist Referral Required/.test(el('authCheckBadge').innerHTML));
+    t('exactly one "Refer" button exists', document.querySelectorAll('#btnJuniorEscalate').length === 1);
     renderAuthorityScreen(a2);
-    t('authority screen clear for an in-authority case; no referral button', /Within Assigned Authority/.test(el('authCheckBadge').innerHTML) && document.querySelectorAll('#btnJuniorEscalate').length === 0);
+    t('authority screen clear for a line within the speciality; no referral button', /Within Your Speciality/.test(el('authCheckBadge').innerHTML) && document.querySelectorAll('#btnJuniorEscalate').length === 0);
     // four eyes counts whoever priced it with the live pricing tool
     var p = mk('P1', { discretionaryPricing: { finalPremium: 1000, appliedBy: 'Dana Pricer (Senior UW)' } });
     t('four-eyes: whoever applied discretionary pricing cannot approve the referral', authPreparers(p).indexOf('Dana Pricer (Senior UW)') > -1);

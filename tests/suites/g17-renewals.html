@@ -191,6 +191,9 @@
     t('binding the renewal closes out the expiring policy', P1.renewal.status === 'renewed' && P1.renewal.renewedPolicyNumber === 'GLC-2027-555001' && logs(P1, 'renewal_completed').length === 1 && logs(R1b, 'renewal_completed').length === 1);
     recordQuoteVersion(R1b, true);
     t('closing out happens once', logs(P1, 'renewal_completed').length === 1);
+    t('the bound renewal opens term 2 with a renewal transaction and policy version 1', R1b.policyTerm.termNo === 2 && R1b.policyTerm.priorPolicyNumber === 'POL-SUB-P1' && P1.policyTerm.termNo === 1 && R1b.policyTransactions.length === 1 && R1b.policyTransactions[0].type === 'renewal' && R1b.policyTransactions[0].linkedTo === 'SUB-P1' && R1b.policyVersions.length === 1 && R1b.policyVersions[0].kind === 'renewal' && R1b.policyVersions[0].transactionId === R1b.policyTransactions[0].id && logs(R1b, 'renewal_term_created').length === 1, JSON.stringify(R1b.policyVersions));
+    t('the term is not created twice', (recordQuoteVersion(R1b, true), R1b.policyTransactions.length === 1));
+    t('the renewal starts with none of the expiring policy\'s transactions or versions', !R1.policyReferrals && R1.policyTerm !== P1.policyTerm);
 
     // ---------- the pipeline tab and filters
     t('stage after renewal', rnPolicies().filter(function(p){return p.sub.id==='SUB-P1';})[0].stage === 'renewed');
@@ -215,6 +218,46 @@
     R1b.currentPremium = 10200;
     renderRenewalChip(R1b);
     t('chip shows the comparison otherwise', /Renewal premium \+2%/.test(el('renewalStatusContainer').innerHTML));
+    // ---------- the renewal offer, read from the renewal submission
+    P1.renewal.decision = 'renew';
+    var of1 = rnOffer(P1);
+    t('offer: bound renewal at +2% has no flag, premium set against the expiring one', of1.state === 'bound' && of1.expiring === 10000 && of1.premium === 10200 && of1.changePct === 2 && of1.flags.length === 0);
+    R1b.currentPremium = 11500;
+    t('offer: +15% on a plain renewal is flagged for underwriting review', rnOffer(P1).flags.length === 1 && /no conditional-renewal notice/.test(rnOffer(P1).flags[0]));
+    var saveState = [R1b.pasSync, R1b.customerApproved, R1b.quoteIssued]; delete R1b.pasSync;
+    t('offer states follow the submission: rated, offered, accepted', rnOffer(P1).state === 'rated' && (R1b.quoteIssued = true, rnOffer(P1).state === 'offered') && (R1b.customerApproved = true, rnOffer(P1).state === 'accepted'));
+    R1b.currentPremium = 0; delete R1b.quoteIssued; delete R1b.customerApproved;
+    t('offer: awaiting rating before the renewal is priced', rnOffer(P1).state === 'awaiting_rating' && rnOffer(P2) !== null);
+    R1b.pasSync = saveState[0]; R1b.currentPremium = 10200;
+    t('offer: a policy with no renewal submission has no offer', rnOffer(N1) === null);
+    rnSelect('SUB-P1'); renderRenewalPipeline();
+    t('the pipeline detail shows the offer and the underwriting approval', /Renewal offer/.test(el('renewalPipelineRoot').innerHTML) && /Underwriting approval/.test(el('renewalPipelineRoot').innerHTML));
+
+    // ---------- the renewal batch
+    SUBMISSIONS_DATASET.push(mkPolicy('SUB-B1', 100), mkPolicy('SUB-B2', 200));
+    var B1 = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-B1';})[0], B2 = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-B2';})[0];
+    currentUserRole = 'admin'; var nb = rnRunBatch();
+    t('the batch needs edit permission', nb === 0 && !B1.renewal);
+    currentUserRole = 'assistant'; nb = rnRunBatch();
+    t('the batch starts review for policies inside the window only', nb >= 1 && B1.renewal.status === 'under_review' && B1.renewal.reviewStartedBy === 'Renewal batch' && (!B2.renewal || B2.renewal.status === 'not_started'));
+    t('the batch records the risk carried into renewal and what is left to refresh', B1.renewal.riskRefresh.expiringPremium === 10000 && B1.renewal.riskRefresh.claims === 1 && B1.renewal.riskRefresh.toRefresh.length === 4 && /Renewal batch/.test(logs(B1, 'renewal_review_started')[0].notes));
+    t('a second run does nothing for the same policies', rnRunBatch() === 0 && logs(B1, 'renewal_review_started').length === 1);
+    t('with nothing connected the sources are recorded as not connected, nothing invented', ['registry', 'mvr', 'lossRuns'].every(function(k){ return B1.renewal.riskRefresh.sources[k].status === 'not_connected'; }) && B1.renewal.riskRefresh.indicatedPremium === null && B1.renewal.riskRefresh.toRefresh.length === 4);
+    var asked = [];
+    EXTERNAL_SERVICES.registry = function(q){ asked.push('registry:' + q.subId); return { ok:true, summary:'3 VINs matched' }; };
+    EXTERNAL_SERVICES.mvr = function(){ throw new Error('MVR vendor timeout'); };
+    EXTERNAL_SERVICES.lossRuns = function(){ return { ok:true, summary:'Carrier runs valued this month' }; };
+    EXTERNAL_SERVICES.rating = function(q){ return { premium: 10800 }; };
+    SUBMISSIONS_DATASET.push(mkPolicy('SUB-B3', 90));
+    var B3 = SUBMISSIONS_DATASET.filter(function(s){return s.id==='SUB-B3';})[0];
+    currentUserRole = 'assistant'; rnRunBatch();
+    var rf3 = B3.renewal.riskRefresh;
+    t('connected services are asked for fresh data and the outcome is kept per source', asked.indexOf('registry:SUB-B3') > -1 && rf3.sources.registry.status === 'received' && rf3.sources.registry.summary === '3 VINs matched' && rf3.sources.lossRuns.status === 'received' && rf3.sources.mvr.status === 'failed' && /timeout/.test(rf3.sources.mvr.error));
+    t('what a received source covers is no longer left to refresh', rf3.toRefresh.length === 2 && !rf3.toRefresh.some(function(x){ return /loss runs|Updated schedules/i.test(x); }));
+    t('the rating service\'s figure for the renewal is kept and shown', rf3.indicatedPremium === 10800 && /Rating service indicates \$10,800/.test(logs(B3, 'renewal_review_started')[0].notes));
+    EXTERNAL_SERVICES.registry = null; EXTERNAL_SERVICES.mvr = null; EXTERNAL_SERVICES.lossRuns = null; EXTERNAL_SERVICES.rating = null;
+    rnSelect('SUB-B1'); renderRenewalPipeline();
+    t('the detail shows the refresh snapshot', /Risk carried into renewal/.test(el('renewalPipelineRoot').innerHTML));
     renderRenewalChip(P5);
     t('chip on an expiring policy points at the pipeline', /Renewal Pipeline/.test(el('renewalStatusContainer').innerHTML));
     t('empty pipeline message', (function(){ var keep = SUBMISSIONS_DATASET.slice(); SUBMISSIONS_DATASET.length = 0; renderRenewalPipeline(); var ok = /No bound policies yet/.test(el('renewalPipelineRoot').innerHTML); keep.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); return ok; })());

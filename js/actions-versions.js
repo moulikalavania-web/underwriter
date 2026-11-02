@@ -1,18 +1,5 @@
 // 7. ACTIONS & USER INTERACTIONS
 // ============================================================================
-function setExposureScenario(scenario) {
-  exposureScenario = scenario;
-  const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
-  if (sub) {
-    renderAuthorityScreen(sub);
-    if (scenario === "exceeds") {
-      showToast("Simulated Exposure: Exceeds Primary Underwriter Limit (Senior Referral Triggered)", "warning");
-    } else {
-      showToast("Simulated Exposure: Within Primary Authority", "success");
-    }
-  }
-}
-
 function triggerDuplicateExit() {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (sub) {
@@ -101,7 +88,7 @@ function triggerAppetiteFailureExit() {
   showToast("Appetite Knockout Triggered! Auto-Decline notice logged in the Decline Center.", "danger");
 }
 
-/** Decision buttons on the referral desk. They act on the tracked referral (sub.authorityRef) and name whoever is signed in. */
+/** Decision buttons on the referral desk (Step 9). They act on the tracked speciality referral (sub.specialtyRef) and name whoever is signed in. */
 function seniorUWAction(action) {
   const sub = SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId);
   if (!sub) return;
@@ -117,30 +104,20 @@ function seniorUWAction(action) {
     refreshTeamActivityIfVisible(); refreshAuditLogIfVisible(); persistAppState();
   };
 
-  if (sub.authorityRef && sub.authorityRef.status === "pending") {
-    const r = authDecideCore(sub, verb, note || (verb === "approve" ? "Sign-off at the Authority Desk." : ""), false);
+  if (sub.specialtyRef && sub.specialtyRef.status === "pending") {
+    const r = authDecideSpecialty(sub, verb, note || (verb === "approve" ? "Taken at the Authority Desk." : ""), false);
     if (!r.ok) return;
     if (noteEl) noteEl.value = "";
     refresh();
-    const raisedBy = String(sub.authorityRef.raisedBy || "").split(" (")[0];
-    if (verb === "approve") showToast("✍️ " + me + " signed off. Cleared for pricing.", "success");
+    const raisedBy = String(sub.specialtyRef.raisedBy || "").split(" (")[0];
+    if (verb === "approve") showToast("✍️ " + me + " has taken the case. Cleared to continue.", "success");
     else if (verb === "return") showToast("🔄 Returned to " + raisedBy + " for revision.", "warning");
-    else showToast("🚫 Referral declined by " + me + ". The case cannot be quoted; use Decline / Withdraw on the Workbench to close it.", "danger");
+    else showToast("🚫 Speciality referral declined by " + me + ". The case cannot be quoted; use Decline / Withdraw on the Workbench to close it.", "danger");
     return;
   }
 
-  // No tracked referral: only an approver whose own authority covers the risk may clear it directly.
-  if (action !== "approve") { showToast("There is no referral awaiting a decision.", "info"); return; }
-  if (!authAssess(sub, currentUserRole).own.ok) {
-    showToast("⛔ This risk is beyond your authority: " + authAssess(sub, currentUserRole).own.reasons.join("; ") + ".", "danger");
-    return;
-  }
-  if (authPreparers(sub).indexOf(authActor()) > -1 && sub.authorityRef) { showToast("⛔ You prepared or referred this risk, so you cannot sign it off.", "danger"); return; }
-  sub.statusText = "Ready for Rating";
-  sub.statusBadge = "badge-success";
-  sub.isReferral = false;
-  refresh();
-  showToast("✍️ " + me + " signed off. Cleared for pricing.", "success");
+  // No tracked referral: nothing to decide.
+  showToast("There is no speciality referral awaiting a decision.", "info");
 }
 
 // RFI Modal Handlers

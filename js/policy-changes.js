@@ -46,6 +46,19 @@ var PC_REINSTATE_WINDOW_DAYS = 30;         // later reinstatement needs senior a
 var PC_LARGE_CHANGE_PCT = 25;              // endorsement premium change above this share of annual premium needs senior authority
 var PC_NON_REFUNDABLE_FEE_CODES = ["FEE_POLICY", "FEE_BROKER", "FEE_INSPECT", "FEE_MVR", "FEE_VEHINSP", "FEE_SLFILE"];
 var PC_TEMPLATE_META = { version: "DRAFT-0.1", approved: false };
+/**
+ * Where the prototype meets outside systems. Nothing is connected: each entry is null until a real service is plugged in,
+ * and every caller says so when it is null instead of inventing a result. A service is a function that takes one object
+ * and returns one object:
+ *   rating     ({ kind: "endorsement"|"renewal", subId, type, action, annualPremium })  -> { annualChange | premium, basis }
+ *   registry   ({ subId, insured, vehicles, drivers })   -> { ok, summary }
+ *   mvr        ({ subId, insured, drivers })             -> { ok, summary }
+ *   lossRuns   ({ subId, insured, policyNumber })        -> { ok, summary }
+ *   pas        ({ policyNumber, transactionId, type, effective, versionNo, annualPremium, policyState, linkedTo }) -> { ok, reference, error }
+ */
+var EXTERNAL_SERVICES = { rating: null, registry: null, mvr: null, lossRuns: null, pas: null };
+var PC_REFERRAL_ROLE = "senior_uw";       // who decides a change that is past the preparer's authority
+var _pcFromReferral = null;                // set while an approved referral is being issued, so the form comes from the referral
 
 var PC_ENDORSEMENT_TYPES = [
   { key: "vehicle", label: "Add or remove a vehicle", needsForm: false },
@@ -141,6 +154,8 @@ function pcValidateEndorsement(ctx, f) {
   else if (prem !== 0) {
     if (String(f.premiumReason || "").trim().length < 5) p.push("say how the premium change was calculated");
     if (ctx.annual > 0 && Math.abs(prem) > ctx.annual * PC_LARGE_CHANGE_PCT / 100 && !ctx.canOverride) p.push(`a premium change above ${PC_LARGE_CHANGE_PCT}% of the annual premium needs senior authority`);
+    // the premium after the change must still sit inside the preparer's own underwriting authority (the same rules as quote and bind)
+    if (prem > 0 && !ctx.canOverride && ctx.authorityReasons) { const why = ctx.authorityReasons(ctx.annual + prem); if (why.length) p.push(`the premium after the change is beyond your underwriting authority (${why.join("; ")}), so it needs senior authority`); }
     if (ctx.annual + prem < 0) p.push("the change would take the annual premium below zero");
   }
   if (type && type.needsForm && String(f.formNumber || "").trim().length < 3) p.push("enter the endorsement form number");
@@ -245,9 +260,103 @@ function pcContext(sub, today) {
   return {
     today: today || pcToday(), policyEffective: f.effective, expiration: f.expiration, annual: pcLedger(sub).currentAnnual,
     canOverride: hasPermission("policyChanges", "override"),
+    authorityReasons: newAnnual => {
+      if (typeof authRoleCovers !== "function" || typeof authMeasures !== "function") return [];
+      const m = authMeasures(sub); m.premium = newAnnual; m.limit = 0;   // an endorsement here changes the premium; the policy limit was judged when the policy was bound
+      const cov = authRoleCovers(currentUserRole, m);
+      return cov.ok || cov.stateUnknown ? [] : cov.reasons;
+    },
     state: typeof deriveRiskState === "function" ? deriveRiskState(sub) : null,
     overdueSubjectivities: typeof subjStatus === "function" ? subjStatus(sub).overdue.some(i => i.timing === "post_bind") : false
   };
+}
+
+/**
+ * Every endorsement, cancellation, reinstatement and renewal is also a POLICY TRANSACTION. An endorsement, a
+ * reinstatement and a renewal also make a new POLICY VERSION (version 1 is the policy as bound), so the premium and
+ * the effective date of each state of the policy can be read back, and a reinstatement points at its cancellation.
+ */
+function pcVersions(sub) {
+  if (!sub.policyVersions) { const f = pcFacts(sub); sub.policyVersions = [{ version: 1, kind: "issued", transactionId: null, effective: f.effective, annualPremium: pcLedger(sub).baseAnnual }]; }
+  return sub.policyVersions;
+}
+function pcTransactions(sub) { if (!sub.policyTransactions) sub.policyTransactions = []; return sub.policyTransactions; }
+function pcRecordTransaction(sub, ev, opts) {
+  const o = opts || {}, list = pcTransactions(sub);
+  const txn = { id: `TXN-${sub.id}-${list.length + 1}`, type: ev.type, eventId: ev.id, effective: ev.effective, linkedTo: o.linkedTo || null, referralId: ev.referralId || null, versionNo: null, by: ev.by, at: ev.at };
+  if (o.newVersion) {
+    const v = pcVersions(sub), nv = { version: v.length + 1, kind: ev.type, transactionId: txn.id, effective: ev.effective, annualPremium: pcLedger(sub).currentAnnual };
+    v.push(nv); txn.versionNo = nv.version; ev.versionNo = nv.version;
+  }
+  list.push(txn); ev.transactionId = txn.id;
+  return txn;
+}
+
+/**
+ * Sends a policy transaction to the policy admin system. With no PAS connected (EXTERNAL_SERVICES.pas is null) the send is
+ * SIMULATED, as the bind is: a reference is made up locally and the record says simulated. A connected service that refuses
+ * leaves the transaction marked failed, with a retry.
+ */
+function pcSendToPas(sub, ev, why) {
+  const f = pcFacts(sub), link = pcTransactions(sub).find(t => t.id === ev.transactionId);
+  const payload = { policyNumber: f.policyNumber, transactionId: ev.transactionId, type: ev.type, effective: ev.effective, versionNo: ev.versionNo || null, annualPremium: pcLedger(sub).currentAnnual, policyState: pcState(sub), linkedTo: link ? link.linkedTo : null };
+  let res;
+  try { res = typeof EXTERNAL_SERVICES.pas === "function" ? EXTERNAL_SERVICES.pas(payload) : { ok: true, reference: "PAS-" + ev.transactionId, simulated: true }; }
+  catch (e) { res = { ok: false, error: e.message }; }
+  const rec = res && res.ok ? { status: "sent", reference: res.reference || null, simulated: !!res.simulated, at: pcNow(), by: pcActor(), why: why || null } : { status: "failed", error: (res && res.error) || "The policy admin system refused the transaction.", at: pcNow(), by: pcActor(), why: why || null };
+  ev.pasSync = rec;
+  if (!ev.pasHistory) ev.pasHistory = [];
+  ev.pasHistory.push(rec);
+  pcLog(sub, rec.status === "sent" ? "pas_transaction_sent" : "pas_transaction_failed", rec.status === "sent" ? `${ev.transactionId} (${ev.type}${why ? ", " + why : ""}) sent to PAS${rec.simulated ? " (simulated: no PAS is connected)" : ""}; reference ${rec.reference}. Annual premium ${pcMoney(payload.annualPremium)}, policy ${payload.policyState}.` : `${ev.transactionId} (${ev.type}) was not accepted by PAS: ${rec.error} Retry from Policy Changes.`);
+  return rec;
+}
+
+function pcRetryPas(eventId) {
+  const sub = pcActiveSub(); if (!sub) return;
+  if (!hasPermission("policyChanges", "approve")) { denyPermission("policyChanges", "approve"); return; }
+  const ev = pcChanges(sub).find(c => c.id === eventId);
+  if (!ev || !ev.pasSync || ev.pasSync.status !== "failed") return;
+  const rec = pcSendToPas(sub, ev, "retry");
+  pcPersist(); renderPolicyChangesCard(sub);
+  showToast(rec.status === "sent" ? "Sent to PAS." : "PAS refused it again: " + rec.error, rec.status === "sent" ? "success" : "danger");
+}
+
+/** A request that is past the preparer's authority waits here for someone who holds override authority. */
+function pcReferrals(sub) { if (!sub.policyReferrals) sub.policyReferrals = []; return sub.policyReferrals; }
+function pcRoleLabel(role) { const r = typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[role]; return r ? r.title : role; }
+function pcReferIfAuthorityOnly(sub, type, f, problems, ctx) {
+  if (ctx.canOverride || !problems.length || !problems.every(p => /senior authority/.test(p))) return false;
+  const list = pcReferrals(sub);
+  const ref = { id: `PCR-${sub.id}-${list.length + 1}`, type, form: Object.assign({}, f), reasons: problems.slice(), status: "pending", requiredRole: PC_REFERRAL_ROLE, raisedBy: pcActor(), raisedByRole: currentUserRole, raisedAt: pcNow() };
+  // the schedule change typed on the form (add, remove or change a vehicle, driver or location) travels with the request
+  if (type === "endorsement" && typeof rvFormChange === "function" && typeof RV_TYPES !== "undefined") { const ch = rvFormChange(); if (ch && RV_TYPES[ch.type]) ref.riskChange = ch; }
+  list.push(ref);
+  const what = type === "endorsement" ? "Endorsement" : "Reinstatement";
+  pcLog(sub, "policy_change_referred", `${what} request ${ref.id} referred to ${pcRoleLabel(PC_REFERRAL_ROLE)}: ${problems.join("; ")}.`);
+  if (typeof notify === "function") notify(PC_REFERRAL_ROLE, { kind: "referral", title: `Policy change referred to you: ${sub.insured}`, text: problems.join("; "), caseId: sub.id, key: "pcr-" + ref.id });
+  pcPersist();
+  renderPolicyChangesCard(sub);
+  showToast(`Referred to ${pcRoleLabel(PC_REFERRAL_ROLE)}: ${problems[0]}.`, "warning");
+  return true;
+}
+
+/**
+ * Rating for a schedule change. The prototype has no rating engine, so this is an INDICATION only: the policy's annual
+ * premium shared evenly over its scheduled vehicles or locations. Where a rating system exists its figure replaces this.
+ */
+function pcRateIndication(sub, type, action) {
+  if (typeof EXTERNAL_SERVICES.rating === "function") {
+    try {
+      const r = EXTERNAL_SERVICES.rating({ kind: "endorsement", subId: sub.id, type, action, annualPremium: pcLedger(sub).currentAnnual });
+      if (r && typeof r.annualChange === "number") return { annualChange: pcRound(r.annualChange), units: null, perUnit: null, basis: r.basis || "Rating service" };
+    } catch (e) { console.warn("Rating service failed:", e); }
+    return null;   // a connected service that gives no figure: do not fall back to a guess
+  }
+  if (action !== "add" && action !== "remove") return null;
+  const units = type === "vehicle" ? (sub.vehicles || []).length : (type === "location" && typeof rvLocations === "function" ? rvLocations(sub).length : 0);
+  if (!units) return null;
+  const per = pcRound(pcLedger(sub).currentAnnual / units);
+  return { annualChange: action === "remove" ? -per : per, units, perUnit: per, basis: `Indication: ${pcMoney(pcLedger(sub).currentAnnual)} annual premium ÷ ${units} scheduled ${type}${units === 1 ? "" : "s"} = ${pcMoney(per)} each (no rating engine in the prototype; replace with the rating system's figure)` };
 }
 
 function pcMepPct(sub) {
@@ -298,10 +407,13 @@ function pcIssueEndorsement() {
   const sub = pcActiveSub(); if (!sub) return;
   if (!hasPermission("policyChanges", "approve")) { denyPermission("policyChanges", "approve"); return; }
   if (!pcRequireInForce(sub, "an endorsement")) return;
-  const ctx = pcContext(sub);
-  const f = { type: pcV("pc_endType"), effective: pcV("pc_endEff"), description: pcV("pc_endDesc"), annualPremiumChange: pcV("pc_endPrem") || "0", premiumReason: pcV("pc_endPremWhy"), formNumber: pcV("pc_endForm"), noKnownLoss: pcC("pc_endNoLoss") };
+  const ctx = pcContext(sub), ref = _pcFromReferral;
+  const f = ref ? ref.form : { type: pcV("pc_endType"), effective: pcV("pc_endEff"), description: pcV("pc_endDesc"), annualPremiumChange: pcV("pc_endPrem") || "0", premiumReason: pcV("pc_endPremWhy"), formNumber: pcV("pc_endForm"), noKnownLoss: pcC("pc_endNoLoss") };
   const problems = pcValidateEndorsement(ctx, f);
-  if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
+  if (problems.length) {
+    if (!ref && pcReferIfAuthorityOnly(sub, "endorsement", f, problems, ctx)) return;
+    showToast("⛔ " + problems.join("; ") + ".", "danger"); return;
+  }
 
   const L = pcLedger(sub), facts = pcFacts(sub);
   const annualChange = pcRound(Number(f.annualPremiumChange));
@@ -320,11 +432,62 @@ function pcIssueEndorsement() {
     ...(f.formNumber ? [["Endorsement form", f.formNumber]] : []),
     ["Annual premium before", pcMoney(before)], ["Annual premium change", pcMoney(annualChange)], ["Premium due or returned for the remaining term", pcMoney(proRata)], ["Annual premium after", pcMoney(L.currentAnnual)]
   ], [f.description, "All other terms, conditions and exclusions of the policy remain unchanged."]);
+  if (ref) ev.referralId = ref.id;
   pcChanges(sub).push(ev);
-  pcLog(sub, "endorsement_issued", `Endorsement ${ev.number} (${type.label}) effective ${f.effective}: ${f.description}. Annual premium ${pcMoney(before)} → ${pcMoney(L.currentAnnual)} (${pcMoney(proRata)} for the remaining term).${ev.backdated ? " BACKDATED; no-known-loss statement confirmed." : ""}${f.formNumber ? " Form " + f.formNumber + "." : ""}`);
+  pcRecordTransaction(sub, ev, { newVersion: true });
+  pcSendToPas(sub, ev);
+  pcLog(sub, "endorsement_issued", `Endorsement ${ev.number} (${type.label}) effective ${f.effective}: ${f.description}. Annual premium ${pcMoney(before)} → ${pcMoney(L.currentAnnual)} (${pcMoney(proRata)} for the remaining term). Transaction ${ev.transactionId}, policy version ${ev.versionNo}.${ev.backdated ? " BACKDATED; no-known-loss statement confirmed." : ""}${f.formNumber ? " Form " + f.formNumber + "." : ""}${ref ? " Approved on referral " + ref.id + "." : ""}`);
   pcPersist();
   renderPolicyChangesCard(sub);
   showToast(`Endorsement ${ev.number} issued.`, "success");
+}
+
+/** Fills the premium fields from the rating indication for the schedule change on the form. */
+function pcRateChange() {
+  const sub = pcActiveSub(); if (!sub) return;
+  const action = pcV("rv_action"), type = pcV("pc_endType") === "vehicle" || pcV("pc_endType") === "location" ? pcV("pc_endType") : pcV("rv_type");
+  const r = pcRateIndication(sub, type, action);
+  if (!r) { showToast("No rating indication for this change. Choose a vehicle or location, add or remove one, and enter the premium the rating system returns.", "info"); return; }
+  const prem = document.getElementById("pc_endPrem"), why = document.getElementById("pc_endPremWhy");
+  if (prem) prem.value = r.annualChange;
+  if (why) why.value = r.basis;
+  showToast(`Rated: ${pcMoney(r.annualChange)} a year (indication).`, "info");
+}
+
+/** Someone who holds override authority approves or declines a request that was referred to them; never the person who raised it. */
+function pcDecideReferral(id, approve) {
+  const sub = pcActiveSub(); if (!sub) return;
+  if (!hasPermission("policyChanges", "override")) { denyPermission("policyChanges", "override"); return; }
+  const ref = pcReferrals(sub).find(r => r.id === id && r.status === "pending"); if (!ref) return;
+  if (ref.raisedByRole === currentUserRole) { showToast("⛔ A request cannot be decided by the person who raised it.", "danger"); return; }
+  const note = pcV("pc_refNote_" + id);
+  if (!approve && note.length < 10) { showToast("Give the reason for declining (at least 10 characters).", "danger"); return; }
+  if (approve) {
+    const n = pcChanges(sub).length;
+    const ch = ref.riskChange ? Object.assign({}, ref.riskChange, { effective: ref.form.effective }) : null;
+    if (ch && typeof rvValidateChange === "function") {
+      const errs = rvValidateChange(sub, ch);
+      if (errs.length) { showToast("⛔ The schedule change in this request no longer fits the policy: " + errs.join("; ") + ". Decline it and ask for a new request.", "danger"); return; }
+    }
+    const rv = document.getElementById("rv_action"), keep = rv ? rv.value : "";
+    if (rv) rv.value = "";   // the schedule change on the form belongs to whoever typed it, not to this request
+    _pcFromReferral = ref;
+    try { if (ref.type === "endorsement") window.pcIssueEndorsement(); else window.pcReinstate(); }
+    finally { _pcFromReferral = null; if (rv) rv.value = keep; }
+    if (pcChanges(sub).length === n) return;   // refused again; the toast says why
+    const ev = pcChanges(sub)[pcChanges(sub).length - 1];
+    ref.eventId = ev.id;
+    if (ch && typeof rvEndorse === "function") {
+      const res = rvEndorse(sub, Object.assign({}, ch, { ref: ev.id }));
+      if (res.ok) { ev.riskVersionId = res.version.id; ev.riskChange = res.label; ref.riskApplied = res.label; if (typeof rvRender === "function") rvRender(sub); }
+      else showToast("⚠ The endorsement was issued but the schedule change could not be applied: " + (res.errors || [res.error]).join("; ") + ". Apply it by hand.", "warning");
+    }
+  }
+  ref.status = approve ? "approved" : "declined"; ref.decidedBy = pcActor(); ref.decidedAt = pcNow(); ref.decisionNote = note || null;
+  pcLog(sub, approve ? "policy_referral_approved" : "policy_referral_declined", `${ref.type === "endorsement" ? "Endorsement" : "Reinstatement"} request ${ref.id} ${approve ? "approved" : "declined"}${approve ? ", issued as " + ref.eventId : ""}.${ref.riskApplied ? " Schedule change applied: " + ref.riskApplied + "." : ""}${note ? " " + note : ""}`);
+  pcPersist();
+  renderPolicyChangesCard(sub);
+  showToast(approve ? "Approved and issued." : "Request declined.", approve ? "success" : "info");
 }
 
 function pcCancellationForm() {
@@ -373,8 +536,10 @@ function pcSubmitCancellation() {
     ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Notice date", insurer ? f.mailedOn : pcToday()], ["Cancellation effective", `${f.effective} (12:01 AM)`], ...(insurer ? [["Proof of mailing", f.proofRef]] : [])
   ], paras);
   pcChanges(sub).push(ev);
-  sub.cancellation = { eventId: id, initiator: f.initiator, reason: f.reason, effective: f.effective, status: ev.status };
+  const txn = pcRecordTransaction(sub, ev);
+  sub.cancellation = { eventId: id, transactionId: txn.id, initiator: f.initiator, reason: f.reason, effective: f.effective, status: ev.status };
   sub.policyState = "pending_cancellation";
+  pcSendToPas(sub, ev, "scheduled");
   pcLog(sub, "cancellation_scheduled", `${insurer ? "Insurer" : "Insured-requested"} cancellation ${id}: ${reasonObj.label}; effective ${f.effective}${flat ? " (flat)" : ""}${insurer ? `; notice mailed ${f.mailedOn} (${ev.noticeDays} days required, proof ${f.proofRef})` : ""}. Estimated refund ${pcMoney(refund.refund)}.${copies.length > 1 ? ` Notice also to ${copies.slice(1).map(c => c.name).join(", ")}.` : ""}`);
   pcApplyDue(sub, ctx.today);
   pcPersist();
@@ -394,6 +559,7 @@ function pcApplyDue(sub, today) {
   (sub.certificates || []).forEach(c => { if (c.status === "issued") { c.status = "revoked"; c.revokedBy = pcActor(); c.revokedAt = pcNow(); c.revokeReason = `Policy cancelled effective ${sub.cancellation.effective}`; revoked++; } });
   (sub.binders || []).forEach(b => { if (b.status === "active") { b.status = "void"; b.voidedBy = pcActor(); b.voidedAt = pcNow(); b.voidReason = `Policy cancelled effective ${sub.cancellation.effective}`; voided++; } });
   sub.statusText = "Policy Cancelled"; sub.statusBadge = "badge-danger";
+  if (ev) pcSendToPas(sub, ev, "took effect");
   pcLog(sub, "policy_cancelled", `Policy cancellation took effect ${sub.cancellation.effective}.${revoked ? ` ${revoked} certificate(s) revoked; notify the holders.` : ""}${voided ? ` ${voided} binder(s) voided.` : ""}`);
   pcPersist();
   return true;
@@ -419,21 +585,30 @@ function pcReinstate() {
   const sub = pcActiveSub(); if (!sub) return;
   if (!hasPermission("policyChanges", "approve")) { denyPermission("policyChanges", "approve"); return; }
   if (pcState(sub) !== "cancelled") { showToast("Only a cancelled policy can be reinstated.", "info"); return; }
-  const f = { type: pcV("pc_riType"), effective: pcV("pc_riEff"), reason: pcV("pc_riWhy"), noKnownLoss: pcC("pc_riNoLoss"), payment: pcV("pc_riPay") };
+  const ref = _pcFromReferral;
+  const f = ref ? ref.form : { type: pcV("pc_riType"), effective: pcV("pc_riEff"), reason: pcV("pc_riWhy"), noKnownLoss: pcC("pc_riNoLoss"), payment: pcV("pc_riPay") };
   const ctx = pcContext(sub); ctx.cancelEffective = sub.cancellation.effective;
   const problems = pcValidateReinstatement(ctx, f);
-  if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
+  if (problems.length) {
+    // a late reinstatement, or one without a lapse, is an underwriting review: it goes to someone with override authority
+    if (!ref && pcReferIfAuthorityOnly(sub, "reinstatement", f, problems, ctx)) return;
+    showToast("⛔ " + problems.join("; ") + ".", "danger"); return;
+  }
   const facts = pcFacts(sub);
   const lapseDays = f.type === "with_lapse" ? Math.max(0, pcDays(sub.cancellation.effective, f.effective)) : 0;
-  const ev = { id: `RIN-${sub.id}-${pcChanges(sub).filter(c => c.type === "reinstatement").length + 1}`, type: "reinstatement", status: "issued", reinstateType: f.type, effective: f.effective, lapseDays, reason: f.reason, payment: f.payment || null, noKnownLoss: f.noKnownLoss, by: pcActor(), at: pcNow() };
+  const ev = { id: `RIN-${sub.id}-${pcChanges(sub).filter(c => c.type === "reinstatement").length + 1}`, type: "reinstatement", status: "issued", reinstateType: f.type, effective: f.effective, lapseDays, reason: f.reason, payment: f.payment || null, noKnownLoss: f.noKnownLoss,
+    cancellationId: sub.cancellation.eventId, cancellationTransactionId: sub.cancellation.transactionId || null, by: pcActor(), at: pcNow() };
+  if (ref) ev.referralId = ref.id;
   ev.html = pcDocHtml("NOTICE OF REINSTATEMENT", [
-    ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Reinstated effective", `${f.effective} (12:01 AM)`], ["Basis", f.type === "without_lapse" ? "Without lapse (continuous coverage)" : `With lapse of ${lapseDays} day(s): there is no coverage from ${sub.cancellation.effective} until ${f.effective}`]
+    ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Reinstates cancellation", sub.cancellation.eventId], ["Reinstated effective", `${f.effective} (12:01 AM)`], ["Basis", f.type === "without_lapse" ? "Without lapse (continuous coverage)" : `With lapse of ${lapseDays} day(s): there is no coverage from ${sub.cancellation.effective} until ${f.effective}`]
   ], [f.reason, "All other terms, conditions and exclusions of the policy remain unchanged."]);
   pcChanges(sub).push(ev);
+  pcRecordTransaction(sub, ev, { newVersion: true, linkedTo: sub.cancellation.transactionId || sub.cancellation.eventId });
   sub.policyState = "in_force";
   sub.cancellation.status = "reinstated";
   sub.statusText = "Policy Issued"; sub.statusBadge = "badge-success";
-  pcLog(sub, "policy_reinstated", `Policy reinstated ${f.type === "without_lapse" ? "WITHOUT lapse" : `with a lapse of ${lapseDays} day(s)`} effective ${f.effective}: ${f.reason}.${f.payment ? " Payment " + f.payment + "." : ""}${f.noKnownLoss ? " No-known-loss statement confirmed." : ""} Certificates revoked at cancellation are not restored; reissue them.`);
+  pcSendToPas(sub, ev);
+  pcLog(sub, "policy_reinstated", `Policy reinstated ${f.type === "without_lapse" ? "WITHOUT lapse" : `with a lapse of ${lapseDays} day(s)`} effective ${f.effective}: ${f.reason}.${f.payment ? " Payment " + f.payment + "." : ""}${f.noKnownLoss ? " No-known-loss statement confirmed." : ""} Transaction ${ev.transactionId} (policy version ${ev.versionNo}) reverses cancellation ${ev.cancellationId}.${ref ? " Approved on referral " + ref.id + "." : ""} Certificates revoked at cancellation are not restored; reissue them.`);
   pcPersist();
   renderPolicyChangesCard(sub);
   showToast("Policy reinstated. Reissue any certificates that were revoked.", "success");
@@ -469,6 +644,23 @@ var PC_STATE_UI = {
   cancelled: { badge: "badge-danger", label: "Cancelled" }
 };
 
+function pcReferralHtml(sub, canOverride) {
+  const list = pcReferrals(sub).slice().reverse();
+  if (!list.length) return "";
+  const rows = list.map(r => {
+    const what = r.type === "endorsement" ? `Endorsement: ${r.form.description || ""}${Number(r.form.annualPremiumChange) ? " (" + pcMoney(Number(r.form.annualPremiumChange)) + " a year)" : ""}` : `Reinstatement ${r.form.type === "without_lapse" ? "without lapse" : "with lapse"}: ${r.form.reason || ""}`;
+    const badge = r.status === "pending" ? "badge-warning" : (r.status === "approved" ? "badge-success" : "badge-light");
+    let act = "";
+    if (r.status === "pending") {
+      act = canOverride && r.raisedByRole !== currentUserRole
+        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"><input id="pc_refNote_${pcEsc(r.id)}" class="form-control" style="width:280px;" placeholder="Note (needed to decline, 10+ characters)"><button class="btn btn-xs btn-primary" style="width:auto;" onclick="pcDecideReferral('${pcEsc(r.id)}', true)">Approve and issue</button><button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDecideReferral('${pcEsc(r.id)}', false)">Decline</button></div>`
+        : `<div class="text-xs text-muted" style="margin-top:4px;">Waiting for ${pcEsc(pcRoleLabel(r.requiredRole))}.</div>`;
+    } else act = `<div class="text-xs text-muted" style="margin-top:4px;">${pcEsc(r.status)} by ${pcEsc(r.decidedBy)} on ${pcEsc(r.decidedAt)}${r.eventId ? "; issued as " + pcEsc(r.eventId) : ""}${r.decisionNote ? ". " + pcEsc(r.decisionNote) : ""}</div>`;
+    return `<tr><td>${pcEsc(r.id)}</td><td>${pcEsc(what)}<div class="text-xs text-muted">${pcEsc(r.reasons.join("; "))}. Raised by ${pcEsc(r.raisedBy)} on ${pcEsc(r.raisedAt)}.</div>${act}</td><td><span class="badge ${badge} text-xs">${pcEsc(r.status)}</span></td></tr>`;
+  }).join("");
+  return `<h4 style="margin:6px 0;">Referrals</h4><div class="rules-table-container" style="max-height:none;overflow:visible;margin-bottom:10px;"><table class="data-table"><thead><tr><th>Ref</th><th>Request</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 function renderPolicyChangesCard(sub) {
   const box = document.getElementById("policyChangesContainer");
   if (!box || !sub) return;
@@ -486,9 +678,10 @@ function renderPolicyChangesCard(sub) {
   const events = pcChanges(sub).slice().reverse().map(e => {
     const badge = ["issued", "effective"].includes(e.status) ? "badge-success" : (e.status === "pending" ? "badge-warning" : "badge-light");
     const label = e.type === "endorsement" ? `Endorsement ${e.number}: ${e.endorsementType}` : (e.type === "cancellation" ? `Cancellation (${e.initiator === "insurer" ? "insurer" : "insured"}): ${e.reasonLabel}` : `Reinstatement ${e.reinstateType === "without_lapse" ? "without lapse" : "with lapse"}`);
-    const detail = e.type === "endorsement" ? `${pcMoney(e.annualChange)} annual; ${pcMoney(e.proRata)} this term` : (e.type === "cancellation" ? `Refund ≈ ${pcMoney(e.refund.refund)}` : (e.lapseDays ? `${e.lapseDays} day lapse` : ""));
+    const base = e.type === "endorsement" ? `${pcMoney(e.annualChange)} annual; ${pcMoney(e.proRata)} this term` : (e.type === "cancellation" ? `Refund ≈ ${pcMoney(e.refund.refund)}` : (e.lapseDays ? `${e.lapseDays} day lapse` : ""));
+    const detail = [base, e.transactionId, e.versionNo ? "policy version " + e.versionNo : "", e.cancellationId ? "reverses " + e.cancellationId : "", e.referralId ? "referral " + e.referralId : "", e.riskChange || "", e.pasSync ? (e.pasSync.status === "sent" ? "PAS " + e.pasSync.reference + (e.pasSync.simulated ? " (simulated)" : "") : "PAS refused: " + e.pasSync.error) : ""].filter(Boolean).join(" · ");
     return `<tr><td>${pcEsc(e.id)}</td><td>${pcEsc(label)}<div class="text-xs text-muted">${pcEsc(detail)}</div></td><td>${pcEsc(e.effective)}</td><td><span class="badge ${badge} text-xs">${pcEsc(e.status)}</span></td>
-      <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcPrint('${pcEsc(e.id)}')"><i class="ph ph-printer"></i></button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDownload('${pcEsc(e.id)}')"><i class="ph ph-download-simple"></i></button></td></tr>`;
+      <td style="white-space:nowrap;">${e.pasSync && e.pasSync.status === "failed" && canApprove ? `<button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="pcRetryPas('${pcEsc(e.id)}')">Retry PAS</button> ` : ""}<button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcPrint('${pcEsc(e.id)}')"><i class="ph ph-printer"></i></button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDownload('${pcEsc(e.id)}')"><i class="ph ph-download-simple"></i></button></td></tr>`;
   }).join("");
 
   const typeOpts = PC_ENDORSEMENT_TYPES.map(t => `<option value="${t.key}">${pcEsc(t.label)}</option>`).join("");
@@ -503,7 +696,9 @@ function renderPolicyChangesCard(sub) {
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;">
       <input id="pc_endPrem" type="number" step="0.01" class="form-control" style="width:200px;" placeholder="Annual premium change (+/−)">
       <input id="pc_endPremWhy" class="form-control" style="flex:1;min-width:200px;" placeholder="How the premium change was calculated">
+      <button class="btn btn-sm btn-outline" style="width:auto;" onclick="pcRateChange()" title="Indicated from the average premium per scheduled unit"><i class="ph ph-calculator"></i> Rate the change</button>
     </div>
+    <p class="text-xs text-muted" style="margin:4px 0 0;">${canOverride ? "" : `A backdated change, or a premium change above ${PC_LARGE_CHANGE_PCT}% of the annual premium, is referred to ${pcEsc(pcRoleLabel(PC_REFERRAL_ROLE))} instead of being issued.`}</p>
     <label style="display:block;font-size:12.5px;margin-top:6px;"><input type="checkbox" id="pc_endNoLoss"> Backdated change: the insured's signed no-known-loss statement is on file</label>
     <button class="btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="pcIssueEndorsement()"><i class="ph ph-pencil-simple"></i> Issue endorsement</button>` : "";
 
@@ -547,12 +742,13 @@ function renderPolicyChangesCard(sub) {
       <div class="card-body">
         <div class="clean-meta-list" style="margin-bottom:10px;">
           <div class="clean-meta-row"><span class="meta-label">Policy</span><span class="meta-value">${pcEsc(facts.policyNumber)} · ${pcEsc(facts.effective || "?")} to ${pcEsc(facts.expiration || "?")}</span></div>
+          <div class="clean-meta-row"><span class="meta-label">Policy version</span><span class="meta-value">${(sub.policyVersions || []).length || 1}${(sub.policyTransactions || []).length ? ` · ${(sub.policyTransactions || []).length} transaction${(sub.policyTransactions || []).length === 1 ? "" : "s"}` : ""}</span></div>
           <div class="clean-meta-row"><span class="meta-label">Annual premium</span><span class="meta-value">${pcMoney(L.currentAnnual)}${L.currentAnnual !== L.baseAnnual ? ` <span class="text-muted">(was ${pcMoney(L.baseAnnual)})</span>` : ""}</span></div>
         </div>
-        ${pendingBlock}${cancelledBlock}
+        ${pcReferralHtml(sub, canOverride)}${pendingBlock}${cancelledBlock}
         ${events ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Ref</th><th>Change</th><th>Effective</th><th>Status</th><th></th></tr></thead><tbody>${events}</tbody></table></div>` : `<p class="text-xs text-muted">No policy changes yet.</p>`}
         ${endForm}${cxForm}
-        <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> Refunds are estimates; the policy and state law govern the final amounts, and fees that are fully earned are not refunded. Wording is a template for Compliance to approve. Premium and policy status changes are not yet sent to the policy admin system.</p>
+        <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> Refunds are estimates; the policy and state law govern the final amounts, and fees that are fully earned are not refunded. Wording is a template for Compliance to approve. Each transaction is sent to the policy admin system; with no PAS connected the send is simulated and says so.</p>
       </div>
     </div>`;
 }
@@ -568,6 +764,11 @@ function renderPolicyChangesCard(sub) {
     AUDIT_ACTION_META.policy_cancelled = m("Policy Cancelled", "ph-prohibit", "badge-danger", "outcome-decline");
     AUDIT_ACTION_META.cancellation_rescinded = m("Cancellation Rescinded", "ph-arrow-counter-clockwise", "badge-success", "outcome-approve");
     AUDIT_ACTION_META.policy_reinstated = m("Policy Reinstated", "ph-arrow-counter-clockwise", "badge-success", "outcome-approve");
+    AUDIT_ACTION_META.pas_transaction_sent = m("Transaction Sent to PAS", "ph-paper-plane-tilt", "badge-info", "outcome-comm");
+    AUDIT_ACTION_META.pas_transaction_failed = m("PAS Refused Transaction", "ph-warning-circle", "badge-danger", "outcome-refer");
+    AUDIT_ACTION_META.policy_change_referred =m("Policy Change Referred", "ph-scales", "badge-warning", "outcome-refer");
+    AUDIT_ACTION_META.policy_referral_approved = m("Policy Change Referral Approved", "ph-check-circle", "badge-success", "outcome-approve");
+    AUDIT_ACTION_META.policy_referral_declined = m("Policy Change Referral Declined", "ph-x-circle", "badge-light", "outcome-decline");
   }
   const origStep7 = window.renderStep7View;
   if (typeof origStep7 === "function") {
@@ -591,3 +792,4 @@ window.pcIssueEndorsement = pcIssueEndorsement; window.pcSubmitCancellation = pc
 window.pcPreviewRefund = pcPreviewRefund; window.pcRescind = pcRescind; window.pcReinstate = pcReinstate;
 window.pcPrint = pcPrint; window.pcDownload = pcDownload; window.renderPolicyChangesCard = renderPolicyChangesCard;
 window.pcApplyDue = pcApplyDue;
+window.pcRetryPas = pcRetryPas; window.pcRateChange = pcRateChange; window.pcDecideReferral = pcDecideReferral; window.pcRecordTransaction = pcRecordTransaction; window.pcVersions = pcVersions;

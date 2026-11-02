@@ -80,7 +80,7 @@ function notificationsCheck(now) {
         fresh.push(notify("admin", { kind: "sla", title: "SLA overdue: " + sub.insured, text: sub.priority + " case " + sub.id + ", assigned to " + ((USER_ROLES_CONFIG[sub.assignedTo] || {}).name || sub.assignedTo) + ".", caseId: sub.id, key: "sla-overdue-" + sub.id }));
       }
     }
-    const ref = sub.authorityRef;
+    const ref = typeof authPendingReferral === "function" ? authPendingReferral(sub) : sub.authorityRef;
     if (ref && ref.status === "pending" && ref.requiredRole) {
       const raised = Date.parse(String(ref.raisedAt || "").replace(" ", "T") + "Z");
       if (!isNaN(raised) && now - raised > NOTIF_REFERRAL_HOURS * 3600000) {
