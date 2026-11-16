@@ -92,6 +92,12 @@
     </div>
 
     <div class="header-right">
+      <!-- Search: insured, case, FEIN, DOT, MC, VIN, driver, policy, quote; Recent when empty (js/find-lookup.js) -->
+      <div class="hdr-search" id="hdrSearch">
+        <i class="ph ph-magnifying-glass"></i>
+        <input type="search" id="hdrSearchInput" placeholder="Search insured, FEIN, DOT, MC, VIN, policy…" aria-label="Search submissions" autocomplete="off" oninput="fdHeaderInput()" onfocus="fdHeaderInput()" onkeydown="fdHeaderKey(event)">
+        <div class="hdr-panel" id="hdrSearchPanel" hidden></div>
+      </div>
       <!-- Notifications: referrals to me, decisions on mine, assignments, SLA reminders (js/notifications.js) -->
       <button type="button" class="btn-sidebar-toggle" id="btnNotifications" onclick="toggleNotificationPanel()" title="Notifications" aria-label="Notifications" style="position:relative;">
         <i class="ph ph-bell"></i><span id="notifBadge" class="badge badge-danger" style="display:none; position:absolute; top:-5px; right:-5px; font-size:10px; padding:1px 5px; min-width:16px; justify-content:center;">0</span>
@@ -150,6 +156,20 @@
               <div class="nav-icon"><i class="ph ph-tray"></i></div>
               <div class="nav-text">
                 <span class="nav-title">Submission Intake</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemFind" onclick="showFindPage()" title="Search and lookups: cases, insureds, agents, companies, phone book">
+              <div class="nav-icon"><i class="ph ph-magnifying-glass"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">Search & Lookup</span>
+              </div>
+            </button>
+
+            <button class="sidebar-nav-item" id="navItemMyWork" onclick="showMyWorkPage()" title="My Work: tasks and queues">
+              <div class="nav-icon"><i class="ph ph-check-square"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">My Work</span>
               </div>
             </button>
 
@@ -359,9 +379,22 @@
                   <option value="exposure">💰 Exposure (Highest Value First)</option>
                 </select>
               </div>
+              <div class="queue-sort-box">
+                <label for="queueStatusSelect"><i class="ph ph-funnel"></i> Status:</label>
+                <select id="queueStatusSelect" class="queue-sort-dropdown" onchange="fdSetQueueStatus(this.value)">
+                  <option value="">All</option>
+                  <option>Received</option><option>Pending UW Approval</option><option>Quoted</option><option>Pending Bind</option><option>Bound</option><option>Declined</option><option>Closed</option>
+                </select>
+              </div>
+              <div class="queue-sort-box">
+                <label for="queueDateSelect"><i class="ph ph-calendar"></i> Received:</label>
+                <select id="queueDateSelect" class="queue-sort-dropdown" onchange="fdSetQueueDate(this.value)">
+                  <option value="">All time</option><option value="today">Today</option><option value="week">This week</option><option value="month">This month</option>
+                </select>
+              </div>
               <div class="search-box">
                 <i class="ph ph-magnifying-glass search-icon"></i>
-                <input type="text" id="tableSearchInput" placeholder="Search by Insured, FEIN, Broker..." onkeyup="searchSubmissionsTable()">
+                <input type="text" id="tableSearchInput" placeholder="Search insured, FEIN, DOT, MC, VIN, policy…" onkeyup="searchSubmissionsTable()">
               </div>
             </div>
           </div>
@@ -1372,6 +1405,27 @@
     <!-- ================================================================ -->
     <div class="page-view u-hidden" id="phase1PageView">
       <div id="phase1Root"></div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: CASE FILE, notes, email history, telematics, forms pack, billing (js/case-file.js) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="caseFilePageView">
+      <div id="caseFileRoot"></div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: SEARCH & LOOKUP (js/find-lookup.js) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="findPageView">
+      <div id="findRoot"></div>
+    </div>
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: MY WORK, tasks and exception queues (js/my-work.js) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="myWorkPageView">
+      <div id="myWorkRoot"></div>
     </div>
 
     <!-- ================================================================ -->
@@ -2780,6 +2834,9 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
       <button class="btn btn-xs btn-outline footer-docs-btn" id="btnFooterDocs" onclick="openAllDocsModal()" title="View All Attached Documents & PDF Previews">
         <i class="ph ph-folder-open text-primary"></i> Attached Docs (<span id="footerDocCount">3</span>)
       </button>
+      <button class="btn btn-xs btn-outline footer-docs-btn" id="btnFooterCaseFile" onclick="showCaseFilePage()" title="Notes, email history, telematics, forms pack, billing">
+        <i class="ph ph-notebook text-primary"></i> Case File
+      </button>
     </div>
     
     <div class="footer-right-actions">
@@ -2853,5 +2910,8 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/authorization.js"></script>
   <script src="js/ai-governance.js"></script>
   <script src="js/phase1-flow.js"></script>
-  <script src="js/clearance-board.js"></script></body>
+  <script src="js/clearance-board.js"></script>
+  <script src="js/my-work.js"></script>
+  <script src="js/find-lookup.js"></script>
+  <script src="js/case-file.js"></script></body>
 </html>

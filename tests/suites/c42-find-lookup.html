@@ -1,0 +1,190 @@
+<!-- Suite C42: search and lookups. A case is found by insured, case id, FEIN, DOT, MC, VIN, driver name or licence, policy number, quote
+     number, broker and address (and the search says what matched); advanced search combines fields; the header search shows Recent when
+     empty; the intake queue filters by status and by date received; insured lookup groups a customer's history; the broker master and
+     onboarding checklist; companies; the phone book. Nothing is invented: empty sources say so. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function last(){ return toasts[toasts.length - 1] || ''; }
+  function ids(list){ return list.map(function(s){ return s.id; }).sort().join(','); }
+  var DAY = 86400000, opened = [];
+  function mk(id, o){ var s = { id: id, insured: 'Insured ' + id, fein: '', broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], drivers: [], receivedTimestamp: Date.now(), receivedAt: 'Today 09:00 AM', apiSourced: true, priority: 'P3', statusText: 'x', slaText: 'x', slaCountdown: 'x' }; for (var k in (o||{})) s[k] = o[k]; return s; }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    var bound = { status: 'success', policyNumber: 'POL-77001', effectiveDate: '2026-12-01' };
+    var A = mk('SUB-F1', { insured: 'Lone Star Haulers LLC', fein: '74-1111111', dot: '1234567', mcNumber: 'MC-998877', address: '9 Elm Road, Dallas, TX', email: 'ops@lonestar.example',
+      vehicles: [{ vin: '1FUJGLDR12LM00001' }, { vin: '1FUJGLDR12LM00002' }], drivers: [{ given_name: 'Pat', last_name: 'Lee', licenseNumber: 'TX-DL-5550' }], pasSync: bound, quoteNo: 'QT-2026-777-v1.0', losses: [{ id: 1 }, { id: 2 }] });
+    var B = mk('SUB-F2', { insured: 'Lone Star Haulers LLC', fein: '741111111', lobKey: 'property', lobName: 'Commercial Property', quoteIssued: true, receivedTimestamp: Date.now() - 40 * DAY });
+    var C = mk('SUB-F3', { insured: 'Metro Freight', fein: '55-2222222', broker: 'Other Brokers Inc', customerApproved: true, quoteIssued: true, receivedTimestamp: Date.now() - 3 * DAY, assignedTo: 'junior' });
+    var D = mk('SUB-F4', { insured: 'Delta Movers', fein: '66-3333333', authorityRef: { status: 'pending' }, receivedTimestamp: Date.now() - 10 * DAY });
+    var E = mk('SUB-F5', { insured: 'Gone Trucking', fein: '77-4444444', lifecycleStatus: 'declined' });
+    var F = mk('SUB-F6', { insured: 'Wrapped Up Co', fein: '88-5555555', lifecycleStatus: 'closed' });
+    SUBMISSIONS_DATASET.length = 0; [A, B, C, D, E, F].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    QUOTE_VERSIONS_DATASET.length = 0; QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-F3', quotes: [{ versionId: 'QT-F3-v2.0', quoteNo: 'QT-F3-v2.0' }] });
+
+    // ---------- status as a broker would say it
+    t('status: received, pending UW approval, quoted, pending bind, bound, declined, closed', [fdStatus(mk('x')), fdStatus(D), fdStatus(B), fdStatus(C), fdStatus(A), fdStatus(E), fdStatus(F)].join() === 'Received,Pending UW Approval,Quoted,Pending Bind,Bound,Declined,Closed');
+
+    // ---------- finding a case
+    t('by insured name', ids(fdSearch({ text: 'metro' })) === 'SUB-F3');
+    t('by case id', ids(fdSearch({ text: 'sub-f4' })) === 'SUB-F4');
+    t('by FEIN, with or without the dash', ids(fdSearch({ text: '741111111' })) === 'SUB-F1,SUB-F2' && ids(fdSearch({ text: '74-1111111' })) === 'SUB-F1,SUB-F2');
+    t('by DOT', ids(fdSearch({ text: '1234567' })) === 'SUB-F1' && ids(fdSearch({ dot: '1234567' })) === 'SUB-F1');
+    t('by MC', ids(fdSearch({ mc: '998877' })) === 'SUB-F1');
+    t('by VIN, even a part of it', ids(fdSearch({ vin: 'LM00002' })) === 'SUB-F1' && ids(fdSearch({ text: '1FUJGLDR12LM00001' })) === 'SUB-F1');
+    t('by driver name', ids(fdSearch({ driver: 'pat lee' })) === 'SUB-F1' || ids(fdSearch({ driver: 'Pat' })) === 'SUB-F1');
+    t('by driver licence', ids(fdSearch({ driver: 'TX-DL-5550' })) === 'SUB-F1');
+    t('by policy number', ids(fdSearch({ policy: 'POL-77001' })) === 'SUB-F1');
+    t('by quote number, on the case or in its quote versions', ids(fdSearch({ quote: 'QT-2026-777' })) === 'SUB-F1' && ids(fdSearch({ quote: 'QT-F3' })) === 'SUB-F3');
+    t('by broker and by address', ids(fdSearch({ broker: 'other brokers' })) === 'SUB-F3' && ids(fdSearch({ text: 'elm road' })) === 'SUB-F1');
+    t('a term that matches nothing finds nothing', fdSearch({ text: 'zzzzzz' }).length === 0);
+    t('an empty search lists every visible case, newest first', fdSearch({}).length === 6 && fdSearch({}).every(function(x, i, a){ return i === 0 || (a[i - 1].receivedTimestamp || 0) >= (x.receivedTimestamp || 0); }));
+    t('the search says what matched', fdMatch(A, '1234567') === 'DOT 1234567' && /^VIN /.test(fdMatch(A, 'LM00002')) && /^Policy /.test(fdMatch(A, 'POL-77')) && fdMatch(A, 'qqq') === null);
+
+    // ---------- advanced search combines fields
+    t('fields are combined: all of them must match', ids(fdSearch({ insured: 'lone star', lob: 'property' })) === 'SUB-F2' && ids(fdSearch({ insured: 'lone star', dot: '999' })) === '');
+    t('by status', ids(fdSearch({ status: 'Bound' })) === 'SUB-F1' && ids(fdSearch({ status: 'Quoted' })) === 'SUB-F2' && ids(fdSearch({ status: 'Pending Bind' })) === 'SUB-F3');
+    t('by line of business and by who it is assigned to', ids(fdSearch({ lob: 'property' })) === 'SUB-F2' && ids(fdSearch({ assigned: 'junior' })) === 'SUB-F3');
+    var d = function(n){ return new Date(Date.now() - n * DAY).toISOString().slice(0, 10); };
+    t('by date received', ids(fdSearch({ from: d(5), to: d(0) })) === 'SUB-F1,SUB-F3,SUB-F5,SUB-F6' && ids(fdSearch({ from: d(50), to: d(30) })) === 'SUB-F2');
+
+    // ---------- who may see what
+    currentUserRole = 'assistant';
+    t('a user with no cases assigned finds nothing', fdSearch({}).length === 0 && fdRecent().length === 0);
+    currentUserRole = 'admin';
+
+    // ---------- header search and Recent
+    el('hdrSearchInput').value = '1234567'; fdHeaderInput();
+    t('typing in the header lists the matches, with what matched', !el('hdrSearchPanel').hidden && /Lone Star Haulers/.test(el('hdrSearchPanel').innerHTML) && /DOT 1234567/.test(el('hdrSearchPanel').innerHTML) && /1 found/.test(el('hdrSearchPanel').innerHTML));
+    el('hdrSearchInput').value = 'nothing like this'; fdHeaderInput();
+    t('no match says so', /Nothing matches/.test(el('hdrSearchPanel').innerHTML));
+    el('hdrSearchInput').value = ''; fdHeaderInput();
+    t('with nothing typed and nothing opened it says so, and still offers advanced search', /No cases opened yet/.test(el('hdrSearchPanel').innerHTML) && /Advanced search/.test(el('hdrSearchPanel').innerHTML));
+    FD_RECENT.length = 0;
+    ['SUB-F1', 'SUB-F2', 'SUB-F3', 'SUB-F1'].forEach(function(id){ selectSubmission(id, false); });
+    t('opening a case puts it on Recent, newest first, without repeats', FD_RECENT.join() === 'SUB-F1,SUB-F3,SUB-F2');
+    t('Recent is kept in the browser', JSON.parse(localStorage.getItem(FD_RECENT_KEY)).join() === 'SUB-F1,SUB-F3,SUB-F2');
+    fdHeaderInput();
+    t('Recent is shown when the box is empty or focused', /Recent/.test(el('hdrSearchPanel').innerHTML) && /SUB-F3/.test(el('hdrSearchPanel').innerHTML));
+    for (var i = 0; i < 15; i++) fdRecordRecent('SUB-X' + i);
+    t('Recent holds the last ten', FD_RECENT.length === 10);
+    var realOpen = window.openCaseAtCurrentStep; window.openCaseAtCurrentStep = function(id){ opened.push(id); };
+    el('hdrSearchInput').value = 'metro'; fdHeaderKey({ key: 'Enter' });
+    t('Enter opens the first result', opened[0] === 'SUB-F3' && el('hdrSearchInput').value === '' && el('hdrSearchPanel').hidden);
+    el('hdrSearchInput').value = 'x'; fdHeaderInput(); fdHeaderKey({ key: 'Escape' });
+    t('Escape closes the results', el('hdrSearchPanel').hidden);
+    window.openCaseAtCurrentStep = realOpen;
+
+    // ---------- the intake queue: status and date filters, and the wider search box
+    showIntakePage(); currentLOBFilter = 'all'; currentTableFilter = 'all'; currentSearchTerm = ''; FD.queueStatus = ''; FD.queueDate = '';
+    function rows(){ return el('submissionsTableBody').textContent; }
+    renderSubmissionsTable();
+    t('the queue lists everyone first', /Lone Star/.test(rows()) && /Metro Freight/.test(rows()) && /Delta Movers/.test(rows()));
+    fdSetQueueStatus('Bound');
+    t('the Status filter narrows the queue', /Lone Star/.test(rows()) && !/Metro Freight/.test(rows()) && !/Delta Movers/.test(rows()));
+    fdSetQueueStatus('Pending UW Approval');
+    t('Pending UW Approval', /Delta Movers/.test(rows()) && !/Lone Star/.test(rows()));
+    fdSetQueueStatus('');
+    fdSetQueueDate('today');
+    t('Received: Today', /Lone Star/.test(rows()) && !/Metro Freight/.test(rows()));
+    fdSetQueueDate('week');
+    t('Received: This week keeps the case from 3 days ago and drops 10 days ago', /Metro Freight/.test(rows()) && !/Delta Movers/.test(rows()));
+    fdSetQueueDate('month');
+    t('Received: This month keeps 10 days ago and drops 40 days ago', /Delta Movers/.test(rows()) && !/SUB-F2/.test(rows()));
+    fdSetQueueDate(''); fdSetQueueStatus('Quoted'); fdSetQueueDate('month');
+    t('filters combine', !/Lone Star/.test(rows()) && !/Delta/.test(rows()));
+    fdSetQueueStatus(''); fdSetQueueDate('');
+    el('tableSearchInput').value = 'LM00002'; searchSubmissionsTable();
+    t('the queue search box finds by VIN, DOT, MC and policy too', /SUB-F1/.test(rows()) && !/Metro Freight/.test(rows()));
+    el('tableSearchInput').value = 'POL-77001'; searchSubmissionsTable();
+    t('...by policy number', /SUB-F1/.test(rows()) && !/Delta Movers/.test(rows()));
+    el('tableSearchInput').value = ''; searchSubmissionsTable();
+    t('the filter controls are on the queue', !!el('queueStatusSelect') && !!el('queueDateSelect') && el('queueStatusSelect').options.length === 8);
+
+    // ---------- the page and its tabs
+    showFindPage();
+    t('Search & Lookup opens as a page with five tabs', el('findPageView').style.display === 'block' && el('navItemFind').classList.contains('active') && el('findRoot').querySelectorAll('.mw-tabs .tab-btn').length === 5);
+    t('the Advanced tab starts by showing Recent submissions', /Recent submissions/.test(el('findRoot').innerHTML));
+    el('fda_dot').value = '1234567'; fdRunAdvanced();
+    t('running an advanced search lists the result', /1 result/.test(el('findRoot').innerHTML) && /SUB-F1/.test(el('findRoot').innerHTML));
+    el('fda_dot').value = '000'; fdRunAdvanced();
+    t('no result says so', /Nothing matches/.test(el('findRoot').innerHTML));
+    fdClearAdvanced();
+    t('Clear goes back to Recent', FD.results === null && /Recent submissions/.test(el('findRoot').innerHTML));
+
+    // ---------- insured lookup
+    fdTab('insured');
+    t('Insured starts with an instruction, not a made-up result', /Type a customer/.test(el('findRoot').innerHTML));
+    FD.insuredTerm = 'lone star';
+    var res = fdInsureds('lone star');
+    t('two submissions with the same FEIN (typed two ways) are one customer', res.length === 1 && res[0].subs.length === 2);
+    t('the lookup carries what is held: DOT, MC, address, email, brokers, losses, bound count', res[0].dot === '1234567' && res[0].mc === 'MC-998877' && /Elm Road/.test(res[0].address) && res[0].email === 'ops@lonestar.example' && res[0].brokers.join() === 'Arora & Sons' && res[0].losses === 2 && res[0].bound === 1);
+    fdRender();
+    t('the page shows the customer and its submissions', /Lone Star Haulers LLC/.test(el('findRoot').innerHTML) && /SUB-F1/.test(el('findRoot').innerHTML) && /SUB-F2/.test(el('findRoot').innerHTML));
+    t('a customer is found by FEIN or DOT as well', fdInsureds('551111').length === 0 && fdInsureds('55-2222222').length === 1 && fdInsureds('1234567').length === 1);
+    t('a customer that is not there says so', (FD.insuredTerm = 'nobody here', fdRender(), /No customer matches/.test(el('findRoot').innerHTML)));
+
+    // ---------- agents and brokers
+    fdTab('brokers');
+    var bl = fdBrokerList();
+    var ar = bl.filter(function(b){ return b.name === 'Arora & Sons'; })[0];
+    t('the directory lists every agency on a case, with its case, quote and bound counts', !!ar && ar.subs === 5 && ar.bound === 1 && bl.some(function(b){ return b.name === 'Other Brokers Inc' && b.subs === 1; }), JSON.stringify(ar));
+    t('an agency in the licensing registry shows its NPN and licensed states', ar.npn === '90000002' && /TX/.test(ar.states));
+    t('an agency with no master record is "Not onboarded"', ar.status === 'Not onboarded');
+    var ck = fdChecklist('Arora & Sons');
+    t('the checklist reads licence and appointment from the registry', ck[0].done === true && ck[0].auto && ck[1].auto && ck[1].done === true, JSON.stringify(ck.map(function(c){ return c.key + ':' + c.done; })));
+    t('the other checklist items start unticked', ck.filter(function(c){ return !c.auto; }).every(function(c){ return !c.done; }));
+    t('an agency with no registry record has nothing ticked automatically', fdChecklist('Other Brokers Inc').filter(function(c){ return c.auto; }).every(function(c){ return !c.done; }));
+    t('saving needs a name, a valid email and a status', !fdBrokerSave({ name: '', status: 'Onboarding' }).ok && !fdBrokerSave({ name: 'Arora & Sons', email: 'nope', status: 'Onboarding' }).ok && !fdBrokerSave({ name: 'Arora & Sons', status: 'Maybe' }).ok);
+    var r1 = fdBrokerSave({ name: 'Arora & Sons', contactName: 'Asha Arora', phone: '555-0101', email: 'asha@arora.example', status: 'Onboarding', checklist: { agreement: true } });
+    t('a record saves, and the directory shows the status', r1.ok && fdBrokerStatus('Arora & Sons') === 'Onboarding');
+    var r2 = fdBrokerSave({ name: 'Arora & Sons', status: 'Active' });
+    t('Active is refused while checklist items are missing, and says which', !r2.ok && /W-9/.test(r2.message) && /E&O/.test(r2.message) && fdBrokerStatus('Arora & Sons') === 'Onboarding');
+    var r3 = fdBrokerSave({ name: 'Arora & Sons', contactName: 'Asha Arora', phone: '555-0101', email: 'asha@arora.example', status: 'Active', checklist: { agreement: true, w9: true, eo: true } });
+    t('Active is allowed once everything is ticked', r3.ok && fdBrokerStatus('Arora & Sons') === 'Active');
+    t('the broker master is kept in the browser', !!JSON.parse(localStorage.getItem(FD_BROKER_KEY)).arorasons);
+    t('a new agency can be added by hand and then appears in the directory', fdBrokerSave({ name: 'Brand New Agency', status: 'Onboarding' }).ok && fdBrokerList().some(function(b){ return b.name === 'Brand New Agency'; }));
+    fdPickBroker('arorasons'); fdRender();
+    t('the profile shows the contact and the checklist', /Asha Arora/.test(el('findRoot').innerHTML) && /W-9 on file/.test(el('findRoot').innerHTML) && /read from the registry/.test(el('findRoot').innerHTML));
+    fdPickBroker('', true); fdRender();
+    t('Add an agency opens an empty form', /New agency/.test(el('findRoot').innerHTML));
+    fdPickBroker('');
+
+    // ---------- companies
+    fdTab('companies');
+    var co = fdCompanies();
+    t('carriers named in the registry appear, with where they were seen', co.some(function(c){ return c.name === PRODUCER_DEFAULT_CARRIER && /registry|appointments/i.test(c.sources.join()); }));
+    DD_CFG.tenants.push({ id: 'T-X', name: 'Northern Mutual', type: 'carrier' }); DD_CFG.tenants.push({ id: 'T-Y', name: 'Prairie MGA', type: 'mga' }); DD_CFG.agreements.push({ id: 'AG-1', principal: 'T-X', distributor: 'T-Y', type: 'mga' });
+    co = fdCompanies();
+    t('tenants and agreements loaded in Distribution appear, with their agreement count', co.some(function(c){ return c.name === 'Northern Mutual' && c.kind === 'carrier' && c.agreements === 1; }) && co.some(function(c){ return c.name === 'Prairie MGA' && c.agreements === 1; }));
+    FD.companyTerm = 'prairie'; fdRender();
+    t('Companies can be searched', /Prairie MGA/.test(el('findRoot').innerHTML) && !/Northern Mutual/.test(el('findRoot').innerHTML));
+    DD_CFG.tenants.length = 0; DD_CFG.agreements.length = 0; FD.companyTerm = '';
+
+    // ---------- phone book
+    fdTab('book');
+    var pb = fdContacts();
+    t('the phone book lists a customer with an email on a case', pb.some(function(c){ return c.kind === 'Customer' && c.email === 'ops@lonestar.example'; }));
+    t('...and the broker contact saved in the master', pb.some(function(c){ return c.kind === 'Broker' && c.name === 'Asha Arora' && c.phone === '555-0101'; }));
+    t('adding a contact needs a name and a phone or an email, and a valid email', !fdBookAdd({ name: '', phone: '1' }).ok && !fdBookAdd({ name: 'Sam', phone: '', email: '' }).ok && !fdBookAdd({ name: 'Sam', email: 'bad' }).ok);
+    var ct = fdBookAdd({ name: 'Sam Rivera', kind: 'Other', org: 'Surveyors Ltd', phone: '555-0199', email: 'sam@surveyors.example' });
+    t('a contact is added and kept in the browser', ct.ok && fdContacts().some(function(c){ return c.name === 'Sam Rivera'; }) && JSON.parse(localStorage.getItem(FD_BOOK_KEY)).length === 1);
+    fdRender();
+    t('phone numbers and emails are links', /href="tel:555-0199"/.test(el('findRoot').innerHTML) && /href="mailto:sam@surveyors.example"/.test(el('findRoot').innerHTML));
+    FD.bookKind = 'Customer'; fdRender();
+    t('the list can be limited by kind', /Lone Star/.test(el('findRoot').innerHTML) && !/Sam Rivera/.test(el('findRoot').innerHTML));
+    FD.bookKind = ''; fdBookRemove(ct.contact.id);
+    t('a contact added by hand can be removed; derived ones have no Remove button', !fdContacts().some(function(c){ return c.name === 'Sam Rivera'; }) && !/Remove/.test(el('findRoot').innerHTML));
+
+    // ---------- outsiders do not get the internal directories
+    var ext = Object.keys(EXTERNAL_ROLES)[0];
+    if (ext) { currentUserRole = ext; FD.tab = 'brokers'; fdRender(); t('an external user is limited to Advanced search and Insured', el('findRoot').querySelectorAll('.mw-tabs .tab-btn').length === 2 && FD.tab === 'advanced'); currentUserRole = 'admin'; }
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n').slice(0,3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

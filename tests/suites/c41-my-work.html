@@ -1,0 +1,143 @@
+<!-- Suite C41: My Work. Follow-up tasks (add with a title, type, assignee, due date, priority and case; reassign, change the due date,
+     complete, reopen; Today / This week / This month / All / Past due; past-due in red; the assignee is notified; kept in the browser;
+     each person sees their own, the Head of Underwriting sees all) and the exception queues, each worked out from the cases. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function ids(rows){ return rows.map(function(r){ return r.sub.id; }).sort().join(','); }
+  function day(n){ return mwAddDays(mwToday(), n); }
+  function mk(id, o){ var s = { id: id, insured: 'Insured ' + id, broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], subjectivities: [], receivedTimestamp: Date.now() }; for (var k in (o||{})) s[k] = o[k]; return s; }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    TASKS.length = 0;
+
+    // ---------- page and nav
+    showMyWorkPage();
+    t('My Work opens as its own page with a nav item', el('myWorkPageView').style.display === 'block' && currentPage === 'my-work' && el('navItemMyWork').classList.contains('active'));
+    t('it has a Tasks tab and a Queues tab', /Tasks/.test(el('myWorkRoot').innerHTML) && /Queues/.test(el('myWorkRoot').innerHTML));
+
+    // ---------- adding a task
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(mk('SUB-A'));
+    var base = { title: 'Chase signed application', type: 'Follow-up', priority: 'High', due: day(1), assignee: 'junior', subId: 'SUB-A' };
+    function bad(o){ var f = Object.assign({}, base, o); return mwAddTask(f); }
+    t('a task needs a title', !bad({ title: 'ab' }).ok && TASKS.length === 0);
+    t('a task needs one of the task types', !bad({ type: 'Lunch' }).ok);
+    t('a task needs a priority', !bad({ priority: 'Urgent' }).ok);
+    t('a task needs a due date', !bad({ due: '' }).ok && !bad({ due: 'soon' }).ok);
+    t('a new task cannot be due in the past', !bad({ due: day(-1) }).ok);
+    t('a task needs a real person to be for', !bad({ assignee: 'nobody' }).ok);
+    t('a task about a case needs a case that exists', !bad({ subId: 'SUB-NOPE' }).ok);
+    t('none of the refused tasks was kept', TASKS.length === 0);
+    t('the types are the ones asked for', ['New Business','Renewal','Referral','Premium Audit','Loss Control'].every(function(x){ return TASK_TYPES.indexOf(x) > -1; }));
+    var before = NOTIFICATIONS.filter(function(n){ return n.to === 'junior'; }).length;
+    var r1 = mwAddTask(base);
+    t('a valid task is added', r1.ok && TASKS.length === 1 && r1.task.id === 'TSK-1' && r1.task.status === 'open' && r1.task.assignee === 'junior');
+    t('the person it is for is notified', NOTIFICATIONS.filter(function(n){ return n.to === 'junior'; }).length === before + 1);
+    t('a task for yourself does not notify you', (function(){ var n = NOTIFICATIONS.length; mwAddTask(Object.assign({}, base, { title: 'My own reminder', assignee: 'admin', subId: '' })); return NOTIFICATIONS.length === n; })());
+    t('tasks are kept in the browser', JSON.parse(localStorage.getItem(TASK_STORE_KEY)).length === TASKS.length);
+    t('ids keep counting', mwAddTask(Object.assign({}, base, { title: 'Third task here' })).task.id === 'TSK-3');
+
+    // ---------- ranges
+    TASKS.length = 0;
+    var T = {};
+    [['past', -3, true], ['today', 0], ['soon', 3], ['week', 6], ['later', 20], ['far', 45]].forEach(function(x){ T[x[0]] = mwAddTask(Object.assign({}, base, { title: 'Task ' + x[0], due: day(x[1]), allowPast: !!x[2], assignee: 'admin', subId: '' })).task; });
+    var all = mwVisibleTasks();
+    function names(range, done){ return mwFilterTasks(all, range, done).map(function(x){ return x.title.replace('Task ', ''); }).join(','); }
+    t('Today shows only what is due today', names('today') === 'today');
+    t('This week shows today and the next six days', names('week') === 'today,soon,week');
+    t('This month shows the next thirty days', names('month') === 'today,soon,week,later');
+    t('All shows every open task, earliest first', names('all') === 'past,today,soon,week,later,far');
+    t('Past due shows only what is late', names('pastdue') === 'past');
+    t('a task past its due date is past due; others are not', mwIsPastDue(T.past) && !mwIsPastDue(T.today));
+    showMyWorkPage(); MW.tab = 'tasks'; MW.range = 'open'; mwRender();
+    t('past-due is shown in red on the page, with a count on its button', /mw-past/.test(el('myWorkRoot').innerHTML) && /Past due/.test(el('myWorkRoot').innerHTML) && /badge-danger">1</.test(el('myWorkRoot').innerHTML));
+    mwSetRange('pastdue');
+    t('the Past due button lists just the late one', /Task past/.test(el('myWorkRoot').innerHTML) && !/Task soon/.test(el('myWorkRoot').innerHTML));
+    mwSetRange('open');
+
+    // ---------- complete, reopen, reassign, due date
+    t('completing a task closes it and stamps the time', mwComplete(T.today.id) && T.today.status === 'done' && !!T.today.completedAt);
+    t('a completed task leaves the open lists', names('all').indexOf('today') < 0 && names('all', true).indexOf('today') > -1);
+    t('a completed task cannot be past due', !mwIsPastDue(T.today));
+    t('a task can be reopened', mwReopen(T.today.id) && T.today.status === 'open' && T.today.completedAt === null);
+    t('a task can be reassigned, and the new person is told', (function(){ var n = NOTIFICATIONS.filter(function(x){ return x.to === 'senior_uw'; }).length; var ok = mwReassign(T.soon.id, 'senior_uw'); return ok && T.soon.assignee === 'senior_uw' && NOTIFICATIONS.filter(function(x){ return x.to === 'senior_uw'; }).length === n + 1; })());
+    t('reassigning to the same person or to nobody changes nothing', !mwReassign(T.soon.id, 'senior_uw') && !mwReassign(T.soon.id, 'nobody') && T.soon.assignee === 'senior_uw');
+    t('the due date can be changed', mwSetDue(T.later.id, day(2)) && T.later.due === day(2) && names('week').indexOf('later') > -1);
+    t('a bad due date is refused', !mwSetDue(T.later.id, 'tomorrow') && T.later.due === day(2));
+
+    // ---------- who sees and who can change what
+    currentUserRole = 'junior';
+    var mineJ = mwVisibleTasks().map(function(x){ return x.id; });
+    t('a user sees tasks that are for them or that they made, not everyone\'s', mineJ.length === 0);
+    TASKS.push({ id: 'TSK-99', title: 'For junior', type: 'Other', priority: 'Low', due: day(1), assignee: 'junior', subId: null, notes: '', status: 'open', createdBy: 'admin', createdAt: 'x', completedAt: null, source: 'manual' });
+    t('a task for them appears', mwVisibleTasks().length === 1);
+    t('they cannot touch someone else\'s task', !mwComplete(T.far.id) && !mwReassign(T.far.id, 'junior') && !mwSetDue(T.far.id, day(3)) && T.far.status === 'open');
+    t('they can complete their own', mwComplete('TSK-99') && mwTask('TSK-99').status === 'done');
+    currentUserRole = 'admin';
+    t('the Head of Underwriting sees every task and can change any', mwVisibleTasks().length === TASKS.length && mwComplete(T.far.id));
+
+    // ---------- the queues
+    TASKS.length = 0; SUBMISSIONS_DATASET.length = 0;
+    var bound = { status: 'success', policyNumber: 'POL-1', effectiveDate: day(10) };
+    var A = mk('SUB-Q1', { pasSync: bound, subjectivities: [{ id: 'SJ-1', text: 'Signed warranty', timing: 'post_bind', status: 'open' }], invoice: { issuedAt: day(-1) + 'T10:00:00Z' } });
+    var A2 = mk('SUB-Q1B', { pasSync: bound, subjectivities: [{ id: 'SJ-1', text: 'Signed warranty', timing: 'post_bind', status: 'received' }] });
+    var B = mk('SUB-Q2', { customerApproved: true, quoteIssued: true, effectiveDate: day(5) });
+    var B2 = mk('SUB-Q2B', { customerApproved: true, pasSync: bound });
+    var C = mk('SUB-Q3', { pasSync: bound, policyReferrals: [{ id: 'PCR-1', type: 'endorsement', status: 'pending', requiredRole: 'senior' }] });
+    var C2 = mk('SUB-Q3B', { pasSync: bound, policyReferrals: [{ id: 'PCR-2', type: 'endorsement', status: 'approved', requiredRole: 'senior' }, { id: 'PCR-3', type: 'reinstatement', status: 'pending' }] });
+    var D = mk('SUB-Q4', { pasSync: bound, cancellation: { eventId: 'CAN-1', status: 'pending', effective: day(15), initiator: 'insurer' }, policyChanges: [{ id: 'CAN-1', type: 'cancellation', status: 'pending', initiator: 'insurer', effective: day(15), mailedOn: day(-2), proofRef: 'USPS-1' }] });
+    var E = mk('SUB-Q5', { pasSync: bound, cancellation: { eventId: 'CAN-2', status: 'pending', effective: day(20), initiator: 'insurer' }, policyChanges: [{ id: 'CAN-2', type: 'cancellation', status: 'pending', initiator: 'insurer', effective: day(20), mailedOn: day(-1), proofRef: null }] });
+    var E2 = mk('SUB-Q5B', { pasSync: bound, cancellation: { eventId: 'CAN-3', status: 'pending', effective: day(20), initiator: 'insured' }, policyChanges: [{ id: 'CAN-3', type: 'cancellation', status: 'pending', initiator: 'insured', effective: day(20), proofRef: null }] });
+    var G = mk('SUB-Q6'), G2 = mk('SUB-Q6B');
+    var H = mk('SUB-Q7'), H2 = mk('SUB-Q7B', { lifecycleStatus: 'declined' });
+    [A, A2, B, B2, C, C2, D, E, E2, G, G2, H, H2].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    QUOTE_VERSIONS_DATASET.length = 0;
+    QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-Q6', quotes: [{ versionId: 'Q6-v1.0', isLatest: true, liabilityLimit: 'Not stated', pdDeductible: 'Not stated' }] });
+    QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-Q6B', quotes: [{ versionId: 'Q6B-v1.0', isLatest: true, liabilityLimit: '$1,000,000 CSL', pdDeductible: 'Not stated' }] });
+    [A, A2, B, B2, C, C2, D, E, E2, H, H2].forEach(function(s){ if (s.id !== 'SUB-Q7' && s.id !== 'SUB-Q7B') QUOTE_VERSIONS_DATASET.push({ subId: s.id, quotes: [{ versionId: s.id + '-v1.0', isLatest: true, liabilityLimit: '$1,000,000 CSL', pdDeductible: '$1,000' }] }); });
+    function q(k, o){ return ids(mwQueue(k, o)); }
+    t('Bound but not finalized: bound with an open post-bind condition', q('bound_not_finalized').indexOf('SUB-Q1') > -1 && q('bound_not_finalized').indexOf('SUB-Q1B') < 0, q('bound_not_finalized'));
+    t('Accepted but not finalized: accepted and not bound', q('accepted_not_finalized') === 'SUB-Q2', q('accepted_not_finalized'));
+    t('Endorsements left pending: a pending endorsement request only', q('endorsement_pending') === 'SUB-Q3', q('endorsement_pending'));
+    t('Policies pending cancellation: recorded, not yet effective', q('pending_cancellation') === 'SUB-Q4,SUB-Q5,SUB-Q5B', q('pending_cancellation'));
+    t('Cancellation notices to generate: insurer cancellation with no proof of mailing', q('notice_to_generate') === 'SUB-Q5', q('notice_to_generate'));
+    t('Quotes without options: the latest quote has no limit and no deductible', q('quote_no_options') === 'SUB-Q6', q('quote_no_options'));
+    t('Submissions without a quote: open, unquoted, not bound; a declined one is left out', q('no_quote') === 'SUB-Q7', q('no_quote'));
+    t('every queue says why a case is in it', MW_QUEUES.every(function(x){ return mwQueue(x.key).every(function(r){ return r.why && r.why.length > 5; }); }));
+    t('seven queues, as asked', MW_QUEUES.length === 7);
+
+    // ---------- date filters
+    t('date field: policy effective inside the range keeps the case', q('pending_cancellation', { field: 'policy_effective', from: day(5), to: day(12) }) === 'SUB-Q4,SUB-Q5,SUB-Q5B');
+    t('date field: outside the range removes it', q('pending_cancellation', { field: 'policy_effective', from: day(11), to: day(30) }) === '');
+    t('date field: cancellation effective narrows the list', q('pending_cancellation', { field: 'cancellation_effective', from: day(14), to: day(16) }) === 'SUB-Q4');
+    t('date field: cancellation notice mailed', q('pending_cancellation', { field: 'notice_mailed', from: day(-2), to: day(-2) }) === 'SUB-Q4');
+    t('date field: invoice issued', q('bound_not_finalized', { field: 'invoice', from: day(-1), to: day(0) }) === 'SUB-Q1');
+    t('date field: account effective (requested)', q('accepted_not_finalized', { field: 'account_effective', from: day(5), to: day(5) }) === 'SUB-Q2');
+    t('a case with no date in the chosen field is left out of a dated list', q('accepted_not_finalized', { field: 'invoice', from: day(-30), to: day(30) }) === '');
+    t('only a start date works', q('pending_cancellation', { field: 'cancellation_effective', from: day(16) }) === 'SUB-Q5,SUB-Q5B');
+    t('no date field means no narrowing', q('pending_cancellation', { field: '', from: day(1000) }) === 'SUB-Q4,SUB-Q5,SUB-Q5B');
+    t('the date fields offered are the ones asked for', ['invoice','policy_effective','account_effective','cancellation_effective','transaction_effective'].every(function(k){ return MW_DATE_FIELDS.some(function(f){ return f.key === k; }); }));
+
+    // ---------- the page, and a task from a queue
+    showMyWorkPage(); mwSwitchTab('queues');
+    t('the Queues tab shows a card with a count for every queue', el('myWorkRoot').querySelectorAll('.mw-qcard').length === 7 && /Bound but not finalized/.test(el('myWorkRoot').innerHTML));
+    mwPickQueue('no_quote');
+    t('picking a queue lists its cases with a link to open each', /SUB-Q7/.test(el('myWorkRoot').innerHTML) && !/SUB-Q7B/.test(el('myWorkRoot').innerHTML) && /mwOpenCase/.test(el('myWorkRoot').innerHTML));
+    var nt = TASKS.length; mwTaskFromQueue('SUB-Q7', 'no_quote');
+    t('a queue row becomes a task in one click, tied to the case', TASKS.length === nt + 1 && TASKS[TASKS.length - 1].subId === 'SUB-Q7' && /no_quote/.test(TASKS[TASKS.length - 1].source) && TASKS[TASKS.length - 1].type === 'New Business');
+    MW.dateField = 'received'; MW.from = day(5); MW.to = day(9); mwRender();
+    t('a date range that matches nothing says so', /for that date range/.test(el('myWorkRoot').innerHTML));
+    mwClearDates();
+    t('Clear removes the date range', MW.dateField === '' && MW.from === '' && !/for that date range/.test(el('myWorkRoot').innerHTML));
+    currentUserRole = 'assistant'; mwRender();
+    t('a user only sees queues for cases they can see (the assistant has none assigned)', mwQueue('no_quote').length === 0);
+    currentUserRole = 'admin';
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n').slice(0,3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

@@ -333,10 +333,11 @@ function renderSubmissionsTable() {
     else if (currentTableFilter === "referral") matchChannel = isReferralCase(sub);
 
     const term = currentSearchTerm.toLowerCase();
-    const matchSearch = term === "" ||
-      [sub.insured, sub.id, sub.fein, sub.broker, sub.lobName].some(v => String(v || "").toLowerCase().includes(term));
+    // the search box looks in the same fields as the header search (insured, FEIN, DOT, MC, VIN, driver, policy, quote, broker...)
+    const matchSearch = term === "" || (typeof fdQueueSearch === "function" ? fdQueueSearch(sub, term) : [sub.insured, sub.id, sub.fein, sub.broker, sub.lobName].some(v => String(v || "").toLowerCase().includes(term)));
+    const matchFilters = typeof fdMatchQueue === "function" ? fdMatchQueue(sub) : true;
 
-    return matchChannel && matchSearch;
+    return matchChannel && matchSearch && matchFilters;
   });
 
   // 3. Apply Queue Sorting (Priority / FIFO Arrival / Exposure)
