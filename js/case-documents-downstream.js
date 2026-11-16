@@ -1603,7 +1603,7 @@ function renderAuthorityScreen(sub) {
   const noteText = document.getElementById("primaryUWNoteText");
 
   const roleConfig = USER_ROLES_CONFIG[currentUserRole] || USER_ROLES_CONFIG.junior;
-  const esc = authEsc;
+  const esc = escHtml;
   const sp = authSpecialty(sub, currentUserRole);
   const isOutside = sp.judged && !sp.ok;
   const mine = (UW_SPECIALTIES[currentUserRole] || []).map(k => UW_LINE_NAMES[k] || k);

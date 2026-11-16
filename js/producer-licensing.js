@@ -220,17 +220,13 @@ function producerAllowsBind(status) {
 function producerActiveSub() {
   return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null;
 }
-function producerNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function producerActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function producerEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function producerLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 2, decision, by: producerActor(), at: producerNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 2, decision, by: producerActor(), at: nowStamp(), notes });
 }
 function producerPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -261,7 +257,7 @@ function runProducerCheck(sub, trigger) {
   const prev = sub.producerCheck && sub.producerCheck.result ? sub.producerCheck.result.status : null;
   const manual = sub.producerCheck && sub.producerCheck.manual ? sub.producerCheck.manual : null;
   const result = evaluateProducerCompliance(sub, new Date(), manual);
-  sub.producerCheck = { result, at: producerNow(), by: producerActor(), trigger, manual };
+  sub.producerCheck = { result, at: nowStamp(), by: producerActor(), trigger, manual };
 
   const failedBits = result.checks.filter(c => c.pass === false).map(c => `${c.label}: ${c.detail}`).join(" | ");
   if (result.status === "verified" && prev !== "verified") {
@@ -300,7 +296,7 @@ function producerSetRiskState() {
   const code = el ? el.value.trim().toUpperCase() : "";
   if (US_STATE_CODES_FOR_PRODUCER.indexOf(code) < 0) { showToast("⛔ Choose the state where the customer's business is located.", "danger"); return; }
   const before = deriveRiskState(sub);
-  sub.riskStateSet = { state: code, by: producerActor(), at: producerNow() };
+  sub.riskStateSet = { state: code, by: producerActor(), at: nowStamp() };
   producerLog(sub, "producer_risk_state_set", `Risk state set to ${code} by ${sub.riskStateSet.by}${before ? ` (it was read as ${before})` : " (none could be read from the case or the email)"}.`);
   runProducerCheck(sub, "risk state set");
   renderProducerCard(sub);
@@ -316,7 +312,7 @@ function producerRecordManualVerification() {
   const rec = {
     npn: val("plNpn"), licenseNumber: val("plLicNo"), licenseExpires: val("plLicExp"),
     appointmentEffective: val("plApptEff"), surplusLines: !!(document.getElementById("plSurplus") && document.getElementById("plSurplus").checked), source: val("plSource"), reference: val("plRef"), notes: val("plNotes"),
-    by: producerActor(), at: producerNow()
+    by: producerActor(), at: nowStamp()
   };
   const today = isoDate(new Date());
   const problems = [];
@@ -369,22 +365,22 @@ function producerPrefill(sub) {
 function producerRegistryRecordHtml(sub, result) {
   if (!PRODUCER_REGISTRY.length) return "";
   const meta = typeof REF_META !== "undefined" ? REF_META.registry : null;
-  const from = meta ? ` (${producerEsc(meta.fileName)}, loaded ${producerEsc(meta.loadedAt)})` : "";
+  const from = meta ? ` (${escHtml(meta.fileName)}, loaded ${escHtml(meta.loadedAt)})` : "";
   const rec = lookupProducerRecord(sub.broker);
-  if (!rec) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-magnifying-glass"></i> The loaded registry${from} has ${PRODUCER_REGISTRY.length.toLocaleString("en-US")} producer(s), but none matches "${producerEsc(sub.broker)}". Check the producer name in the file against the case.</div>`;
+  if (!rec) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-magnifying-glass"></i> The loaded registry${from} has ${PRODUCER_REGISTRY.length.toLocaleString("en-US")} producer(s), but none matches "${escHtml(sub.broker)}". Check the producer name in the file against the case.</div>`;
   const state = result ? result.riskState : deriveRiskState(sub), carrier = result ? result.carrier : (sub.carrier || PRODUCER_DEFAULT_CARRIER);
-  const licRow = l => `<tr><td>${producerEsc(l.state)}</td><td class="font-mono">${producerEsc(l.number)}</td><td>${producerEsc((l.lines || []).join(", ") || "-")}</td><td>${producerEsc(l.status)}</td><td>${producerEsc(l.expires)}</td></tr>`;
-  const appRow = a => `<tr><td>${producerEsc(a.carrier)}</td><td>${producerEsc(a.state)}</td><td>${producerEsc((a.lobs || []).map(producerLobLabel).join(", ") || "-")}</td><td>${producerEsc(a.status)}</td><td>${producerEsc(a.effective)}</td></tr>`;
+  const licRow = l => `<tr><td>${escHtml(l.state)}</td><td class="font-mono">${escHtml(l.number)}</td><td>${escHtml((l.lines || []).join(", ") || "-")}</td><td>${escHtml(l.status)}</td><td>${escHtml(l.expires)}</td></tr>`;
+  const appRow = a => `<tr><td>${escHtml(a.carrier)}</td><td>${escHtml(a.state)}</td><td>${escHtml((a.lobs || []).map(producerLobLabel).join(", ") || "-")}</td><td>${escHtml(a.status)}</td><td>${escHtml(a.effective)}</td></tr>`;
   const licHead = "<thead><tr><th>Licence state</th><th>Licence number</th><th>Lines of authority</th><th>Status</th><th>Expires</th></tr></thead>";
   const appHead = "<thead><tr><th>Appointed by</th><th>State</th><th>Lines of business</th><th>Status</th><th>Effective</th></tr></thead>";
   const inState = l => l.state === state;
   const licHere = (rec.licenses || []).filter(inState), licElse = (rec.licenses || []).filter(l => !inState(l));
   const appHere = (rec.appointments || []).filter(inState), appElse = (rec.appointments || []).filter(a => !inState(a));
-  const none = what => `<tr><td colspan="5" class="text-muted">The file has no ${what} for ${producerEsc(state || "this state")}.</td></tr>`;
+  const none = what => `<tr><td colspan="5" class="text-muted">The file has no ${what} for ${escHtml(state || "this state")}.</td></tr>`;
   const others = licElse.length + appElse.length ? `<details style="margin-top:8px;"><summary class="text-xs text-muted">Other states in the file (${licElse.length} licence(s), ${appElse.length} appointment(s))</summary>${licElse.length ? `<div class="rules-table-container"><table class="data-table">${licHead}<tbody>${licElse.map(licRow).join("")}</tbody></table></div>` : ""}${appElse.length ? `<div class="rules-table-container" style="margin-top:6px;"><table class="data-table">${appHead}<tbody>${appElse.map(appRow).join("")}</tbody></table></div>` : ""}</details>` : "";
-  if (!state) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-map-pin"></i> ${producerEsc(rec.names[0])} (NPN <span class="font-mono">${producerEsc(rec.npn)}</span>) is in the registry${from}, but the state of the customer's business is not known, so no state's details can be shown. Set the state below.</div>`;
+  if (!state) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-map-pin"></i> ${escHtml(rec.names[0])} (NPN <span class="font-mono">${escHtml(rec.npn)}</span>) is in the registry${from}, but the state of the customer's business is not known, so no state's details can be shown. Set the state below.</div>`;
   return `<div style="margin-bottom:12px;">
-      <div class="text-xs" style="margin-bottom:6px;"><i class="ph ph-database"></i> <strong>Read from the licensing registry${from} for ${producerEsc(state)}, where the customer's business is:</strong> ${producerEsc(rec.names[0])}, NPN <span class="font-mono">${producerEsc(rec.npn)}</span>.</div>
+      <div class="text-xs" style="margin-bottom:6px;"><i class="ph ph-database"></i> <strong>Read from the licensing registry${from} for ${escHtml(state)}, where the customer's business is:</strong> ${escHtml(rec.names[0])}, NPN <span class="font-mono">${escHtml(rec.npn)}</span>.</div>
       <div class="rules-table-container"><table class="data-table">${licHead}<tbody>${licHere.map(licRow).join("") || none("licence")}</tbody></table></div>
       <div class="rules-table-container" style="margin-top:8px;"><table class="data-table">${appHead}<tbody>${appHere.map(appRow).join("") || none("appointment")}</tbody></table></div>
       ${others}
@@ -409,15 +405,15 @@ function renderProducerCard(sub) {
 
   const rows = result ? result.checks.map(c => {
     const badge = c.pass === true ? `<span class="badge badge-success text-xs">Pass</span>` : (c.pass === false ? `<span class="badge badge-danger text-xs">Fail</span>` : `<span class="badge badge-light text-xs">n/a</span>`);
-    return `<tr><td>${producerEsc(c.label)}</td><td>${badge}</td><td>${producerEsc(c.detail)}</td></tr>`;
+    return `<tr><td>${escHtml(c.label)}</td><td>${badge}</td><td>${escHtml(c.detail)}</td></tr>`;
   }).join("") : `<tr><td colspan="3" class="text-muted" style="text-align:center;">No check has been run.</td></tr>`;
 
   const meta = result && state !== "not_applicable" ? `
     <div class="clean-meta-list" style="margin-bottom:12px;">
-      <div class="clean-meta-row"><span class="meta-label">Producer</span><span class="meta-value">${producerEsc(result.producerName)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Risk state / carrier</span><span class="meta-value">${producerEsc(result.riskState || "unknown")} · ${producerEsc(result.carrier)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Checked</span><span class="meta-value">${producerEsc(sub.producerCheck.at)} · ${producerEsc(sub.producerCheck.trigger)} · ${producerEsc(sub.producerCheck.by)}</span></div>
-      ${sub.producerCheck.manual ? `<div class="clean-meta-row"><span class="meta-label">Manual verification</span><span class="meta-value">${producerEsc(sub.producerCheck.manual.source)} · ref ${producerEsc(sub.producerCheck.manual.reference)} · ${producerEsc(sub.producerCheck.manual.by)}</span></div>` : ""}
+      <div class="clean-meta-row"><span class="meta-label">Producer</span><span class="meta-value">${escHtml(result.producerName)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Risk state / carrier</span><span class="meta-value">${escHtml(result.riskState || "unknown")} · ${escHtml(result.carrier)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Checked</span><span class="meta-value">${escHtml(sub.producerCheck.at)} · ${escHtml(sub.producerCheck.trigger)} · ${escHtml(sub.producerCheck.by)}</span></div>
+      ${sub.producerCheck.manual ? `<div class="clean-meta-row"><span class="meta-label">Manual verification</span><span class="meta-value">${escHtml(sub.producerCheck.manual.source)} · ref ${escHtml(sub.producerCheck.manual.reference)} · ${escHtml(sub.producerCheck.manual.by)}</span></div>` : ""}
     </div>` : "";
 
   const registryBlock = state !== "not_applicable" ? producerRegistryRecordHtml(sub, result) : "";
@@ -436,11 +432,11 @@ function renderProducerCard(sub) {
       </div>` : "";
   let manualForm = stateForm;
   if (needsManual && canApprove) {
-    const pre = producerPrefill(sub), pv = k => producerEsc(pre ? pre[k] : "");
+    const pre = producerPrefill(sub), pv = k => escHtml(pre ? pre[k] : "");
     manualForm += `
       <div class="simulation-tool-box" style="display:block; margin-top:14px;">
         <span class="tool-label" style="display:block; margin-bottom:8px;"><i class="ph ph-clipboard-text"></i> Record a verified lookup (replaces the registry record for this submission)</span>
-        ${pre ? `<p class="text-xs text-muted" style="margin:0 0 8px;"><i class="ph ph-magic-wand"></i> Filled in from the loaded registry's record for ${producerEsc(pre.name)}${pre.missing.length ? " (the registry has no " + producerEsc(pre.missing.join(" or ")) + " for this state and carrier, so that is left blank)" : ""}. Check the values against the source before recording.</p>` : ""}
+        ${pre ? `<p class="text-xs text-muted" style="margin:0 0 8px;"><i class="ph ph-magic-wand"></i> Filled in from the loaded registry's record for ${escHtml(pre.name)}${pre.missing.length ? " (the registry has no " + escHtml(pre.missing.join(" or ")) + " for this state and carrier, so that is left blank)" : ""}. Check the values against the source before recording.</p>` : ""}
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
           <input id="plNpn" class="form-control" style="width:130px;" placeholder="NPN" value="${pv("npn")}">
           <input id="plLicNo" class="form-control" style="width:170px;" placeholder="Licence number" value="${pv("licenseNumber")}">
@@ -449,7 +445,7 @@ function renderProducerCard(sub) {
           <label style="font-size:12.5px;"><input type="checkbox" id="plSurplus"> Holds a surplus lines licence in this state</label>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
-          <select id="plSource" class="form-control" style="width:260px;">${PRODUCER_VERIFICATION_SOURCES.map(s => `<option>${producerEsc(s)}</option>`).join("")}</select>
+          <select id="plSource" class="form-control" style="width:260px;">${PRODUCER_VERIFICATION_SOURCES.map(s => `<option>${escHtml(s)}</option>`).join("")}</select>
           <input id="plRef" class="form-control" style="width:220px;" placeholder="Lookup reference / document id">
           <input id="plNotes" class="form-control" style="flex:1; min-width:200px;" placeholder="Notes (optional)">
           <button class="btn btn-sm btn-primary" style="width:auto;" onclick="producerRecordManualVerification()"><i class="ph ph-check"></i> Record &amp; re-check</button>

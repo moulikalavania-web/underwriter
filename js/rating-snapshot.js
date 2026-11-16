@@ -63,8 +63,6 @@ function rsDiff(a, b) {
 }
 
 function rsMoney(n) { return n === null || n === undefined || n === "" || isNaN(Number(n)) ? "—" : "$" + Number(n).toLocaleString("en-US"); }
-function rsEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function rsNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function rsActor() { const r = USER_ROLES_CONFIG[currentUserRole]; return r ? `${r.name} (${r.title})` : "System"; }
 function rsStore(sub) { if (!Array.isArray(sub.ratingSnapshots)) sub.ratingSnapshots = []; return sub.ratingSnapshots; }
 function rsLatest(sub) { const s = rsStore(sub); return s.length ? s[s.length - 1] : null; }
@@ -120,7 +118,7 @@ function rsCapture(sub, trigger, force) {
   if (prev && prev.hash === hash) return null;
   const changes = prev ? rsDiff(prev.content, content) : [];
   const snap = {
-    version: prev ? prev.version + 1 : 1, at: rsNow(), by: rsActor(), trigger: trigger || "Rating details generated", hash: hash, previousVersion: prev ? prev.version : null,
+    version: prev ? prev.version + 1 : 1, at: nowStamp(), by: rsActor(), trigger: trigger || "Rating details generated", hash: hash, previousVersion: prev ? prev.version : null,
     summary: { riskScore: content.riskScore.effective, finalPremium: content.premium.finalPremium, basePremium: content.premium.basePremium, units: content.vehicles.length, drivers: content.drivers.length },
     changes: changes, content: content
   };
@@ -149,8 +147,8 @@ function rsDiffTableHtml(changes) {
   if (!changes.length) return `<div class="text-sm text-muted">The two versions are identical.</div>`;
   const bySection = {};
   changes.forEach(c => { (bySection[c.section] = bySection[c.section] || []).push(c); });
-  return Object.keys(bySection).map(sec => `<div style="margin-top:8px;"><div class="text-xs" style="font-weight:700;">${rsEsc(RS_SECTIONS[sec] || sec)} (${bySection[sec].length})</div>
-    <table class="data-table"><thead><tr><th>Field</th><th>Old</th><th>New</th></tr></thead><tbody>${bySection[sec].map(c => `<tr><td class="font-mono text-xs">${rsEsc(c.path)}</td><td class="text-xs">${rsEsc(String(c.from).slice(0, 120))}</td><td class="text-xs"><strong>${rsEsc(String(c.to).slice(0, 120))}</strong></td></tr>`).join("")}</tbody></table></div>`).join("");
+  return Object.keys(bySection).map(sec => `<div style="margin-top:8px;"><div class="text-xs" style="font-weight:700;">${escHtml(RS_SECTIONS[sec] || sec)} (${bySection[sec].length})</div>
+    <table class="data-table"><thead><tr><th>Field</th><th>Old</th><th>New</th></tr></thead><tbody>${bySection[sec].map(c => `<tr><td class="font-mono text-xs">${escHtml(c.path)}</td><td class="text-xs">${escHtml(String(c.from).slice(0, 120))}</td><td class="text-xs"><strong>${escHtml(String(c.to).slice(0, 120))}</strong></td></tr>`).join("")}</tbody></table></div>`).join("");
 }
 
 function rsRender(sub) {
@@ -165,18 +163,18 @@ function rsRender(sub) {
   }
   const from = RS_COMPARE.from && list.find(x => x.version === RS_COMPARE.from) ? RS_COMPARE.from : (list.length > 1 ? list[list.length - 2].version : list[0].version);
   const to = RS_COMPARE.to && list.find(x => x.version === RS_COMPARE.to) ? RS_COMPARE.to : latest.version;
-  const opts = sel => list.map(x => `<option value="${x.version}" ${x.version === sel ? "selected" : ""}>v${x.version} · ${rsEsc(x.at)}</option>`).join("");
+  const opts = sel => list.map(x => `<option value="${x.version}" ${x.version === sel ? "selected" : ""}>v${x.version} · ${escHtml(x.at)}</option>`).join("");
   const a = list.find(x => x.version === from), b2 = list.find(x => x.version === to);
   const band = typeof riskBand === "function" ? riskBand(latest.summary.riskScore) : { label: "", cls: "badge-light" };
-  const rows = list.slice().reverse().map(s => `<tr><td><strong>v${s.version}</strong>${s === latest ? ' <span class="badge badge-info text-xs">current</span>' : ""}</td><td class="text-xs">${rsEsc(s.at)}<br><span class="text-muted">${rsEsc(s.by)}</span></td><td class="text-xs">${rsEsc(s.trigger)}</td>
-      <td class="font-mono">${s.summary.riskScore === null ? "—" : s.summary.riskScore}</td><td class="font-mono">${rsMoney(s.summary.finalPremium)}</td><td class="text-xs">${rsEsc(rsChangeHeadline(s))}</td>
+  const rows = list.slice().reverse().map(s => `<tr><td><strong>v${s.version}</strong>${s === latest ? ' <span class="badge badge-info text-xs">current</span>' : ""}</td><td class="text-xs">${escHtml(s.at)}<br><span class="text-muted">${escHtml(s.by)}</span></td><td class="text-xs">${escHtml(s.trigger)}</td>
+      <td class="font-mono">${s.summary.riskScore === null ? "—" : s.summary.riskScore}</td><td class="font-mono">${rsMoney(s.summary.finalPremium)}</td><td class="text-xs">${escHtml(rsChangeHeadline(s))}</td>
       <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="rsView(${s.version})">View</button> ${s.previousVersion ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="rsCompare(${s.previousVersion}, ${s.version})">Compare with v${s.previousVersion}</button>` : ""}</td></tr>`).join("");
   box.innerHTML = `<div class="card mt-3">
     <div class="card-header"><h3><i class="ph ph-camera"></i> Rating Snapshot</h3><span class="badge badge-info">v${latest.version} · ${list.length} version${list.length === 1 ? "" : "s"}</span></div>
     <div class="card-body">
       <p class="text-xs text-muted" style="margin:0 0 8px;">The risk details sent to the Actuarial Rating Engine, the risk score they give and the premium that follows. A new version is saved each time they change; earlier versions are never altered.</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px;">
-        <div class="summary-field-box"><div class="summary-field-label">Risk score</div><div class="summary-field-val">${latest.summary.riskScore === null ? "—" : latest.summary.riskScore} <span class="badge ${band.cls} text-xs">${rsEsc(band.label)}</span></div></div>
+        <div class="summary-field-box"><div class="summary-field-label">Risk score</div><div class="summary-field-val">${latest.summary.riskScore === null ? "—" : latest.summary.riskScore} <span class="badge ${band.cls} text-xs">${escHtml(band.label)}</span></div></div>
         <div class="summary-field-box"><div class="summary-field-label">Base premium</div><div class="summary-field-val">${rsMoney(latest.summary.basePremium)}</div></div>
         <div class="summary-field-box"><div class="summary-field-label">Final premium</div><div class="summary-field-val">${rsMoney(latest.summary.finalPremium)}</div></div>
         <div class="summary-field-box"><div class="summary-field-label">Vehicles · drivers</div><div class="summary-field-val">${latest.summary.units} · ${latest.summary.drivers}</div></div>
@@ -197,7 +195,7 @@ function rsCompareHtml(a, b) {
   const head = [];
   if (older.summary.riskScore !== newer.summary.riskScore) head.push(`Risk score ${older.summary.riskScore} → <strong>${newer.summary.riskScore}</strong>`);
   if (older.summary.finalPremium !== newer.summary.finalPremium) head.push(`Final premium ${rsMoney(older.summary.finalPremium)} → <strong>${rsMoney(newer.summary.finalPremium)}</strong>`);
-  return `<div class="alert alert-info text-xs"><strong>v${older.version} (${rsEsc(older.at)}) → v${newer.version} (${rsEsc(newer.at)})</strong>: ${changes.length} field(s) changed${head.length ? ". " + head.join("; ") : ""}</div>${rsDiffTableHtml(changes)}`;
+  return `<div class="alert alert-info text-xs"><strong>v${older.version} (${escHtml(older.at)}) → v${newer.version} (${escHtml(newer.at)})</strong>: ${changes.length} field(s) changed${head.length ? ". " + head.join("; ") : ""}</div>${rsDiffTableHtml(changes)}`;
 }
 
 function rsCompare(fromV, toV) {
@@ -211,9 +209,9 @@ function rsView(version) {
   const s = rsStore(sub).find(x => x.version === version); if (!s) return;
   let m = document.getElementById("rsViewModal");
   if (!m) { m = document.createElement("div"); m.id = "rsViewModal"; m.className = "modal-overlay"; document.body.appendChild(m); }
-  m.innerHTML = `<div class="modal-content" style="max-width:900px;"><div class="modal-header"><h3><i class="ph ph-camera"></i> Rating Snapshot v${s.version} · ${rsEsc(s.at)}</h3><button class="btn-close" aria-label="Close" onclick="rsCloseView()"><i class="ph ph-x"></i></button></div>
-    <div class="modal-body"><div class="text-xs text-muted" style="margin-bottom:6px;">${rsEsc(s.trigger)} · saved by ${rsEsc(s.by)}${s.previousVersion ? " · changes since v" + s.previousVersion + ": " + s.changes.length : ""}</div>
-    <pre id="rsViewJson" style="max-height:480px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;font-size:12px;">${rsEsc(JSON.stringify(s.content, null, 2))}</pre></div>
+  m.innerHTML = `<div class="modal-content" style="max-width:900px;"><div class="modal-header"><h3><i class="ph ph-camera"></i> Rating Snapshot v${s.version} · ${escHtml(s.at)}</h3><button class="btn-close" aria-label="Close" onclick="rsCloseView()"><i class="ph ph-x"></i></button></div>
+    <div class="modal-body"><div class="text-xs text-muted" style="margin-bottom:6px;">${escHtml(s.trigger)} · saved by ${escHtml(s.by)}${s.previousVersion ? " · changes since v" + s.previousVersion + ": " + s.changes.length : ""}</div>
+    <pre id="rsViewJson" style="max-height:480px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;font-size:12px;">${escHtml(JSON.stringify(s.content, null, 2))}</pre></div>
     <div class="modal-footer"><button class="btn btn-outline" onclick="rsDownload(${s.version})"><i class="ph ph-download-simple"></i> Download</button><button class="btn btn-primary" onclick="rsCloseView()">Close</button></div></div>`;
   m.style.display = "flex";
 }

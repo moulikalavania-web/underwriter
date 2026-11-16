@@ -149,7 +149,7 @@
     t('no confirmed basis: no tax is invented', slTaxFor(Unc).usable === false && slTaxFor(Unc).total === 0 && /not been verified/.test(slTaxFor(Unc).note));
     var Cty = clone(Q); Cty.importedRatingData.quote.countyTax = 55;
     t('county tax from the rating data is added to the total', slTaxFor(Cty).county === 55 && slTaxFor(Cty).total === 544);
-    t('XSS-safe', slEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+    t('XSS-safe', escHtml('<i onclick=1>') === '&lt;i onclick=1&gt;');
     window.showToast = origToast;
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));

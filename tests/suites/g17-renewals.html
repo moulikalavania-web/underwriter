@@ -261,7 +261,7 @@
     renderRenewalChip(P5);
     t('chip on an expiring policy points at the pipeline', /Renewal Pipeline/.test(el('renewalStatusContainer').innerHTML));
     t('empty pipeline message', (function(){ var keep = SUBMISSIONS_DATASET.slice(); SUBMISSIONS_DATASET.length = 0; renderRenewalPipeline(); var ok = /No bound policies yet/.test(el('renewalPipelineRoot').innerHTML); keep.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); return ok; })());
-    t('XSS-safe', rnEsc('<b onclick=1>') === '&lt;b onclick=1&gt;');
+    t('XSS-safe', escHtml('<b onclick=1>') === '&lt;b onclick=1&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

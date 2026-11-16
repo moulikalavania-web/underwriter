@@ -29,6 +29,34 @@ function canManageAssignments() {
 // The queue starts empty: a case enters through Create New Submission, Import from Email or the Integrating API.
 var SUBMISSIONS_DATASET = [];
 
+/** Shared small helpers: the one HTML escape, the one timestamp, the one date, the one "who is acting" label and the one decision-log line. */
+function escHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function nowStamp() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
+function todayIso() { return new Date().toISOString().slice(0, 10); }
+function actorLabel() { const r = typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]; return r ? r.name + " (" + r.title + ")" : String(currentUserRole); }
+function logDecision(sub, step, decision, notes, by, at) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: step, decision: decision, by: by || actorLabel(), at: at || nowStamp(), notes: notes }); }
+
+/** The one definition of "this policy is bound": the bind to the policy admin system succeeded and returned a policy number. */
+function policyIsBound(sub) { return !!(sub && sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+
+/**
+ * Where a case stands, in the words a broker uses: Received, Pending UW Approval, Quoted, Pending Bind, Bound, Declined or Closed
+ * (closed, merged and discarded cases all count as Closed). The one derivation: search, the queue filter, the Case File, My Work and
+ * the Customer view all read it. The performance reports count differently on purpose (a case that was quoted and later declined was
+ * still a quote), so they keep their own facts (perfFacts).
+ */
+function caseStatus(sub) {
+  if (sub.lifecycleStatus === "declined") return "Declined";
+  if (["closed", "merged", "discarded"].indexOf(sub.lifecycleStatus) > -1) return "Closed";
+  if (policyIsBound(sub)) return "Bound";
+  if (sub.customerApproved) return "Pending Bind";
+  if (sub.quoteIssued) return "Quoted";
+  if (sub.authorityRef && sub.authorityRef.status === "pending") return "Pending UW Approval";
+  return "Received";
+}
+/** A case that is still being worked: not declined, closed, merged or discarded. */
+function caseIsOpen(sub) { return ["Declined", "Closed"].indexOf(caseStatus(sub)) < 0; }
+
 // Screen & Workflow Steps Configuration. Fourteen workflow steps, shown to the user as six stages (WORKFLOW_STAGES).
 // A step is a position in the order below; `id` is the page (screen) it opens and `view` says which cards of a shared page
 // belong to it (a card marked data-views="surplus bind" shows on those steps only). Several steps share a page:
@@ -526,7 +554,7 @@ function ensureDiscretionaryPricingSeed(sub) {
       finalPremium: baseFromPayload
     };
     recomputeFinalQuotedPremium(sub);
-  } else if (sub.discretionaryPricing.commissionRate !== commissionLoadPct(sub) && !(typeof comIsBound === "function" && comIsBound(sub))) {
+  } else if (sub.discretionaryPricing.commissionRate !== commissionLoadPct(sub) && !(typeof policyIsBound === "function" && policyIsBound(sub))) {
     // The broker's commission rate changed (override, new producer, new line): the premium follows it until the policy is bound.
     recomputeFinalQuotedPremium(sub);
   }

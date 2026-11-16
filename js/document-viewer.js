@@ -26,12 +26,12 @@ function dvRevokeUrls() { DV_URLS.forEach(u => { try { URL.revokeObjectURL(u); }
 function dvUrl(bytes, type) { const u = URL.createObjectURL(new Blob([bytes], { type: type })); DV_URLS.push(u); return u; }
 
 function dvTableHtml(rows) {
-  const body = rows.map((r, i) => `<tr>${r.map(c => i === 0 ? `<th>${diEsc(c)}</th>` : `<td>${diEsc(c)}</td>`).join("")}</tr>`).join("");
+  const body = rows.map((r, i) => `<tr>${r.map(c => i === 0 ? `<th>${escHtml(c)}</th>` : `<td>${escHtml(c)}</td>`).join("")}</tr>`).join("");
   return `<div class="table-responsive"><table class="data-table"><tbody>${body}</tbody></table></div>`;
 }
 
 function dvNotice(icon, text) {
-  return `<div class="empty-state"><i class="ph ${icon} empty-state-icon"></i><div class="empty-state-body">${diEsc(text)}</div></div>`;
+  return `<div class="empty-state"><i class="ph ${icon} empty-state-icon"></i><div class="empty-state-body">${escHtml(text)}</div></div>`;
 }
 
 /** The viewer's content for one document, as HTML. Async: parsing an Office file takes a moment. */
@@ -43,20 +43,20 @@ async function dvBuildHtml(sub, doc) {
   const info = diDetectType(bytes, att.name);
   if (info.kind === "zip") { try { info.kind = diResolveZipKind(diReadZipDirectory(bytes).entries); } catch (e) { info.kind = "unknown"; } }
   if (diIsExecutable(bytes, att.name)) return dvNotice("ph-prohibit", "This file is a program or script and is not shown.");
-  if (info.kind === "pdf") return `<iframe title="${diEsc(att.name)}" src="${dvUrl(bytes, "application/pdf")}" style="width:100%;height:68vh;border:1px solid #e2e8f0;border-radius:6px;background:#fff;"></iframe>`;
-  if (info.kind === "png" || info.kind === "jpeg") return `<div style="text-align:center;"><img alt="${diEsc(att.name)}" src="${dvUrl(bytes, info.kind === "png" ? "image/png" : "image/jpeg")}" style="max-width:100%;max-height:68vh;border:1px solid #e2e8f0;border-radius:6px;"></div>`;
+  if (info.kind === "pdf") return `<iframe title="${escHtml(att.name)}" src="${dvUrl(bytes, "application/pdf")}" style="width:100%;height:68vh;border:1px solid #e2e8f0;border-radius:6px;background:#fff;"></iframe>`;
+  if (info.kind === "png" || info.kind === "jpeg") return `<div style="text-align:center;"><img alt="${escHtml(att.name)}" src="${dvUrl(bytes, info.kind === "png" ? "image/png" : "image/jpeg")}" style="max-width:100%;max-height:68vh;border:1px solid #e2e8f0;border-radius:6px;"></div>`;
   const results = await diProcessFile(att.name, att.type, bytes, null, 0);
   const r = results[0];
   if (r.status === "needs_ocr") return dvNotice("ph-scan", "This is an image or scan with no text layer, and no OCR service is connected. It can be downloaded, but it cannot be read here.");
   if (r.status !== "extracted") return dvNotice("ph-warning", (r.notes || []).join(" ") || "The file could not be read.");
-  if (r.kind === "txt" || r.kind === "json" || r.kind === "eml") return `<pre style="white-space:pre-wrap;max-height:68vh;overflow:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12.5px;">${diEsc(r.text)}</pre>`;
+  if (r.kind === "txt" || r.kind === "json" || r.kind === "eml") return `<pre style="white-space:pre-wrap;max-height:68vh;overflow:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px;font-size:12.5px;">${escHtml(r.text)}</pre>`;
   const parts = [];
   if (r.kind === "csv" || r.kind === "xlsx" || r.kind === "docx" || r.kind === "pptx") {
-    if (r.kind === "docx" || r.kind === "pptx") parts.push(`<div style="white-space:pre-wrap;font-size:13px;">${diEsc(r.text)}</div>`);
-    (r.tables || []).forEach(t => parts.push(`<div class="text-xs text-muted" style="margin-top:10px;">${diEsc(t.name || "Table")}</div>${dvTableHtml(t.rows || [])}`));
-    if (!parts.length) parts.push(`<pre style="white-space:pre-wrap;">${diEsc(r.text)}</pre>`);
+    if (r.kind === "docx" || r.kind === "pptx") parts.push(`<div style="white-space:pre-wrap;font-size:13px;">${escHtml(r.text)}</div>`);
+    (r.tables || []).forEach(t => parts.push(`<div class="text-xs text-muted" style="margin-top:10px;">${escHtml(t.name || "Table")}</div>${dvTableHtml(t.rows || [])}`));
+    if (!parts.length) parts.push(`<pre style="white-space:pre-wrap;">${escHtml(r.text)}</pre>`);
   }
-  const note = `<div class="text-xs text-muted" style="margin-bottom:8px;"><i class="ph ph-info"></i> ${diEsc(r.label)}, read with the ${diEsc(r.method.toLowerCase())}. This is the text and tables in the file, not its page layout.</div>`;
+  const note = `<div class="text-xs text-muted" style="margin-bottom:8px;"><i class="ph ph-info"></i> ${escHtml(r.label)}, read with the ${escHtml(r.method.toLowerCase())}. This is the text and tables in the file, not its page layout.</div>`;
   return `<div style="max-height:68vh;overflow:auto;">${note}${parts.join("")}</div>`;
 }
 
@@ -65,7 +65,7 @@ function dvRenderInto(container, sub, doc) {
   if (!container) return;
   const token = ++DV_TOKEN;
   dvRevokeUrls();
-  container.innerHTML = `<div class="text-sm text-muted" style="padding:16px;"><i class="ph ph-circle-notch ph-spin"></i> Opening ${diEsc(doc.name)}…</div>`;
+  container.innerHTML = `<div class="text-sm text-muted" style="padding:16px;"><i class="ph ph-circle-notch ph-spin"></i> Opening ${escHtml(doc.name)}…</div>`;
   dvBuildHtml(sub, doc).then(html => { if (token === DV_TOKEN) container.innerHTML = html; })
     .catch(e => { if (token === DV_TOKEN) container.innerHTML = dvNotice("ph-warning", "The file could not be shown: " + e.message); });
 }

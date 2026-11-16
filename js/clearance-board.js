@@ -30,27 +30,27 @@ var CL_UI = {};   // per case: which gate card is selected, so a redraw keeps it
 var CL_DEFAULT_GATE = "producer";
 var CL_TONE_LABEL = { pass: "Clear", fail: "Action needed", warn: "Review", wait: "Waiting" };
 
-function clEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s); }
 function clUi(sub) { return CL_UI[sub.id] || (CL_UI[sub.id] = {}); }
 function clSelected(sub) { const k = clUi(sub).selected; return CL_GATES.some(g => g.key === k) ? k : CL_DEFAULT_GATE; }
 
 /** The five gates for a case, each { key, title, icon, tone: pass | fail | warn | wait, headline, detail, fix, who }. */
 function clearanceGates(sub) {
-  const legal = clearanceChecks(sub), out = {};
+  const legal = clearanceChecks(sub), out = {}, gate = clearanceGateStatus(sub);   // gate: the shared pass / fail / unable, the same words Phase 1 uses
   const base = k => Object.assign({}, CL_GATES.find(g => g.key === k));
+  const toneOf = w => w === "pass" ? "pass" : w === "unable" ? "warn" : "fail";
 
   // 1. producer licence
   const p = legal.producer;
   out.producer = Object.assign(base("producer"), p.ok
     ? { tone: "pass", headline: p.label || "Verified", detail: "" }
-    : { tone: p.label === "No registry loaded" ? "warn" : "fail", headline: p.label || "Not verified", detail: p.detail, fix: p.label === "No registry loaded" ? "Load the licensing registry or record a verified lookup" : "Record a verified lookup, or decline",
+    : { tone: toneOf(gate.producer), headline: p.label || "Not verified", detail: p.detail, fix: gate.producer === "unable" ? "Load the licensing registry or record a verified lookup" : "Record a verified lookup, or decline",
         who: hasPermission("producerLicensing", "approve") ? "" : "needs a user with producer-licensing approval" });
 
   // 2. sanctions
   const s = legal.sanctions, st = typeof getSanctionsStatus === "function" ? getSanctionsStatus(sub) : { state: "not_screened" };
   out.sanctions = Object.assign(base("sanctions"), s.ok
     ? { tone: "pass", headline: s.label || "Clear", detail: "" }
-    : { tone: st.state === "blocked" ? "fail" : "warn", headline: s.label || "Not screened", detail: s.detail, fix: st.state === "blocked" ? "Escalate to Compliance" : st.state === "review_required" ? "Clear or confirm each match" : "Load a watchlist or record an external screening",
+    : { tone: toneOf(gate.sanctions), headline: s.label || "Not screened", detail: s.detail, fix: st.state === "blocked" ? "Escalate to Compliance" : st.state === "review_required" ? "Clear or confirm each match" : "Load a watchlist or record an external screening",
         who: hasPermission("sanctions", "approve") ? "" : "needs a user with sanctions approval" });
 
   // 3. broker of record (worked out without writing anything)
@@ -86,7 +86,7 @@ function clearanceGates(sub) {
 }
 
 function clSummaryHtml(g) {
-  return `<i class="ph ${g.icon} cl-ico"></i><span class="cl-title">${clEsc(g.title)}</span><span class="cl-line">${clEsc(g.headline)}</span><span class="cl-chip ${g.tone}">${CL_TONE_LABEL[g.tone]}</span>`;
+  return `<i class="ph ${g.icon} cl-ico"></i><span class="cl-title">${escHtml(g.title)}</span><span class="cl-line">${escHtml(g.headline)}</span><span class="cl-chip ${g.tone}">${CL_TONE_LABEL[g.tone]}</span>`;
 }
 
 function renderClearanceBoard(sub) {
@@ -98,7 +98,7 @@ function renderClearanceBoard(sub) {
   const firstIssue = todo.length ? todo[0].key : null;
 
   // verdict
-  const row = (name, c) => `<li><strong>${name}:</strong> <span class="badge ${c.ok ? "badge-success" : "badge-danger"}">${c.label || (c.ok ? "OK" : "Not met")}</span>${c.ok ? "" : " " + clEsc(c.detail)}</li>`;
+  const row = (name, c) => `<li><strong>${name}:</strong> <span class="badge ${c.ok ? "badge-success" : "badge-danger"}">${c.label || (c.ok ? "OK" : "Not met")}</span>${c.ok ? "" : " " + escHtml(c.detail)}</li>`;
   let cls, icon, title, text;
   if (!legal.ok) {
     cls = "bad"; icon = "ph-hand-palm"; title = "Held: a legal check has not passed";
@@ -111,7 +111,7 @@ function renderClearanceBoard(sub) {
     text = `<strong>Legal checks passed.</strong> Producer licence and sanctions screening are clear, and nothing else needs a person. Continue to Data Enrichment.`;
   }
   const canRecheck = hasPermission("producerLicensing", "edit") || hasPermission("sanctions", "edit");
-  const ran = sub.phase1 && sub.phase1.ranAt ? `Phase 1 checks ran ${clEsc(sub.phase1.ranAt)}. ` : "";
+  const ran = sub.phase1 && sub.phase1.ranAt ? `Phase 1 checks ran ${escHtml(sub.phase1.ranAt)}. ` : "";
   const hero = `<div class="cl-hero ${cls}"><div class="cl-hero-icon"><i class="ph ${icon}"></i></div>
     <div class="cl-hero-main"><div class="cl-hero-title">${title}</div><div class="cl-hero-text">${text}</div>
       <div class="cl-hero-meta">${ran}Everything here repeats at bind.</div></div>
@@ -119,21 +119,21 @@ function renderClearanceBoard(sub) {
 
   // what needs a person
   const list = todo.length ? `<div class="cl-todo"><div class="cl-todo-h">What needs you</div><ul>` + todo.map(g =>
-    `<li><span class="cl-chip ${g.tone}">${CL_TONE_LABEL[g.tone]}</span><div class="cl-todo-main"><strong>${clEsc(g.title)}.</strong> ${clEsc(g.detail || g.headline)}
-      ${g.fix ? `<div class="cl-todo-fix"><i class="ph ph-arrow-bend-down-right"></i> ${clEsc(g.fix)}${g.who ? ` <span class="cl-who">(${clEsc(g.who)})</span>` : ""}</div>` : ""}</div>
+    `<li><span class="cl-chip ${g.tone}">${CL_TONE_LABEL[g.tone]}</span><div class="cl-todo-main"><strong>${escHtml(g.title)}.</strong> ${escHtml(g.detail || g.headline)}
+      ${g.fix ? `<div class="cl-todo-fix"><i class="ph ph-arrow-bend-down-right"></i> ${escHtml(g.fix)}${g.who ? ` <span class="cl-who">(${escHtml(g.who)})</span>` : ""}</div>` : ""}</div>
       <button class="btn btn-sm btn-outline" style="width:auto;" onclick="clSelectGate('${g.key}', true)">Open</button></li>`).join("") + `</ul></div>` : "";
 
   // the Phase 1 reviewer's note
   const rv = sub.phase1 && sub.phase1.review;
-  const note = rv ? `<div class="cl-note"><i class="ph ph-chat-text"></i><div><div class="cl-note-h">Phase 1 ${rv.decision === "approved" ? "approval" : "decision"} by ${clEsc(rv.by)} · ${clEsc(rv.at)}</div><div>${clEsc(rv.comment)}</div></div></div>` : "";
+  const note = rv ? `<div class="cl-note"><i class="ph ph-chat-text"></i><div><div class="cl-note-h">Phase 1 ${rv.decision === "approved" ? "approval" : "decision"} by ${escHtml(rv.by)} · ${escHtml(rv.at)}</div><div>${escHtml(rv.comment)}</div></div></div>` : "";
 
   box.innerHTML = hero + list + note;
 
   // the gate cards, with the selected one's detail attached beneath them
   const sel = clSelected(sub), laneBox = document.getElementById("clearanceLane");
   if (laneBox) laneBox.innerHTML = `<ol class="cl-lane" aria-label="Clearance gates">` + gates.map(g =>
-    `<li class="cl-tile ${g.tone}${g.key === sel ? " sel" : ""}${g.key === firstIssue ? " here" : ""}" id="clTile_${g.key}"><button type="button" aria-pressed="${g.key === sel}" onclick="clSelectGate('${g.key}')" aria-label="${clEsc(g.title)}: ${clEsc(g.headline)}. Show details">
-      <span class="cl-tile-ico"><i class="ph ${g.icon}"></i></span><span class="cl-tile-title">${clEsc(g.title)}</span><span class="cl-tile-line">${clEsc(g.headline)}</span>${g.key === firstIssue ? '<span class="cl-here">Start here</span>' : ""}</button></li>`).join("") + `</ol>`;
+    `<li class="cl-tile ${g.tone}${g.key === sel ? " sel" : ""}${g.key === firstIssue ? " here" : ""}" id="clTile_${g.key}"><button type="button" aria-pressed="${g.key === sel}" onclick="clSelectGate('${g.key}')" aria-label="${escHtml(g.title)}: ${escHtml(g.headline)}. Show details">
+      <span class="cl-tile-ico"><i class="ph ${g.icon}"></i></span><span class="cl-tile-title">${escHtml(g.title)}</span><span class="cl-tile-line">${escHtml(g.headline)}</span>${g.key === firstIssue ? '<span class="cl-here">Start here</span>' : ""}</button></li>`).join("") + `</ol>`;
 
   // the gate details: each has its own summary line; only the selected card's detail is shown
   gates.forEach(g => {
@@ -156,9 +156,9 @@ function renderClearanceBoard(sub) {
       a.className = "val badge badge-light"; a.textContent = "Confirm the extracted data first";
     }
   }
-  if (fm) fm.innerHTML = fein && fein.lines && fein.lines.length ? `<ul class="cl-lines">${fein.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-info" : "ph-x-circle"}"></i> ${clEsc(l.text)}</li>`).join("")}</ul>` : "";
+  if (fm) fm.innerHTML = fein && fein.lines && fein.lines.length ? `<ul class="cl-lines">${fein.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-info" : "ph-x-circle"}"></i> ${escHtml(l.text)}</li>`).join("")}</ul>` : "";
   const ap = gates.find(g => g.key === "appetite"), bc = document.getElementById("appetiteBasicContainer");
-  if (bc) bc.innerHTML = ap && ap.basic ? `<div class="cl-subhead">Basic fit (checked at submission)</div><ul class="cl-lines">${ap.basic.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-check-circle" : "ph-x-circle"}"></i> ${clEsc(l.text)}</li>`).join("")}</ul>` : "";
+  if (bc) bc.innerHTML = ap && ap.basic ? `<div class="cl-subhead">Basic fit (checked at submission)</div><ul class="cl-lines">${ap.basic.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-check-circle" : "ph-x-circle"}"></i> ${escHtml(l.text)}</li>`).join("")}</ul>` : "";
 }
 
 /** Show one gate's detail, attached to its card. `scroll` brings the detail into view (used from the to-do list). */

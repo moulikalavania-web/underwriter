@@ -89,7 +89,6 @@ var PC_REASONS_INSURED = [
 // ----------------------------------------------------------------------------
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
-function pcToday() { return new Date().toISOString().slice(0, 10); }
 function pcAdd(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + Number(n)); return d.toISOString().slice(0, 10); }
 function pcDays(a, b) { return Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000); }
 function pcRound(n) { return Math.round(n * 100) / 100; }
@@ -104,15 +103,24 @@ function pcNoticeDays(reasonCode, state) {
 }
 
 /**
+ * Pro-rata earned and unearned premium for a term cut off on a date. The one place this is worked out: the cancellation refund below
+ * and the Calculator's return premium both use it.
+ */
+function pcProRata(base, effective, expiration, cancelEff) {
+  const totalDays = Math.max(1, pcDays(effective, expiration));
+  const earnedDays = Math.min(totalDays, Math.max(0, pcDays(effective, cancelEff)));
+  const proRataEarned = pcRound(base * earnedDays / totalDays);
+  return { totalDays, earnedDays, proRataEarned, unearned: pcRound(base - proRataEarned) };
+}
+
+/**
  * Estimated refund on cancellation.
  * p: { base (refundable premium), effective, expiration, cancelEff, initiator: "insured"|"insurer", flat, mepPct }
  */
 function pcRefund(p) {
-  const total = Math.max(1, pcDays(p.effective, p.expiration));
   const flat = !!p.flat || p.cancelEff <= p.effective;
-  const earnedDays = flat ? 0 : Math.min(total, Math.max(0, pcDays(p.effective, p.cancelEff)));
-  const proRataEarned = pcRound(p.base * earnedDays / total);
-  const unearned = pcRound(p.base - proRataEarned);
+  const pr = pcProRata(p.base, p.effective, p.expiration, flat ? p.effective : p.cancelEff);
+  const total = pr.totalDays, earnedDays = pr.earnedDays, proRataEarned = pr.proRataEarned, unearned = pr.unearned;
   let penalty = 0, earned = proRataEarned, mepApplied = false;
   if (flat) { earned = 0; }
   else if (p.initiator === "insured") {
@@ -215,23 +223,19 @@ function pcValidateReinstatement(ctx, f) {
 // ----------------------------------------------------------------------------
 function pcSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function pcActiveSub() { return pcSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function pcNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function pcActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function pcEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function pcLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: 7, decision, by: pcActor(), at: pcNow(), notes });
+  sub.decisionLog.push({ step: 7, decision, by: pcActor(), at: nowStamp(), notes });
 }
 function pcPersist() {
   if (typeof persistAppState === "function") persistAppState();
   if (typeof refreshAuditLogIfVisible === "function") refreshAuditLogIfVisible();
 }
-function pcIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+function pcIsBound(sub) { return policyIsBound(sub); }
 
 function pcFacts(sub) {
   if (typeof bndFacts === "function") {
@@ -258,7 +262,7 @@ function pcLedger(sub) {
 function pcContext(sub, today) {
   const f = pcFacts(sub);
   return {
-    today: today || pcToday(), policyEffective: f.effective, expiration: f.expiration, annual: pcLedger(sub).currentAnnual,
+    today: today || todayIso(), policyEffective: f.effective, expiration: f.expiration, annual: pcLedger(sub).currentAnnual,
     canOverride: hasPermission("policyChanges", "override"),
     authorityReasons: newAnnual => {
       if (typeof authRoleCovers !== "function" || typeof authMeasures !== "function") return [];
@@ -303,7 +307,7 @@ function pcSendToPas(sub, ev, why) {
   let res;
   try { res = typeof EXTERNAL_SERVICES.pas === "function" ? EXTERNAL_SERVICES.pas(payload) : { ok: true, reference: "PAS-" + ev.transactionId, simulated: true }; }
   catch (e) { res = { ok: false, error: e.message }; }
-  const rec = res && res.ok ? { status: "sent", reference: res.reference || null, simulated: !!res.simulated, at: pcNow(), by: pcActor(), why: why || null } : { status: "failed", error: (res && res.error) || "The policy admin system refused the transaction.", at: pcNow(), by: pcActor(), why: why || null };
+  const rec = res && res.ok ? { status: "sent", reference: res.reference || null, simulated: !!res.simulated, at: nowStamp(), by: pcActor(), why: why || null } : { status: "failed", error: (res && res.error) || "The policy admin system refused the transaction.", at: nowStamp(), by: pcActor(), why: why || null };
   ev.pasSync = rec;
   if (!ev.pasHistory) ev.pasHistory = [];
   ev.pasHistory.push(rec);
@@ -327,7 +331,7 @@ function pcRoleLabel(role) { const r = typeof USER_ROLES_CONFIG !== "undefined" 
 function pcReferIfAuthorityOnly(sub, type, f, problems, ctx) {
   if (ctx.canOverride || !problems.length || !problems.every(p => /senior authority/.test(p))) return false;
   const list = pcReferrals(sub);
-  const ref = { id: `PCR-${sub.id}-${list.length + 1}`, type, form: Object.assign({}, f), reasons: problems.slice(), status: "pending", requiredRole: PC_REFERRAL_ROLE, raisedBy: pcActor(), raisedByRole: currentUserRole, raisedAt: pcNow() };
+  const ref = { id: `PCR-${sub.id}-${list.length + 1}`, type, form: Object.assign({}, f), reasons: problems.slice(), status: "pending", requiredRole: PC_REFERRAL_ROLE, raisedBy: pcActor(), raisedByRole: currentUserRole, raisedAt: nowStamp() };
   // the schedule change typed on the form (add, remove or change a vehicle, driver or location) travels with the request
   if (type === "endorsement" && typeof rvFormChange === "function" && typeof RV_TYPES !== "undefined") { const ch = rvFormChange(); if (ch && RV_TYPES[ch.type]) ref.riskChange = ch; }
   list.push(ref);
@@ -380,15 +384,15 @@ function pcNoticeRecipients(sub) {
 // ----------------------------------------------------------------------------
 // 3. DOCUMENTS
 // ----------------------------------------------------------------------------
-function pcRow(l, v) { return `<tr><td style="padding:3px 12px 3px 0;color:#475569;vertical-align:top;white-space:nowrap;">${pcEsc(l)}</td><td style="padding:3px 0;">${pcEsc(v)}</td></tr>`; }
+function pcRow(l, v) { return `<tr><td style="padding:3px 12px 3px 0;color:#475569;vertical-align:top;white-space:nowrap;">${escHtml(l)}</td><td style="padding:3px 0;">${escHtml(v)}</td></tr>`; }
 function pcDocHtml(title, rows, paras) {
-  return `<h2 style="margin:0 0 4px;font-size:17px;">${pcEsc(title)}</h2>
+  return `<h2 style="margin:0 0 4px;font-size:17px;">${escHtml(title)}</h2>
     <div style="color:#64748b;font-size:11.5px;margin-bottom:10px;">${PC_TEMPLATE_META.approved ? "" : `Template ${PC_TEMPLATE_META.version} — not approved by Compliance; do not send outside a test environment.`}</div>
     <table style="font-size:13px;margin-bottom:10px;">${rows.map(r => pcRow(r[0], r[1])).join("")}</table>
-    ${paras.map(t => `<p style="font-size:13px;white-space:pre-line;">${pcEsc(t)}</p>`).join("")}`;
+    ${paras.map(t => `<p style="font-size:13px;white-space:pre-line;">${escHtml(t)}</p>`).join("")}`;
 }
 function pcWrap(title, body, status) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${pcEsc(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}${status ? `<p style="color:#b91c1c;font-weight:700;">${pcEsc(status.toUpperCase())}</p>` : ""}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}${status ? `<p style="color:#b91c1c;font-weight:700;">${escHtml(status.toUpperCase())}</p>` : ""}</body></html>`;
 }
 
 // ----------------------------------------------------------------------------
@@ -423,10 +427,10 @@ function pcIssueEndorsement() {
   const type = PC_ENDORSEMENT_TYPES.find(t => t.key === f.type);
   const before = L.currentAnnual;
   L.currentAnnual = pcRound(L.currentAnnual + annualChange);
-  L.adjustments.push({ endorsement: sub.endorsement_number, annualChange, proRata, at: pcNow() });
+  L.adjustments.push({ endorsement: sub.endorsement_number, annualChange, proRata, at: nowStamp() });
 
   const ev = { id: `END-${sub.id}-${sub.endorsement_number}`, type: "endorsement", status: "issued", number: sub.endorsement_number, endorsementType: type.label, effective: f.effective,
-    description: f.description, annualChange, proRata, premiumReason: f.premiumReason, formNumber: f.formNumber || null, backdated: f.effective < ctx.today, by: pcActor(), at: pcNow() };
+    description: f.description, annualChange, proRata, premiumReason: f.premiumReason, formNumber: f.formNumber || null, backdated: f.effective < ctx.today, by: pcActor(), at: nowStamp() };
   ev.html = pcDocHtml(`POLICY ENDORSEMENT NO. ${ev.number}`, [
     ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Endorsement effective", `${f.effective} (12:01 AM)`], ["Type of change", type.label],
     ...(f.formNumber ? [["Endorsement form", f.formNumber]] : []),
@@ -483,7 +487,7 @@ function pcDecideReferral(id, approve) {
       else showToast("⚠ The endorsement was issued but the schedule change could not be applied: " + (res.errors || [res.error]).join("; ") + ". Apply it by hand.", "warning");
     }
   }
-  ref.status = approve ? "approved" : "declined"; ref.decidedBy = pcActor(); ref.decidedAt = pcNow(); ref.decisionNote = note || null;
+  ref.status = approve ? "approved" : "declined"; ref.decidedBy = pcActor(); ref.decidedAt = nowStamp(); ref.decisionNote = note || null;
   pcLog(sub, approve ? "policy_referral_approved" : "policy_referral_declined", `${ref.type === "endorsement" ? "Endorsement" : "Reinstatement"} request ${ref.id} ${approve ? "approved" : "declined"}${approve ? ", issued as " + ref.eventId : ""}.${ref.riskApplied ? " Schedule change applied: " + ref.riskApplied + "." : ""}${note ? " " + note : ""}`);
   pcPersist();
   renderPolicyChangesCard(sub);
@@ -531,9 +535,9 @@ function pcSubmitCancellation() {
     stateRule && stateRule.text ? stateRule.text : ""
   ].filter(Boolean);
   const ev = { id, type: "cancellation", status: f.effective <= ctx.today ? "effective" : "pending", initiator: f.initiator, reason: f.reason, reasonLabel: reasonObj.label, effective: f.effective, mailedOn: f.mailedOn || null, proofRef: f.proofRef || null,
-    noticeDays: insurer ? pcNoticeDays(f.reason, ctx.state) : 0, notes: f.notes, refund, copiesTo: copies, flat, by: pcActor(), at: pcNow() };
+    noticeDays: insurer ? pcNoticeDays(f.reason, ctx.state) : 0, notes: f.notes, refund, copiesTo: copies, flat, by: pcActor(), at: nowStamp() };
   ev.html = pcDocHtml(insurer ? "NOTICE OF CANCELLATION" : "CONFIRMATION OF CANCELLATION", [
-    ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Notice date", insurer ? f.mailedOn : pcToday()], ["Cancellation effective", `${f.effective} (12:01 AM)`], ...(insurer ? [["Proof of mailing", f.proofRef]] : [])
+    ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Notice date", insurer ? f.mailedOn : todayIso()], ["Cancellation effective", `${f.effective} (12:01 AM)`], ...(insurer ? [["Proof of mailing", f.proofRef]] : [])
   ], paras);
   pcChanges(sub).push(ev);
   const txn = pcRecordTransaction(sub, ev);
@@ -549,15 +553,15 @@ function pcSubmitCancellation() {
 
 /** Takes effect any cancellation whose date has come. Returns true if one did. */
 function pcApplyDue(sub, today) {
-  const t = today || pcToday();
+  const t = today || todayIso();
   if (pcState(sub) !== "pending_cancellation" || !sub.cancellation || sub.cancellation.effective > t) return false;
   sub.policyState = "cancelled";
   sub.cancellation.status = "effective";
   const ev = pcChanges(sub).find(c => c.id === sub.cancellation.eventId);
   if (ev) ev.status = "effective";
   let revoked = 0, voided = 0;
-  (sub.certificates || []).forEach(c => { if (c.status === "issued") { c.status = "revoked"; c.revokedBy = pcActor(); c.revokedAt = pcNow(); c.revokeReason = `Policy cancelled effective ${sub.cancellation.effective}`; revoked++; } });
-  (sub.binders || []).forEach(b => { if (b.status === "active") { b.status = "void"; b.voidedBy = pcActor(); b.voidedAt = pcNow(); b.voidReason = `Policy cancelled effective ${sub.cancellation.effective}`; voided++; } });
+  (sub.certificates || []).forEach(c => { if (c.status === "issued") { c.status = "revoked"; c.revokedBy = pcActor(); c.revokedAt = nowStamp(); c.revokeReason = `Policy cancelled effective ${sub.cancellation.effective}`; revoked++; } });
+  (sub.binders || []).forEach(b => { if (b.status === "active") { b.status = "void"; b.voidedBy = pcActor(); b.voidedAt = nowStamp(); b.voidReason = `Policy cancelled effective ${sub.cancellation.effective}`; voided++; } });
   sub.statusText = "Policy Cancelled"; sub.statusBadge = "badge-danger";
   if (ev) pcSendToPas(sub, ev, "took effect");
   pcLog(sub, "policy_cancelled", `Policy cancellation took effect ${sub.cancellation.effective}.${revoked ? ` ${revoked} certificate(s) revoked; notify the holders.` : ""}${voided ? ` ${voided} binder(s) voided.` : ""}`);
@@ -572,7 +576,7 @@ function pcRescind() {
   const reason = pcV("pc_rescindWhy");
   if (reason.length < 10) { showToast("Give the reason for rescinding (at least 10 characters).", "danger"); return; }
   const ev = pcChanges(sub).find(c => c.id === sub.cancellation.eventId);
-  if (ev) { ev.status = "rescinded"; ev.rescindedBy = pcActor(); ev.rescindedAt = pcNow(); ev.rescindReason = reason; }
+  if (ev) { ev.status = "rescinded"; ev.rescindedBy = pcActor(); ev.rescindedAt = nowStamp(); ev.rescindReason = reason; }
   sub.cancellation.status = "rescinded";
   sub.policyState = "in_force";
   pcLog(sub, "cancellation_rescinded", `Cancellation ${sub.cancellation.eventId} rescinded before it took effect: ${reason}. Notify the insured and the other recipients of the notice.`);
@@ -597,7 +601,7 @@ function pcReinstate() {
   const facts = pcFacts(sub);
   const lapseDays = f.type === "with_lapse" ? Math.max(0, pcDays(sub.cancellation.effective, f.effective)) : 0;
   const ev = { id: `RIN-${sub.id}-${pcChanges(sub).filter(c => c.type === "reinstatement").length + 1}`, type: "reinstatement", status: "issued", reinstateType: f.type, effective: f.effective, lapseDays, reason: f.reason, payment: f.payment || null, noKnownLoss: f.noKnownLoss,
-    cancellationId: sub.cancellation.eventId, cancellationTransactionId: sub.cancellation.transactionId || null, by: pcActor(), at: pcNow() };
+    cancellationId: sub.cancellation.eventId, cancellationTransactionId: sub.cancellation.transactionId || null, by: pcActor(), at: nowStamp() };
   if (ref) ev.referralId = ref.id;
   ev.html = pcDocHtml("NOTICE OF REINSTATEMENT", [
     ["Policy number", facts.policyNumber], ["Named insured", sub.insured || ""], ["Reinstates cancellation", sub.cancellation.eventId], ["Reinstated effective", `${f.effective} (12:01 AM)`], ["Basis", f.type === "without_lapse" ? "Without lapse (continuous coverage)" : `With lapse of ${lapseDays} day(s): there is no coverage from ${sub.cancellation.effective} until ${f.effective}`]
@@ -653,10 +657,10 @@ function pcReferralHtml(sub, canOverride) {
     let act = "";
     if (r.status === "pending") {
       act = canOverride && r.raisedByRole !== currentUserRole
-        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"><input id="pc_refNote_${pcEsc(r.id)}" class="form-control" style="width:280px;" placeholder="Note (needed to decline, 10+ characters)"><button class="btn btn-xs btn-primary" style="width:auto;" onclick="pcDecideReferral('${pcEsc(r.id)}', true)">Approve and issue</button><button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDecideReferral('${pcEsc(r.id)}', false)">Decline</button></div>`
-        : `<div class="text-xs text-muted" style="margin-top:4px;">Waiting for ${pcEsc(pcRoleLabel(r.requiredRole))}.</div>`;
-    } else act = `<div class="text-xs text-muted" style="margin-top:4px;">${pcEsc(r.status)} by ${pcEsc(r.decidedBy)} on ${pcEsc(r.decidedAt)}${r.eventId ? "; issued as " + pcEsc(r.eventId) : ""}${r.decisionNote ? ". " + pcEsc(r.decisionNote) : ""}</div>`;
-    return `<tr><td>${pcEsc(r.id)}</td><td>${pcEsc(what)}<div class="text-xs text-muted">${pcEsc(r.reasons.join("; "))}. Raised by ${pcEsc(r.raisedBy)} on ${pcEsc(r.raisedAt)}.</div>${act}</td><td><span class="badge ${badge} text-xs">${pcEsc(r.status)}</span></td></tr>`;
+        ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;"><input id="pc_refNote_${escHtml(r.id)}" class="form-control" style="width:280px;" placeholder="Note (needed to decline, 10+ characters)"><button class="btn btn-xs btn-primary" style="width:auto;" onclick="pcDecideReferral('${escHtml(r.id)}', true)">Approve and issue</button><button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDecideReferral('${escHtml(r.id)}', false)">Decline</button></div>`
+        : `<div class="text-xs text-muted" style="margin-top:4px;">Waiting for ${escHtml(pcRoleLabel(r.requiredRole))}.</div>`;
+    } else act = `<div class="text-xs text-muted" style="margin-top:4px;">${escHtml(r.status)} by ${escHtml(r.decidedBy)} on ${escHtml(r.decidedAt)}${r.eventId ? "; issued as " + escHtml(r.eventId) : ""}${r.decisionNote ? ". " + escHtml(r.decisionNote) : ""}</div>`;
+    return `<tr><td>${escHtml(r.id)}</td><td>${escHtml(what)}<div class="text-xs text-muted">${escHtml(r.reasons.join("; "))}. Raised by ${escHtml(r.raisedBy)} on ${escHtml(r.raisedAt)}.</div>${act}</td><td><span class="badge ${badge} text-xs">${escHtml(r.status)}</span></td></tr>`;
   }).join("");
   return `<h4 style="margin:6px 0;">Referrals</h4><div class="rules-table-container" style="max-height:none;overflow:visible;margin-bottom:10px;"><table class="data-table"><thead><tr><th>Ref</th><th>Request</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
@@ -673,18 +677,18 @@ function renderPolicyChangesCard(sub) {
   const st = pcState(sub), ui = PC_STATE_UI[st];
   const canApprove = hasPermission("policyChanges", "approve"), canOverride = hasPermission("policyChanges", "override");
   const facts = pcFacts(sub), L = pcLedger(sub);
-  const today = pcToday();
+  const today = todayIso();
 
   const events = pcChanges(sub).slice().reverse().map(e => {
     const badge = ["issued", "effective"].includes(e.status) ? "badge-success" : (e.status === "pending" ? "badge-warning" : "badge-light");
     const label = e.type === "endorsement" ? `Endorsement ${e.number}: ${e.endorsementType}` : (e.type === "cancellation" ? `Cancellation (${e.initiator === "insurer" ? "insurer" : "insured"}): ${e.reasonLabel}` : `Reinstatement ${e.reinstateType === "without_lapse" ? "without lapse" : "with lapse"}`);
     const base = e.type === "endorsement" ? `${pcMoney(e.annualChange)} annual; ${pcMoney(e.proRata)} this term` : (e.type === "cancellation" ? `Refund ≈ ${pcMoney(e.refund.refund)}` : (e.lapseDays ? `${e.lapseDays} day lapse` : ""));
     const detail = [base, e.transactionId, e.versionNo ? "policy version " + e.versionNo : "", e.cancellationId ? "reverses " + e.cancellationId : "", e.referralId ? "referral " + e.referralId : "", e.riskChange || "", e.pasSync ? (e.pasSync.status === "sent" ? "PAS " + e.pasSync.reference + (e.pasSync.simulated ? " (simulated)" : "") : "PAS refused: " + e.pasSync.error) : ""].filter(Boolean).join(" · ");
-    return `<tr><td>${pcEsc(e.id)}</td><td>${pcEsc(label)}<div class="text-xs text-muted">${pcEsc(detail)}</div></td><td>${pcEsc(e.effective)}</td><td><span class="badge ${badge} text-xs">${pcEsc(e.status)}</span></td>
-      <td style="white-space:nowrap;">${e.pasSync && e.pasSync.status === "failed" && canApprove ? `<button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="pcRetryPas('${pcEsc(e.id)}')">Retry PAS</button> ` : ""}<button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcPrint('${pcEsc(e.id)}')"><i class="ph ph-printer"></i></button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDownload('${pcEsc(e.id)}')"><i class="ph ph-download-simple"></i></button></td></tr>`;
+    return `<tr><td>${escHtml(e.id)}</td><td>${escHtml(label)}<div class="text-xs text-muted">${escHtml(detail)}</div></td><td>${escHtml(e.effective)}</td><td><span class="badge ${badge} text-xs">${escHtml(e.status)}</span></td>
+      <td style="white-space:nowrap;">${e.pasSync && e.pasSync.status === "failed" && canApprove ? `<button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="pcRetryPas('${escHtml(e.id)}')">Retry PAS</button> ` : ""}<button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcPrint('${escHtml(e.id)}')"><i class="ph ph-printer"></i></button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="pcDownload('${escHtml(e.id)}')"><i class="ph ph-download-simple"></i></button></td></tr>`;
   }).join("");
 
-  const typeOpts = PC_ENDORSEMENT_TYPES.map(t => `<option value="${t.key}">${pcEsc(t.label)}</option>`).join("");
+  const typeOpts = PC_ENDORSEMENT_TYPES.map(t => `<option value="${t.key}">${escHtml(t.label)}</option>`).join("");
   const endForm = (st !== "cancelled" && canApprove) ? `
     <h4 style="margin:16px 0 6px;">Issue an endorsement</h4>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
@@ -698,12 +702,12 @@ function renderPolicyChangesCard(sub) {
       <input id="pc_endPremWhy" class="form-control" style="flex:1;min-width:200px;" placeholder="How the premium change was calculated">
       <button class="btn btn-sm btn-outline" style="width:auto;" onclick="pcRateChange()" title="Indicated from the average premium per scheduled unit"><i class="ph ph-calculator"></i> Rate the change</button>
     </div>
-    <p class="text-xs text-muted" style="margin:4px 0 0;">${canOverride ? "" : `A backdated change, or a premium change above ${PC_LARGE_CHANGE_PCT}% of the annual premium, is referred to ${pcEsc(pcRoleLabel(PC_REFERRAL_ROLE))} instead of being issued.`}</p>
+    <p class="text-xs text-muted" style="margin:4px 0 0;">${canOverride ? "" : `A backdated change, or a premium change above ${PC_LARGE_CHANGE_PCT}% of the annual premium, is referred to ${escHtml(pcRoleLabel(PC_REFERRAL_ROLE))} instead of being issued.`}</p>
     <label style="display:block;font-size:12.5px;margin-top:6px;"><input type="checkbox" id="pc_endNoLoss"> Backdated change: the insured's signed no-known-loss statement is on file</label>
     <button class="btn btn-sm btn-primary" style="width:auto;margin-top:8px;" onclick="pcIssueEndorsement()"><i class="ph ph-pencil-simple"></i> Issue endorsement</button>` : "";
 
-  const insurerOpts = PC_REASONS_INSURER.map(r => `<option value="${r.code}">${pcEsc(r.label)}</option>`).join("");
-  const insuredOpts = PC_REASONS_INSURED.map(r => `<option value="${r.code}">${pcEsc(r.label)}</option>`).join("");
+  const insurerOpts = PC_REASONS_INSURER.map(r => `<option value="${r.code}">${escHtml(r.label)}</option>`).join("");
+  const insuredOpts = PC_REASONS_INSURED.map(r => `<option value="${r.code}">${escHtml(r.label)}</option>`).join("");
   const cxForm = (st === "in_force" && canApprove) ? `
     <h4 style="margin:16px 0 6px;">Cancel the policy</h4>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
@@ -721,11 +725,11 @@ function renderPolicyChangesCard(sub) {
     <p class="text-xs text-muted" style="margin-top:6px;">Notice periods default to ${PC_NOTICE_DEFAULTS.nonpayment} days (nonpayment) and ${PC_NOTICE_DEFAULTS.other} days (other reasons). These are placeholders: state law governs and must be configured${canOverride ? "" : ". Cancelling flat or backdating needs senior authority"}.</p>` : "";
 
   const pendingBlock = st === "pending_cancellation" ? `
-    <div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> Cancellation takes effect <strong>${pcEsc(sub.cancellation.effective)}</strong>. Estimated refund ${pcMoney(pcChanges(sub).find(c => c.id === sub.cancellation.eventId).refund.refund)}.</div>
+    <div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> Cancellation takes effect <strong>${escHtml(sub.cancellation.effective)}</strong>. Estimated refund ${pcMoney(pcChanges(sub).find(c => c.id === sub.cancellation.eventId).refund.refund)}.</div>
     ${canApprove ? `<div style="display:flex;gap:8px;align-items:center;"><input id="pc_rescindWhy" class="form-control" style="width:340px;" placeholder="Reason to rescind (10+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="pcRescind()">Rescind cancellation</button></div>` : ""}` : "";
 
   const cancelledBlock = st === "cancelled" ? `
-    <div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> The policy was cancelled effective <strong>${pcEsc(sub.cancellation.effective)}</strong>. There is no coverage after that date unless the policy is reinstated. Certificates were revoked.</div>
+    <div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> The policy was cancelled effective <strong>${escHtml(sub.cancellation.effective)}</strong>. There is no coverage after that date unless the policy is reinstated. Certificates were revoked.</div>
     ${canApprove ? `<h4 style="margin:10px 0 6px;">Reinstate</h4>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
       <select id="pc_riType" class="form-control" style="width:300px;"><option value="with_lapse">With a lapse (no cover for the gap)</option>${canOverride ? '<option value="without_lapse">Without lapse (continuous cover)</option>' : ""}</select>
@@ -741,7 +745,7 @@ function renderPolicyChangesCard(sub) {
       <div class="card-header"><h3><i class="ph ph-arrows-left-right"></i> Policy Changes: Endorsement, Cancellation, Reinstatement</h3><span class="badge ${ui.badge}">${ui.label}</span></div>
       <div class="card-body">
         <div class="clean-meta-list" style="margin-bottom:10px;">
-          <div class="clean-meta-row"><span class="meta-label">Policy</span><span class="meta-value">${pcEsc(facts.policyNumber)} · ${pcEsc(facts.effective || "?")} to ${pcEsc(facts.expiration || "?")}</span></div>
+          <div class="clean-meta-row"><span class="meta-label">Policy</span><span class="meta-value">${escHtml(facts.policyNumber)} · ${escHtml(facts.effective || "?")} to ${escHtml(facts.expiration || "?")}</span></div>
           <div class="clean-meta-row"><span class="meta-label">Policy version</span><span class="meta-value">${(sub.policyVersions || []).length || 1}${(sub.policyTransactions || []).length ? ` · ${(sub.policyTransactions || []).length} transaction${(sub.policyTransactions || []).length === 1 ? "" : "s"}` : ""}</span></div>
           <div class="clean-meta-row"><span class="meta-label">Annual premium</span><span class="meta-value">${pcMoney(L.currentAnnual)}${L.currentAnnual !== L.baseAnnual ? ` <span class="text-muted">(was ${pcMoney(L.baseAnnual)})</span>` : ""}</span></div>
         </div>

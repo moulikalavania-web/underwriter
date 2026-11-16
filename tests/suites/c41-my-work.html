@@ -9,7 +9,7 @@
   function el(id){ return document.getElementById(id); }
   window.showToast = function(m){ toasts.push(String(m)); };
   function ids(rows){ return rows.map(function(r){ return r.sub.id; }).sort().join(','); }
-  function day(n){ return mwAddDays(mwToday(), n); }
+  function day(n){ return mwAddDays(todayIso(), n); }
   function mk(id, o){ var s = { id: id, insured: 'Insured ' + id, broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], subjectivities: [], receivedTimestamp: Date.now() }; for (var k in (o||{})) s[k] = o[k]; return s; }
   try {
     document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();

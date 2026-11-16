@@ -21,12 +21,11 @@
  * ============================================================================
  */
 
-const NOTIF_STORE_KEY = "FUT_NOTIFICATIONS_V1", NOTIF_MAX = 200, NOTIF_SLA_HOURS = { P1: 4, P2: 24, P3: 48, P4: 72 }, NOTIF_REFERRAL_HOURS = 24;
+const NOTIF_STORE_KEY = "FUT_NOTIFICATIONS_V1", NOTIF_MAX = 200, NOTIF_REFERRAL_HOURS = 24;   // the SLA hours by priority are PERF_SLA_HOURS (performance-reporting.js): one table
 var NOTIFICATIONS = [];
 try { const raw = localStorage.getItem(NOTIF_STORE_KEY); if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) NOTIFICATIONS = parsed; } } catch (e) { NOTIFICATIONS = []; }
 
 function notifSave() { try { localStorage.setItem(NOTIF_STORE_KEY, JSON.stringify(NOTIFICATIONS.slice(-NOTIF_MAX))); } catch (e) { /* storage unavailable: keep them for this session */ } }
-function notifEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s === null || s === undefined ? "" : s); }
 
 /** Adds a notice for a role. A notice with the same key for the same role is not added twice. */
 function notify(toRole, n) {
@@ -59,7 +58,7 @@ function notifOpenCase(sub) {
 /** { due, hours, left, state } for a case's SLA: ok, risk (last quarter, or last hour for a P1) or overdue. Null when there is no clock to read. */
 function notifSla(sub, now) {
   now = now || Date.now();
-  const hours = NOTIF_SLA_HOURS[sub.priority], start = Number(sub.receivedTimestamp);
+  const hours = PERF_SLA_HOURS[sub.priority], start = Number(sub.receivedTimestamp);
   if (!hours || !start) return null;
   const due = start + hours * 3600000, left = due - now;
   const riskAt = Math.max(hours * 3600000 * 0.25, sub.priority === "P1" ? 3600000 : 0);
@@ -125,7 +124,7 @@ function notifRenderPanel() {
   }
   const list = notificationsFor(currentUserRole).slice(0, 40);
   panel.innerHTML = `<div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid #e2e8f0;"><strong>Notifications</strong><span><button class="btn btn-outline btn-sm" onclick="notifMarkAllRead()">Mark all read</button> <button class="btn btn-outline btn-sm" onclick="toggleNotificationPanel(false)">Close</button></span></div>` +
-    (list.length ? list.map(n => `<div onclick="notifOpen('${n.id}')" style="cursor:pointer; padding:10px 12px; border-bottom:1px solid #f1f5f9; ${n.read ? "" : "background:#fff7ed;"}"><div style="display:flex; gap:8px;"><i class="ph ${NOTIF_ICON[n.kind] || "ph-info"}" style="margin-top:2px;"></i><div style="flex:1;"><div style="font-weight:${n.read ? 500 : 700}; font-size:12.5px;">${notifEsc(n.title)}</div><div style="font-size:11.5px; color:#475569;">${notifEsc(n.text)}</div><div style="font-size:10.5px; color:#94a3b8; margin-top:2px;">${notifAgo(n.at)}${n.caseId ? " · " + notifEsc(n.caseId) : ""}</div></div></div></div>`).join("")
+    (list.length ? list.map(n => `<div onclick="notifOpen('${n.id}')" style="cursor:pointer; padding:10px 12px; border-bottom:1px solid #f1f5f9; ${n.read ? "" : "background:#fff7ed;"}"><div style="display:flex; gap:8px;"><i class="ph ${NOTIF_ICON[n.kind] || "ph-info"}" style="margin-top:2px;"></i><div style="flex:1;"><div style="font-weight:${n.read ? 500 : 700}; font-size:12.5px;">${escHtml(n.title)}</div><div style="font-size:11.5px; color:#475569;">${escHtml(n.text)}</div><div style="font-size:10.5px; color:#94a3b8; margin-top:2px;">${notifAgo(n.at)}${n.caseId ? " · " + escHtml(n.caseId) : ""}</div></div></div></div>`).join("")
       : `<div style="padding:18px 12px; font-size:12px; color:#64748b;">Nothing for you yet. Referrals to you, decisions on referrals you sent, assignments and SLA reminders appear here.</div>`);
 }
 

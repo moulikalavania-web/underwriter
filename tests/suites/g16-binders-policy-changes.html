@@ -264,7 +264,7 @@
     // ---------- rendering for the read-only role and XSS
     currentUserRole = 'admin'; renderPolicyChangesCard(s3);
     t('admin sees the ledger but no forms', /Policy Changes/.test(el('policyChangesContainer').innerHTML) && !/Reinstate policy/.test(el('policyChangesContainer').innerHTML));
-    t('XSS-safe', pcEsc('<x onclick=1>') === '&lt;x onclick=1&gt;');
+    t('XSS-safe', escHtml('<x onclick=1>') === '&lt;x onclick=1&gt;');
 
     // ---------- policy transactions, policy versions, referrals, rating indication
     var s4 = mkSub(); SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s4); activeSubmissionId = s4.id;

@@ -32,14 +32,11 @@ const RV_COVERAGE_BASES = { blanket: "Blanket on the schedule", scheduled: "Sche
 // ----------------------------------------------------------------------------
 // 1. HELPERS
 // ----------------------------------------------------------------------------
-function rvEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-function rvNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function rvToday() { return new Date().toISOString().slice(0, 10); }
 function rvActor() { return typeof authActor === "function" ? authActor() : String(currentUserRole); }
 function rvSave() { if (typeof persistAppState === "function") persistAppState(); }
 function rvClone(o) { return JSON.parse(JSON.stringify(o === undefined ? null : o)); }
-function rvLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 5, decision: decision, by: rvActor(), at: rvNow(), notes: notes }); }
-function rvIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+function rvLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 5, decision: decision, by: rvActor(), at: nowStamp(), notes: notes }); }
+function rvIsBound(sub) { return policyIsBound(sub); }
 function rvActiveSub() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
 function rvStable(v) {
   if (Array.isArray(v)) return "[" + v.map(rvStable).join(",") + "]";
@@ -173,7 +170,7 @@ function rvCapture(sub, contextType, contextRef, opts) {
   }
   const prev = opts.copiedFrom !== undefined ? opts.copiedFrom : (opts.from ? opts.from.id : (rvLatest(sub) || {}).id || null);
   const n = sub.riskVersions.length + 1;
-  const rec = { id: "RV-" + n, versionNo: n, contextType: contextType, contextRef: contextRef || null, copiedFromId: prev, createdAt: rvNow(), createdBy: rvActor(), effectiveFrom: opts.effectiveFrom || null, effectiveTo: null, isFrozen: true, frozenAt: rvNow(), snapshotHash: hash, content: content };
+  const rec = { id: "RV-" + n, versionNo: n, contextType: contextType, contextRef: contextRef || null, copiedFromId: prev, createdAt: nowStamp(), createdBy: rvActor(), effectiveFrom: opts.effectiveFrom || null, effectiveTo: null, isFrozen: true, frozenAt: nowStamp(), snapshotHash: hash, content: content };
   rvDeepFreeze(rec.content);
   sub.riskVersions.push(rec);
   rvSave();
@@ -217,7 +214,7 @@ function rvDiffText(d) {
 // ----------------------------------------------------------------------------
 /** The risk of the policy in force on a date (today if none): the policy version whose period holds it. */
 function rvPolicyRisk(sub, date) {
-  const d = date || rvToday();
+  const d = date || todayIso();
   const pol = rvList(sub).filter(r => r.contextType === "policy");
   return pol.filter(r => (!r.effectiveFrom || r.effectiveFrom <= d) && (!r.effectiveTo || d < r.effectiveTo)).slice(-1)[0] || null;
 }
@@ -325,7 +322,7 @@ function rvEndorse(sub, ch) {
     else if (ch.action === "add" && (ch.coverages || []).indexOf(l.coverageKey) > -1) l.itemKeys = l.itemKeys.concat([key]);
   });
   content.coverageLinks.forEach(l => { if (l.basis === "scheduled") sub.coverageRisk = Object.assign(sub.coverageRisk || {}, { [l.coverageKey]: { basis: "scheduled", schedule: l.schedule, items: l.itemKeys.slice() } }); });
-  const eff = ch.effective || rvToday();
+  const eff = ch.effective || todayIso();
   cur.effectiveTo = eff;
   const rec = rvCapture(sub, "policy", ch.ref || null, { content: content, copiedFrom: cur.id, effectiveFrom: eff });
   rvLog(sub, "risk_endorsed", label + ", effective " + eff + (ch.ref ? " (" + ch.ref + ")" : "") + ". New policy risk version " + rec.id + " from " + cur.id + ".");
@@ -379,7 +376,7 @@ window.recordQuoteVersion = function (sub, isBound) {
       else {
         const qrv = rvGet(s, s.quoteRiskVersionId) || rvLatest(s, "quote") || rvCapture(s, "quote", q.versionId);
         q.riskVersionId = qrv.id;
-        if (!rvLatest(s, "policy")) { const pol = rvCapture(s, "policy", s.pasSync ? s.pasSync.policyNumber : q.versionId, { from: qrv, effectiveFrom: (s.pasSync && s.pasSync.effectiveDate) || rvToday() }); q.policyRiskVersionId = pol.id; rvLog(s, "risk_policy_frozen", "The policy's risk was frozen as " + pol.id + ", a copy of the quoted risk " + qrv.id + "."); }
+        if (!rvLatest(s, "policy")) { const pol = rvCapture(s, "policy", s.pasSync ? s.pasSync.policyNumber : q.versionId, { from: qrv, effectiveFrom: (s.pasSync && s.pasSync.effectiveDate) || todayIso() }); q.policyRiskVersionId = pol.id; rvLog(s, "risk_policy_frozen", "The policy's risk was frozen as " + pol.id + ", a copy of the quoted risk " + qrv.id + "."); }
       }
       rvRender(s);
     }
@@ -431,7 +428,7 @@ if (typeof _rvOrigEndorse === "function") {
     let ch = sub ? rvFormChange() : null;
     if (ch && !RV_TYPES[ch.type]) ch = null;
     if (sub && ch) {
-      ch.effective = (document.getElementById("pc_endEff") || {}).value || rvToday();
+      ch.effective = (document.getElementById("pc_endEff") || {}).value || todayIso();
       const errs = rvValidateChange(sub, ch);
       if (errs.length) { showToast("⛔ " + errs.join("; ") + ".", "danger"); return; }
     }
@@ -459,8 +456,8 @@ if (typeof _rvOrigPcCard === "function") {
       const anchor = document.getElementById("pc_endDesc");
       if (anchor && sub && rvLatest(sub, "policy") && !document.getElementById("rv_action")) {
         const cur = rvLatest(sub, "policy").content;
-        const items = cur.objects.filter(o => o.status === "active").map(o => `<option value="${o.lineageKey}" data-type="${o.type}">${rvEsc(RV_TYPES[o.type].label + " " + o.itemNo + " (" + o.lineageKey + "): " + rvObjectLabel(o))}</option>`).join("");
-        const covs = cur.coverageLinks.filter(l => l.basis === "scheduled").map(l => `<label class="text-xs" style="margin-right:10px;"><input type="checkbox" class="rv-cov-cb" value="${l.coverageKey}"> ${rvEsc(l.line)}</label>`).join("");
+        const items = cur.objects.filter(o => o.status === "active").map(o => `<option value="${o.lineageKey}" data-type="${o.type}">${escHtml(RV_TYPES[o.type].label + " " + o.itemNo + " (" + o.lineageKey + "): " + rvObjectLabel(o))}</option>`).join("");
+        const covs = cur.coverageLinks.filter(l => l.basis === "scheduled").map(l => `<label class="text-xs" style="margin-right:10px;"><input type="checkbox" class="rv-cov-cb" value="${l.coverageKey}"> ${escHtml(l.line)}</label>`).join("");
         const d = document.createElement("div"); d.id = "rv_block"; d.style.cssText = "margin-top:8px;padding:8px;border:1px dashed var(--border-color,#cbd5e1);border-radius:6px;";
         d.innerHTML = `<div class="text-xs text-muted" style="margin-bottom:4px;">If this endorsement changes the schedule, say what changes. It makes a new policy risk version; the earlier one stays as it was.</div>
           <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
@@ -503,20 +500,20 @@ function rvRender(sub) {
   rvEnsureLineage(sub);
   const bound = rvIsBound(sub), drift = rvDrift(sub), vers = rvList(sub);
   const ref = drift.reference;
-  const badge = !ref ? '<span class="badge badge-light">Working copy only</span>' : drift.count ? `<span class="badge badge-warning">${drift.count} change(s) not in ${rvEsc(ref.id)}</span>` : `<span class="badge badge-success">Matches ${rvEsc(ref.id)}</span>`;
-  const verRows = vers.slice().reverse().map(rv => `<tr><td><strong>${rvEsc(rv.id)}</strong></td><td>${rvEsc(rvCtxLabel(rv))}</td><td>${rvEsc(rv.copiedFromId || "-")}</td><td>${rv.content.objects.filter(o => o.status === "active").length}${rv.content.objects.some(o => o.status === "excluded") ? " (+" + rv.content.objects.filter(o => o.status === "excluded").length + " removed)" : ""}</td><td>${rvEsc(rv.effectiveFrom || "-")}${rv.effectiveTo ? " to " + rvEsc(rv.effectiveTo) : rv.contextType === "policy" ? " to open" : ""}</td><td class="font-mono ws-small">${rvEsc(rv.snapshotHash.split(":")[0])}</td><td>${rvVerify(rv) ? '<span class="badge badge-success">Frozen, intact</span>' : '<span class="badge badge-danger">Altered</span>'}</td><td class="ws-small">${rvEsc(rv.createdBy)}<div class="text-xs text-muted">${rvEsc(rv.createdAt)}</div></td></tr>`).join("");
+  const badge = !ref ? '<span class="badge badge-light">Working copy only</span>' : drift.count ? `<span class="badge badge-warning">${drift.count} change(s) not in ${escHtml(ref.id)}</span>` : `<span class="badge badge-success">Matches ${escHtml(ref.id)}</span>`;
+  const verRows = vers.slice().reverse().map(rv => `<tr><td><strong>${escHtml(rv.id)}</strong></td><td>${escHtml(rvCtxLabel(rv))}</td><td>${escHtml(rv.copiedFromId || "-")}</td><td>${rv.content.objects.filter(o => o.status === "active").length}${rv.content.objects.some(o => o.status === "excluded") ? " (+" + rv.content.objects.filter(o => o.status === "excluded").length + " removed)" : ""}</td><td>${escHtml(rv.effectiveFrom || "-")}${rv.effectiveTo ? " to " + escHtml(rv.effectiveTo) : rv.contextType === "policy" ? " to open" : ""}</td><td class="font-mono ws-small">${escHtml(rv.snapshotHash.split(":")[0])}</td><td>${rvVerify(rv) ? '<span class="badge badge-success">Frozen, intact</span>' : '<span class="badge badge-danger">Altered</span>'}</td><td class="ws-small">${escHtml(rv.createdBy)}<div class="text-xs text-muted">${escHtml(rv.createdAt)}</div></td></tr>`).join("");
   const cur = ref ? ref.content : rvContentOf(sub), live = rvContentOf(sub);
   const objRows = live.objects.map(o => {
     const covers = live.coverageLinks.filter(l => rvCovered(live, l.coverageKey, o.lineageKey)).map(l => l.line);
-    return `<tr><td><strong>${rvEsc(o.lineageKey)}</strong></td><td>${rvEsc(RV_TYPES[o.type].label)} ${o.itemNo}</td><td>${rvEsc(rvObjectLabel(o))}</td><td class="ws-small">${covers.length ? rvEsc(covers.join(", ")) : '<span class="text-muted">No coverage</span>'}</td></tr>`;
+    return `<tr><td><strong>${escHtml(o.lineageKey)}</strong></td><td>${escHtml(RV_TYPES[o.type].label)} ${o.itemNo}</td><td>${escHtml(rvObjectLabel(o))}</td><td class="ws-small">${covers.length ? escHtml(covers.join(", ")) : '<span class="text-muted">No coverage</span>'}</td></tr>`;
   }).join("");
   const canEdit = hasPermission("submissionData", "edit") && !bound;
   const linkRows = live.coverageLinks.map(l => {
     const keys = l.basis === "scheduled" ? l.itemKeys.join(", ") : l.basis === "blanket" ? "all " + (l.schedule || "") + "s on the schedule" : "the policy";
-    const edit = canEdit ? `<select id="rv_basis_${l.coverageKey}" class="form-control form-control-sm" style="width:auto;display:inline-block;" onchange="rvUiLinkBasis('${sub.id}','${l.coverageKey}')">${Object.keys(RV_COVERAGE_BASES).map(b => `<option value="${b}" ${l.basis === b ? "selected" : ""}>${rvEsc(RV_COVERAGE_BASES[b])}</option>`).join("")}</select>` : rvEsc(RV_COVERAGE_BASES[l.basis]);
-    return `<tr><td>${rvEsc(l.line)}</td><td>${edit}</td><td class="ws-small">${rvEsc(keys)}</td></tr>`;
+    const edit = canEdit ? `<select id="rv_basis_${l.coverageKey}" class="form-control form-control-sm" style="width:auto;display:inline-block;" onchange="rvUiLinkBasis('${sub.id}','${l.coverageKey}')">${Object.keys(RV_COVERAGE_BASES).map(b => `<option value="${b}" ${l.basis === b ? "selected" : ""}>${escHtml(RV_COVERAGE_BASES[b])}</option>`).join("")}</select>` : escHtml(RV_COVERAGE_BASES[l.basis]);
+    return `<tr><td>${escHtml(l.line)}</td><td>${edit}</td><td class="ws-small">${escHtml(keys)}</td></tr>`;
   }).join("");
-  const driftHtml = drift.count ? `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>The working copy differs from ${rvEsc(ref.id)} (${rvEsc(rvCtxLabel(ref))}).</strong> ${bound ? "These changes are not in force. A change to a bound policy is made by endorsement." : (ref.contextType === "quote" ? "Issue a new quote before binding; the bind is refused while they stand." : "The next quote takes a new copy.")}<ul style="margin:4px 0 0 18px;">${drift.changes.slice(0, 6).map(c => `<li>${rvEsc(c)}</li>`).join("")}</ul></div>` : "";
+  const driftHtml = drift.count ? `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>The working copy differs from ${escHtml(ref.id)} (${escHtml(rvCtxLabel(ref))}).</strong> ${bound ? "These changes are not in force. A change to a bound policy is made by endorsement." : (ref.contextType === "quote" ? "Issue a new quote before binding; the bind is refused while they stand." : "The next quote takes a new copy.")}<ul style="margin:4px 0 0 18px;">${drift.changes.slice(0, 6).map(c => `<li>${escHtml(c)}</li>`).join("")}</ul></div>` : "";
   const html = `<div class="card" style="margin-top:12px;"><div class="card-header"><h3><i class="ph ph-lock-key"></i> Risk versions and schedules</h3>${badge}</div><div class="card-body">
     <p class="ws-small text-muted" style="margin:0 0 6px;">Each submission version, issued quote and the policy keeps its own frozen copy of the risk. The fields on the case are the working copy. A unit keeps its key (VEH-2) through quotes, endorsements and renewal.</p>
     ${driftHtml}

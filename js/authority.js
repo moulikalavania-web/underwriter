@@ -70,9 +70,6 @@ var CARRIER_AUTHORITY = {
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
 function authMoney(n) { return "$" + Math.round(Number(n) || 0).toLocaleString("en-US"); }
-function authToday() { return new Date().toISOString().slice(0, 10); }
-function authNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function authEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
 function authRoleLabel(r) { var c = typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[r] : null; return c ? c.title : r; }
 function authRoleIdent(r) { var c = typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[r] : null; return c ? c.name + " (" + c.title + ")" : String(r); }
 function authActor() { return authRoleIdent(currentUserRole); }
@@ -161,7 +158,7 @@ function authCarrierCheck(sub, m, dataset, today) {
   var carrier = sub.carrier || (typeof PRODUCER_DEFAULT_CARRIER !== "undefined" ? PRODUCER_DEFAULT_CARRIER : "");
   var ag = CARRIER_AUTHORITY[carrier];
   if (!ag) return { carrier: carrier, ok: false, reasons: ["No delegated authority agreement is loaded for " + (carrier || "the carrier") + "; the carrier must approve this risk."] };
-  var why = [], t = today || authToday();
+  var why = [], t = today || todayIso();
   if (ag.expires < t) why.push("the delegated authority agreement " + ag.agreementRef + " expired " + ag.expires);
   var line = ag.lines[m.lob] || ag.lines["*"];
   if (!line) why.push("no delegated authority for this line");
@@ -243,13 +240,13 @@ function authActive() { return authSub(typeof activeSubmissionId !== "undefined"
 function authV(id) { var e = document.getElementById(id); return e ? e.value.trim() : ""; }
 function authLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 7, decision: decision, by: authActor(), at: authNow(), notes: notes });
+  sub.decisionLog.push({ step: sub.currentStep || 7, decision: decision, by: authActor(), at: nowStamp(), notes: notes });
 }
 function authPersist() {
   if (typeof persistAppState === "function") persistAppState();
   if (typeof refreshAuditLogIfVisible === "function") refreshAuditLogIfVisible();
 }
-function authIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+function authIsBound(sub) { return policyIsBound(sub); }
 
 // ----------------------------------------------------------------------------
 // 3. ACTIONS
@@ -259,7 +256,7 @@ function authRaiseCore(sub, note) {
   var a = authAssess(sub, currentUserRole);
   if (!sub.authPreparedBy) sub.authPreparedBy = {};
   sub.authPreparedBy[authActor()] = true;
-  sub.authorityRef = { status: "pending", requiredRole: a.requiredRole, raisedBy: authActor(), raisedAt: authNow(), note: note, reasons: a.own.reasons.slice(), measures: a.measures, history: ((sub.authorityRef && sub.authorityRef.history) || []).concat(sub.authorityRef ? [{ status: sub.authorityRef.status, decidedBy: sub.authorityRef.decidedBy, decidedAt: sub.authorityRef.decidedAt }] : []) };
+  sub.authorityRef = { status: "pending", requiredRole: a.requiredRole, raisedBy: authActor(), raisedAt: nowStamp(), note: note, reasons: a.own.reasons.slice(), measures: a.measures, history: ((sub.authorityRef && sub.authorityRef.history) || []).concat(sub.authorityRef ? [{ status: sub.authorityRef.status, decidedBy: sub.authorityRef.decidedBy, decidedAt: sub.authorityRef.decidedAt }] : []) };
   authLog(sub, "auth_referral_raised", "Referral raised to " + (a.requiredRole ? authRoleLabel(a.requiredRole) : "carrier (exceeds all internal authority)") + ": " + a.own.reasons.join("; ") + ". Note: " + note);
   sub.authorityRef.raisedByRole = currentUserRole;
   if (typeof notify === "function") notify(a.requiredRole || "admin", { kind: "referral", title: (a.requiredRole ? "Referred to you: " : "Referred to the carrier: ") + sub.insured, text: String(note || ""), caseId: sub.id, key: "ref-" + sub.id + "-" + sub.authorityRef.raisedAt });
@@ -296,7 +293,7 @@ function authDecideCore(sub, verb, note, quiet) {
     if (!cover.ok) return fail("This risk is beyond your own authority (" + cover.reasons.join("; ") + "). It must go to " + (authRequiredRole(m) ? authRoleLabel(authRequiredRole(m)) + " or above." : "the carrier."));
     ref.status = "approved"; ref.approvedMeasures = { premium: m.premium, limit: m.limit };
   } else ref.status = verb === "return" ? "returned" : "declined";
-  ref.decidedBy = me; ref.decidedAt = authNow(); ref.decisionNote = note || "";
+  ref.decidedBy = me; ref.decidedAt = nowStamp(); ref.decisionNote = note || "";
   var who = authRoleOwnerName(currentUserRole);
   sub.isReferral = false;
   if (verb === "approve") { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
@@ -318,7 +315,7 @@ function authRaiseSpecialty(sub, note) {
   var sp = authSpecialty(sub, currentUserRole), req = authSpecialistRole(sp.lob), prev = sub.specialtyRef || null;
   if (!sub.authPreparedBy) sub.authPreparedBy = {};
   sub.authPreparedBy[authActor()] = true;
-  sub.specialtyRef = { kind: "specialty", status: "pending", lob: sp.lob, lobName: sp.name, requiredRole: req, raisedBy: authActor(), raisedByRole: currentUserRole, raisedAt: authNow(), note: note, reasons: sp.reasons.slice(),
+  sub.specialtyRef = { kind: "specialty", status: "pending", lob: sp.lob, lobName: sp.name, requiredRole: req, raisedBy: authActor(), raisedByRole: currentUserRole, raisedAt: nowStamp(), note: note, reasons: sp.reasons.slice(),
     history: ((prev && prev.history) || []).concat(prev ? [{ status: prev.status, decidedBy: prev.decidedBy, decidedAt: prev.decidedAt }] : []) };
   authLog(sub, "auth_specialty_referral_raised", "Referred to " + (req ? authRoleLabel(req) : "the carrier") + " because " + sp.name + " is not one of " + authRoleLabel(currentUserRole) + "'s specialities. Note: " + note);
   if (typeof notify === "function") notify(req || "admin", { kind: "referral", title: "Referred to you (speciality): " + sub.insured, text: String(note || ""), caseId: sub.id, key: "spec-" + sub.id + "-" + sub.specialtyRef.raisedAt });
@@ -342,7 +339,7 @@ function authDecideSpecialty(sub, verb, note, quiet) {
     if (!own.ok) return fail(own.reasons[0] + ". It must go to " + (authSpecialistRole(own.lob) ? authRoleLabel(authSpecialistRole(own.lob)) + " or above." : "the carrier."));
     ref.status = "approved";
   } else ref.status = verb === "return" ? "returned" : "declined";
-  ref.decidedBy = me; ref.decidedAt = authNow(); ref.decisionNote = note || "";
+  ref.decidedBy = me; ref.decidedAt = nowStamp(); ref.decisionNote = note || "";
   var who = authRoleOwnerName(currentUserRole);
   sub.isReferral = false;
   if (verb === "approve") { sub.statusText = "Ready for Rating"; sub.statusBadge = "badge-success"; }
@@ -362,11 +359,11 @@ function authRecordCarrier() {
   if (f.ref.length < 3) p.push("enter the carrier's approval reference");
   if (f.uw.length < 3) p.push("name the carrier underwriter who approved");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.on)) p.push("enter the approval date");
-  else if (f.on > authToday()) p.push("the approval date cannot be in the future");
+  else if (f.on > todayIso()) p.push("the approval date cannot be in the future");
   if (f.terms.length < 10) p.push("record the terms approved (at least 10 characters)");
   if (p.length) { showToast("⛔ " + p.join("; ") + ".", "danger"); return; }
   var m = authMeasures(sub);
-  sub.carrierApproval = { ref: f.ref, carrierUnderwriter: f.uw, approvedOn: f.on, terms: f.terms, approvedMeasures: { premium: m.premium, limit: m.limit }, recordedBy: authActor(), recordedAt: authNow() };
+  sub.carrierApproval = { ref: f.ref, carrierUnderwriter: f.uw, approvedOn: f.on, terms: f.terms, approvedMeasures: { premium: m.premium, limit: m.limit }, recordedBy: authActor(), recordedAt: nowStamp() };
   authLog(sub, "auth_carrier_approval", "Carrier approval recorded (" + f.ref + ", " + f.uw + ", " + f.on + ") for premium " + authMoney(m.premium) + ", limit " + authMoney(m.limit) + ": " + f.terms);
   authPersist(); renderAuthorityCard(sub);
 }
@@ -391,13 +388,13 @@ function renderAuthorityCard(sub) {
 
   var levels = AUTH_ROLE_ORDER.filter(function (r) { return r !== "assistant"; }).map(function (r) {
     var c = authRoleCovers(r, m);
-    return '<tr><td>' + authEsc(authRoleLabel(r)) + (r === currentUserRole ? ' <span class="badge badge-info text-xs">you</span>' : '') + '</td><td>' + (c.rule ? authMoney(c.rule.maxPremium) : "—") + '</td><td>' + (c.rule ? authMoney(c.rule.maxLimit) : "—") + '</td><td>' + (c.ok ? '<span class="badge badge-success text-xs">Covers</span>' : '<span class="badge badge-light text-xs">Does not cover</span>') + '<div class="text-xs text-muted">' + authEsc(c.ok ? (c.rule ? c.rule.id : "") : c.reasons.join("; ")) + '</div></td></tr>';
+    return '<tr><td>' + escHtml(authRoleLabel(r)) + (r === currentUserRole ? ' <span class="badge badge-info text-xs">you</span>' : '') + '</td><td>' + (c.rule ? authMoney(c.rule.maxPremium) : "—") + '</td><td>' + (c.rule ? authMoney(c.rule.maxLimit) : "—") + '</td><td>' + (c.ok ? '<span class="badge badge-success text-xs">Covers</span>' : '<span class="badge badge-light text-xs">Does not cover</span>') + '<div class="text-xs text-muted">' + escHtml(c.ok ? (c.rule ? c.rule.id : "") : c.reasons.join("; ")) + '</div></td></tr>';
   }).join("");
 
   var refHtml = "";
   if (ref) {
     var st = { pending: "badge-warning", approved: a.refStale ? "badge-danger" : "badge-success", returned: "badge-light", declined: "badge-danger" }[ref.status] || "badge-light";
-    refHtml = '<div class="text-xs" style="margin-top:8px;"><span class="badge ' + st + '">' + authEsc(ref.status === "approved" && a.refStale ? "approval no longer covers the risk" : ref.status) + '</span> Referred to ' + authEsc(authRoleOwner(ref.requiredRole)) + ' by ' + authEsc(ref.raisedBy) + ' on ' + authEsc(ref.raisedAt) + '.<br><span class="text-muted">' + authEsc(ref.note) + '</span>' + (ref.decidedBy ? '<br>Decided by ' + authEsc(ref.decidedBy) + ' on ' + authEsc(ref.decidedAt) + (ref.decisionNote ? ': ' + authEsc(ref.decisionNote) : '') : '') + '</div>';
+    refHtml = '<div class="text-xs" style="margin-top:8px;"><span class="badge ' + st + '">' + escHtml(ref.status === "approved" && a.refStale ? "approval no longer covers the risk" : ref.status) + '</span> Referred to ' + escHtml(authRoleOwner(ref.requiredRole)) + ' by ' + escHtml(ref.raisedBy) + ' on ' + escHtml(ref.raisedAt) + '.<br><span class="text-muted">' + escHtml(ref.note) + '</span>' + (ref.decidedBy ? '<br>Decided by ' + escHtml(ref.decidedBy) + ' on ' + escHtml(ref.decidedAt) + (ref.decisionNote ? ': ' + escHtml(ref.decisionNote) : '') : '') + '</div>';
   }
   var actions = "";
   if (!bound) {
@@ -408,23 +405,23 @@ function renderAuthorityCard(sub) {
           : '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_decNote" class="form-control" style="width:280px;" placeholder="Decision note (required to return or decline)"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="authDecide(\'approve\')">Approve</button><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authDecide(\'return\')">Return</button><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authDecide(\'decline\')">Decline</button></div>';
       }
     } else if (!a.own.ok && !a.refValid && canEdit) {
-      actions = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_note" class="form-control" style="width:380px;" placeholder="Why this risk should be accepted (10+ characters)"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="authRaise()">Refer to ' + authEsc(authRoleOwner(a.requiredRole)) + '</button></div>';
+      actions = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;"><input id="auth_note" class="form-control" style="width:380px;" placeholder="Why this risk should be accepted (10+ characters)"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="authRaise()">Refer to ' + escHtml(authRoleOwner(a.requiredRole)) + '</button></div>';
     }
   }
 
   var c = a.carrier, ca = a.carrierApproval;
   var carrierHtml = '<h4 style="margin:14px 0 6px;">Carrier delegated authority <span class="badge ' + (a.carrierCovered ? "badge-success" : "badge-danger") + ' text-xs">' + (c.ok ? "Within" : (ca && authApprovalCurrent(ca.approvedMeasures, m) ? "Carrier approved" : "Outside")) + '</span></h4>' +
-    '<div class="text-xs">' + authEsc(c.carrier || "No carrier") + (c.agreement ? " · agreement " + authEsc(c.agreement) : "") + '</div>' +
-    (c.ok ? '<div class="text-xs text-muted">Premium, limit, line, state and aggregate capacity are all inside the delegated authority.</div>' : '<div class="alert alert-warning text-xs" style="margin-top:6px;"><i class="ph ph-warning"></i> ' + authEsc(c.reasons.join("; ")) + '.</div>');
-  if (ca) carrierHtml += '<div class="text-xs" style="margin-top:6px;"><i class="ph ph-seal-check"></i> Carrier approval ' + authEsc(ca.ref) + ' from ' + authEsc(ca.carrierUnderwriter) + ' on ' + authEsc(ca.approvedOn) + ' (covers ' + authMoney(ca.approvedMeasures.premium) + ' premium, ' + authMoney(ca.approvedMeasures.limit) + ' limit): ' + authEsc(ca.terms) + (canOverride && !bound ? ' <a href="#" onclick="authClearCarrier();return false;">Withdraw</a>' : '') + '</div>';
+    '<div class="text-xs">' + escHtml(c.carrier || "No carrier") + (c.agreement ? " · agreement " + escHtml(c.agreement) : "") + '</div>' +
+    (c.ok ? '<div class="text-xs text-muted">Premium, limit, line, state and aggregate capacity are all inside the delegated authority.</div>' : '<div class="alert alert-warning text-xs" style="margin-top:6px;"><i class="ph ph-warning"></i> ' + escHtml(c.reasons.join("; ")) + '.</div>');
+  if (ca) carrierHtml += '<div class="text-xs" style="margin-top:6px;"><i class="ph ph-seal-check"></i> Carrier approval ' + escHtml(ca.ref) + ' from ' + escHtml(ca.carrierUnderwriter) + ' on ' + escHtml(ca.approvedOn) + ' (covers ' + authMoney(ca.approvedMeasures.premium) + ' premium, ' + authMoney(ca.approvedMeasures.limit) + ' limit): ' + escHtml(ca.terms) + (canOverride && !bound ? ' <a href="#" onclick="authClearCarrier();return false;">Withdraw</a>' : '') + '</div>';
   if (!c.ok && !bound && canOverride) carrierHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;"><input id="auth_cRef" class="form-control" style="width:150px;" placeholder="Carrier reference"><input id="auth_cUw" class="form-control" style="width:180px;" placeholder="Carrier underwriter"><input id="auth_cOn" type="date" class="form-control" style="width:140px;"><input id="auth_cTerms" class="form-control" style="width:260px;" placeholder="Terms approved"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="authRecordCarrier()">Record carrier approval</button></div>';
   else if (!c.ok && !bound) carrierHtml += '<div class="text-xs text-muted" style="margin-top:6px;"><i class="ph ph-lock"></i> A senior user records the carrier\'s approval.</div>';
 
   box.innerHTML = '<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-shield-star"></i> Underwriting Authority: Premium and Limit</h3>' + head + '</div><div class="card-body">' +
-    '<div class="text-xs" style="margin-bottom:8px;">Risk: premium <strong>' + authMoney(m.premium) + '</strong>, policy limit <strong>' + authMoney(m.limit) + '</strong>, ' + authEsc(sub.lobName || m.lob) + ', ' + authEsc(m.state || "state unknown") + '.</div>' +
+    '<div class="text-xs" style="margin-bottom:8px;">Risk: premium <strong>' + authMoney(m.premium) + '</strong>, policy limit <strong>' + authMoney(m.limit) + '</strong>, ' + escHtml(sub.lobName || m.lob) + ', ' + escHtml(m.state || "state unknown") + '.</div>' +
     '<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Level</th><th>Premium ceiling</th><th>Limit ceiling</th><th>For this risk</th></tr></thead><tbody>' + levels + '</tbody></table></div>' +
-    (a.blockers.length && !a.own.ok ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-warning"></i> ' + authEsc(a.blockers[0]) + '</div>' : '') +
-    (!a.specialty.ok && !a.specialtyValid ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-user-gear"></i> ' + authEsc(a.specialty.reasons[0]) + '. A specialist takes it at the Authority Desk (Step 9).</div>' : '') +
+    (a.blockers.length && !a.own.ok ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-warning"></i> ' + escHtml(a.blockers[0]) + '</div>' : '') +
+    (!a.specialty.ok && !a.specialtyValid ? '<div class="alert alert-warning text-xs" style="margin-top:8px;"><i class="ph ph-user-gear"></i> ' + escHtml(a.specialty.reasons[0]) + '. A specialist takes it at the Authority Desk (Step 9).</div>' : '') +
     refHtml + actions + carrierHtml +
     '<p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> The ceilings shown are illustrative placeholders until the company\'s authority letters and the carrier\'s delegated authority agreement are loaded and signed off. Whoever prepared, repriced or referred a risk cannot approve it.</p></div></div>';
 }

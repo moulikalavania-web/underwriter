@@ -72,7 +72,6 @@ function comSameBroker(a, b) {
   return x === y || (x.length >= 5 && y.length >= 5 && (x.indexOf(y) === 0 || y.indexOf(x) === 0));
 }
 function comIdKey(v) { return String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
-function comToday() { return new Date().toISOString().slice(0, 10); }
 function comAdd(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + Number(n)); return d.toISOString().slice(0, 10); }
 function comDays(a, b) { return Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000); }
 function comRound(n) { return Math.round(n * 100) / 100; }
@@ -107,7 +106,7 @@ function comFindConflicts(sub, all, nowMs) {
 
 /** The agreement for a producer on a date, or null. */
 function comFindAgreement(producer, today) {
-  const t = today || comToday();
+  const t = today || todayIso();
   return COMMISSION_SCHEDULE.find(a => a.producers.some(p => comSameBroker(p, producer)) && a.effective <= t && a.expires >= t) || null;
 }
 
@@ -191,23 +190,18 @@ function comSplit(p) {
 // ----------------------------------------------------------------------------
 function comSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function comActiveSub() { return comSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function comNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function comActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function comEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function comLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 2, decision, by: comActor(), at: comNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 2, decision, by: comActor(), at: nowStamp(), notes });
 }
 function comPersist() {
   if (typeof persistAppState === "function") persistAppState();
   if (typeof refreshAuditLogIfVisible === "function") refreshAuditLogIfVisible();
 }
-function comIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
 function comBors(sub) { if (!sub.borRecords) sub.borRecords = []; return sub.borRecords; }
 function comV(id) { const e = document.getElementById(id); return e ? e.value.trim() : ""; }
 function comC(id) { const e = document.getElementById(id); return !!(e && e.checked); }
@@ -221,7 +215,7 @@ function runMarketCheck(sub, trigger) {
   if (res.state === "conflict" && mc.resolution) { status = "resolved"; how = "resolved: " + mc.resolution.type; }
   const snap = `${status}:${res.holder ? res.holder.id : ""}:${(res.peers || []).map(p => p.id).sort().join(",")}`;
   const next = Object.assign({}, mc, { status, state: res.state, holderId: res.holder ? res.holder.id : null, holderBroker: res.holder ? res.holder.broker : null,
-    peers: (res.peers || []).map(p => ({ id: p.id, broker: p.broker, receivedAt: p.receivedAt, receivedTimestamp: p.receivedTimestamp, status: p.statusText })), checkedAt: comNow() });
+    peers: (res.peers || []).map(p => ({ id: p.id, broker: p.broker, receivedAt: p.receivedAt, receivedTimestamp: p.receivedTimestamp, status: p.statusText })), checkedAt: nowStamp() });
   const changed = mc._snap !== snap;
   next._snap = snap;
   sub.marketClearance = next;
@@ -253,14 +247,14 @@ function comBorForm(sub) {
 function comRecordBor(subId) {
   const sub = comSub(subId || (typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null)); if (!sub) return;
   if (!hasPermission("brokerRelations", "edit")) { denyPermission("brokerRelations", "edit"); return; }
-  const bound = comIsBound(sub);
+  const bound = policyIsBound(sub);
   const f = comBorForm(sub);
   if (!bound) f.toBroker = sub.broker;
   const ps = typeof evaluateProducerCompliance === "function" ? evaluateProducerCompliance(Object.assign({}, sub, { broker: f.toBroker, channelType: "broker" }), new Date()).status : null;
-  const problems = comValidateBor({ today: comToday(), producerStatus: ps }, f);
+  const problems = comValidateBor({ today: todayIso(), producerStatus: ps }, f);
   if (comBors(sub).some(b => b.status === "pending")) problems.push("a BOR letter is already pending on this submission");
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
-  const rec = Object.assign({ id: `BOR-${sub.id}-${comBors(sub).length + 1}`, scope: bound ? "policy" : "submission", status: "pending", recordedBy: comActor(), recordedAt: comNow() }, f);
+  const rec = Object.assign({ id: `BOR-${sub.id}-${comBors(sub).length + 1}`, scope: bound ? "policy" : "submission", status: "pending", recordedBy: comActor(), recordedAt: nowStamp() }, f);
   comBors(sub).push(rec);
   comLog(sub, "bor_recorded", `BOR letter ${rec.id} logged: ${f.fromBroker} → ${f.toBroker}, signed ${f.signedOn} by ${f.signerName}, ${f.signerTitle} (ref ${f.docRef}), received ${f.receivedOn}; ${f.incumbentConsented ? "incumbent consented" : "incumbent notified " + f.incumbentNotifiedOn}; effective ${f.effectiveOn}. Awaiting acceptance.`);
   comPersist(); renderMarketCard(sub); renderCommissionCard(sub);
@@ -273,15 +267,15 @@ function comAcceptBor(subId, borId) {
   const rec = comBors(sub).find(b => b.id === borId);
   if (!rec || rec.status !== "pending") return;
   if (rec.scope === "policy" && !hasPermission("brokerRelations", "override")) { denyPermission("brokerRelations", "override"); return; }
-  const w = comBorWaiting(rec, comToday());
+  const w = comBorWaiting(rec, todayIso());
   if (!w.ok) { showToast(`⛔ The waiting period has not run. The earliest this BOR can be accepted is ${w.earliest}.`, "danger"); return; }
 
-  rec.status = "accepted"; rec.acceptedBy = comActor(); rec.acceptedAt = comNow();
+  rec.status = "accepted"; rec.acceptedBy = comActor(); rec.acceptedAt = nowStamp();
   if (rec.scope === "submission") {
-    sub.marketClearance = Object.assign({}, sub.marketClearance, { resolution: { type: "bor", borId, by: comActor(), at: comNow() }, status: "resolved" });
+    sub.marketClearance = Object.assign({}, sub.marketClearance, { resolution: { type: "bor", borId, by: comActor(), at: nowStamp() }, status: "resolved" });
     const holder = sub.marketClearance.holderId && comSub(sub.marketClearance.holderId);
     if (holder) {
-      holder.marketClearance = Object.assign({}, holder.marketClearance, { lockReleased: { to: sub.id, reason: "BOR", at: comNow() } });
+      holder.marketClearance = Object.assign({}, holder.marketClearance, { lockReleased: { to: sub.id, reason: "BOR", at: nowStamp() } });
       comLog(holder, "bor_effective", `Market lock released: ${sub.insured} appointed ${rec.toBroker} by BOR letter ${rec.docRef}. Submission ${sub.id} now holds the lock.`);
     }
     comLog(sub, "bor_effective", `BOR letter ${rec.id} accepted: ${rec.toBroker} is broker of record for ${sub.insured}. Market conflict resolved.`);
@@ -300,7 +294,7 @@ function comRejectBor(subId, borId) {
   if (!rec || rec.status !== "pending") return;
   const why = comV("com_borReject");
   if (why.length < 10) { showToast("Give the reason for rejecting the letter (at least 10 characters).", "danger"); return; }
-  rec.status = "rejected"; rec.rejectedBy = comActor(); rec.rejectedAt = comNow(); rec.rejectReason = why;
+  rec.status = "rejected"; rec.rejectedBy = comActor(); rec.rejectedAt = nowStamp(); rec.rejectReason = why;
   comLog(sub, "bor_rejected", `BOR letter ${rec.id} rejected: ${why}`);
   comPersist(); renderMarketCard(sub); renderCommissionCard(sub);
 }
@@ -317,7 +311,7 @@ function comTransferPolicyBroker(sub, rec) {
   const c = comLockedOrCurrent(sub);
   const oldRate = c.rate, newRes = comResolveRate(sub, rec.effectiveOn, rec.toBroker);
   const split = facts.effective && facts.expiration ? comSplit({ commissionable: c.commissionable, oldRate, newRate: newRes.rate, policyEffective: facts.effective, policyExpiration: facts.expiration, borEffective: rec.effectiveOn }) : null;
-  const history = { borId: rec.id, from: rec.fromBroker, to: rec.toBroker, effective: rec.effectiveOn, oldRate, newRate: newRes.rate, newContract: newRes.contractId, split, at: comNow() };
+  const history = { borId: rec.id, from: rec.fromBroker, to: rec.toBroker, effective: rec.effectiveOn, oldRate, newRate: newRes.rate, newContract: newRes.contractId, split, at: nowStamp() };
   if (!sub.borHistory) sub.borHistory = [];
   sub.borHistory.push(history);
   const previous = sub.broker;
@@ -335,7 +329,7 @@ function comOverrideConflict(subId) {
   if (!mc || mc.status !== "conflict") return;
   const why = comV("com_ovrWhy");
   if (why.length < 15) { showToast("Explain why these are separate risks (at least 15 characters).", "danger"); return; }
-  sub.marketClearance = Object.assign({}, mc, { resolution: { type: "separate_risk", reason: why, by: comActor(), at: comNow() }, status: "resolved" });
+  sub.marketClearance = Object.assign({}, mc, { resolution: { type: "separate_risk", reason: why, by: comActor(), at: nowStamp() }, status: "resolved" });
   comLog(sub, "market_conflict_resolved", `Market conflict with ${mc.holderId} (${mc.holderBroker}) overridden as separate risks: ${why}`);
   runMarketCheck(sub, "override");
   comPersist(); renderMarketCard(sub);
@@ -367,7 +361,7 @@ function comSetOverride(subId) {
   }
   if (why.length < 10) problems.push("give the reason for the override (at least 10 characters)");
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
-  sub.commissionOverride = { rate, reason: why, by: comActor(), at: comNow(), agreementRate: cur.agreementRate };
+  sub.commissionOverride = { rate, reason: why, by: comActor(), at: nowStamp(), agreementRate: cur.agreementRate };
   comLog(sub, "commission_override", `Commission overridden from ${cur.agreementRate}% to ${rate}% for ${sub.broker}: ${why}`);
   comReprice(sub);
   comPersist(); renderCommissionCard(sub);
@@ -396,7 +390,7 @@ function comClearOverride(subId) {
 function comLockAtBind(sub) {
   if (!sub || (sub.commission && sub.commission.locked)) return;
   const c = comCurrent(sub);
-  sub.commission = Object.assign({}, c, { locked: true, lockedAt: comNow(), adjustments: [], splits: [] });
+  sub.commission = Object.assign({}, c, { locked: true, lockedAt: nowStamp(), adjustments: [], splits: [] });
   comLog(sub, "commission_locked", `Commission locked at bind: ${c.rate}% of ${comMoney(c.commissionable)} commissionable premium = ${comMoney(c.amount)} (${c.source}${c.contractId ? " " + c.contractId : ""}; ${c.producer}, ${c.businessType} business).`);
   comPersist();
 }
@@ -415,8 +409,8 @@ function comBorFormHtml(sub, scope) {
   const bound = scope === "policy";
   return `<h4 style="margin:14px 0 6px;">Record a broker-of-record letter</h4>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-      ${bound ? `<input id="com_borTo" class="form-control" style="width:260px;" placeholder="New broker (agency name)">` : `<span class="text-xs">New broker: <strong>${comEsc(sub.broker)}</strong></span>`}
-      <input id="com_borFrom" class="form-control" style="width:340px;" placeholder="Broker being replaced" value="${comEsc(!bound && sub.marketClearance ? (sub.marketClearance.holderBroker || "") : sub.broker)}">
+      ${bound ? `<input id="com_borTo" class="form-control" style="width:260px;" placeholder="New broker (agency name)">` : `<span class="text-xs">New broker: <strong>${escHtml(sub.broker)}</strong></span>`}
+      <input id="com_borFrom" class="form-control" style="width:340px;" placeholder="Broker being replaced" value="${escHtml(!bound && sub.marketClearance ? (sub.marketClearance.holderBroker || "") : sub.broker)}">
       <input id="com_borSigner" class="form-control" style="width:200px;" placeholder="Signed for the insured by">
       <input id="com_borTitle" class="form-control" style="width:150px;" placeholder="Title">
     </div>
@@ -430,7 +424,7 @@ function comBorFormHtml(sub, scope) {
       <label><input type="checkbox" id="com_borAttest"> Signed by an authorized officer of the insured</label>
       <label class="text-xs text-muted" style="font-size:12px;">Incumbent notified <input id="com_borNotified" type="date" class="form-control" style="width:150px;"></label>
       <label><input type="checkbox" id="com_borConsent"> or the incumbent consented</label>
-      <button class="btn btn-sm btn-primary" style="width:auto;" onclick="comRecordBor('${comEsc(sub.id)}')"><i class="ph ph-file-text"></i> Log letter</button>
+      <button class="btn btn-sm btn-primary" style="width:auto;" onclick="comRecordBor('${escHtml(sub.id)}')"><i class="ph ph-file-text"></i> Log letter</button>
     </div>
     <p class="text-xs text-muted" style="margin-top:4px;">The new broker must be licensed and appointed. A ${BOR_WAITING_DAYS}-day waiting period runs from the incumbent's notice unless the incumbent consents.</p>`;
 }
@@ -439,11 +433,11 @@ function comBorTableHtml(sub) {
   const canApprove = hasPermission("brokerRelations", "approve");
   const rows = comBors(sub).slice().reverse().map(b => {
     const badge = b.status === "accepted" || b.status === "accepted_at_renewal" ? "badge-success" : (b.status === "rejected" ? "badge-danger" : "badge-warning");
-    const w = comBorWaiting(b, comToday());
-    return `<tr><td>${comEsc(b.id)}</td><td>${comEsc(b.fromBroker)} → ${comEsc(b.toBroker)}<div class="text-xs text-muted">${comEsc(b.signerName)}, ${comEsc(b.signerTitle)} · ref ${comEsc(b.docRef)}</div></td>
-      <td>${comEsc(b.effectiveOn)}</td><td><span class="badge ${badge} text-xs">${comEsc(b.status.replace(/_/g, " "))}</span>${b.status === "pending" && !w.ok ? `<div class="text-xs text-muted">earliest ${comEsc(w.earliest)}</div>` : ""}</td>
-      <td>${b.status === "pending" && canApprove ? `<button class="btn btn-xs btn-success" style="width:auto;" onclick="comAcceptBor('${comEsc(sub.id)}','${comEsc(b.id)}')">Accept</button>
-        <input id="com_borReject" class="form-control" style="width:170px;display:inline-block;" placeholder="Reason to reject"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="comRejectBor('${comEsc(sub.id)}','${comEsc(b.id)}')">Reject</button>` : (b.rejectReason ? `<span class="text-xs text-muted">${comEsc(b.rejectReason)}</span>` : "")}</td></tr>`;
+    const w = comBorWaiting(b, todayIso());
+    return `<tr><td>${escHtml(b.id)}</td><td>${escHtml(b.fromBroker)} → ${escHtml(b.toBroker)}<div class="text-xs text-muted">${escHtml(b.signerName)}, ${escHtml(b.signerTitle)} · ref ${escHtml(b.docRef)}</div></td>
+      <td>${escHtml(b.effectiveOn)}</td><td><span class="badge ${badge} text-xs">${escHtml(b.status.replace(/_/g, " "))}</span>${b.status === "pending" && !w.ok ? `<div class="text-xs text-muted">earliest ${escHtml(w.earliest)}</div>` : ""}</td>
+      <td>${b.status === "pending" && canApprove ? `<button class="btn btn-xs btn-success" style="width:auto;" onclick="comAcceptBor('${escHtml(sub.id)}','${escHtml(b.id)}')">Accept</button>
+        <input id="com_borReject" class="form-control" style="width:170px;display:inline-block;" placeholder="Reason to reject"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="comRejectBor('${escHtml(sub.id)}','${escHtml(b.id)}')">Reject</button>` : (b.rejectReason ? `<span class="text-xs text-muted">${escHtml(b.rejectReason)}</span>` : "")}</td></tr>`;
   }).join("");
   return rows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;margin-top:8px;"><table class="data-table"><thead><tr><th>Letter</th><th>Change</th><th>Effective</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : "";
 }
@@ -456,15 +450,15 @@ function renderMarketCard(sub) {
   const ui = mc.status === "conflict" ? { b: "badge-danger", l: "Conflict — blocked" } : (mc.status === "resolved" ? { b: "badge-success", l: "Resolved" } : (mc.state === "holder" ? { b: "badge-info", l: "Holds the lock" } : { b: "badge-success", l: "Clear" }));
   let body = "";
   if (sub.channelType !== "broker") body = `<div class="alert alert-success text-xs"><i class="ph ph-minus-circle"></i> Direct submission: no broker, so no market conflict is possible.</div>`;
-  else if (mc.state === "clear") body = `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> No other broker has a live submission for ${comEsc(sub.insured)} on ${comEsc(sub.lobName || "this line")}.</div>`;
-  else if (mc.state === "lock_expired") body = `<div class="alert alert-success text-xs"><i class="ph ph-timer"></i> The earlier submission by ${comEsc(mc.holderBroker)} (${comEsc(mc.holderId)}) went ${MARKET_LOCK_DAYS} days without a quote, so its lock has expired.</div>`;
-  else if (mc.state === "holder") body = `<div class="alert alert-info text-xs"><i class="ph ph-lock-key"></i> This submission was received first and holds the market lock. Later submissions from other brokers (${mc.peers.map(p => comEsc(p.id + " / " + p.broker)).join("; ")}) are blocked until they obtain a BOR letter.</div>`;
-  else if (mc.status === "resolved") body = `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> The conflict with ${comEsc(mc.holderId)} (${comEsc(mc.holderBroker)}) is resolved: ${comEsc(mc.resolution.type === "bor" ? "broker-of-record letter accepted (" + mc.resolution.borId + ")" : "cleared as separate risks — " + (mc.resolution.reason || ""))}.</div>`;
-  else body = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>Market conflict.</strong> ${comEsc(mc.holderBroker)} submitted this insured for this line first (${comEsc(mc.holderId)}, received ${comEsc(mc.peers.find(p => p.id === mc.holderId) ? mc.peers.find(p => p.id === mc.holderId).receivedAt : "")}) and holds the lock. Step 2 cannot be completed until an insured-signed broker-of-record letter naming ${comEsc(sub.broker)} is accepted, or the conflict is cleared.</div>`;
+  else if (mc.state === "clear") body = `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> No other broker has a live submission for ${escHtml(sub.insured)} on ${escHtml(sub.lobName || "this line")}.</div>`;
+  else if (mc.state === "lock_expired") body = `<div class="alert alert-success text-xs"><i class="ph ph-timer"></i> The earlier submission by ${escHtml(mc.holderBroker)} (${escHtml(mc.holderId)}) went ${MARKET_LOCK_DAYS} days without a quote, so its lock has expired.</div>`;
+  else if (mc.state === "holder") body = `<div class="alert alert-info text-xs"><i class="ph ph-lock-key"></i> This submission was received first and holds the market lock. Later submissions from other brokers (${mc.peers.map(p => escHtml(p.id + " / " + p.broker)).join("; ")}) are blocked until they obtain a BOR letter.</div>`;
+  else if (mc.status === "resolved") body = `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> The conflict with ${escHtml(mc.holderId)} (${escHtml(mc.holderBroker)}) is resolved: ${escHtml(mc.resolution.type === "bor" ? "broker-of-record letter accepted (" + mc.resolution.borId + ")" : "cleared as separate risks — " + (mc.resolution.reason || ""))}.</div>`;
+  else body = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>Market conflict.</strong> ${escHtml(mc.holderBroker)} submitted this insured for this line first (${escHtml(mc.holderId)}, received ${escHtml(mc.peers.find(p => p.id === mc.holderId) ? mc.peers.find(p => p.id === mc.holderId).receivedAt : "")}) and holds the lock. Step 2 cannot be completed until an insured-signed broker-of-record letter naming ${escHtml(sub.broker)} is accepted, or the conflict is cleared.</div>`;
 
-  const bound = comIsBound(sub);
+  const bound = policyIsBound(sub);
   const forms = (mc.status === "conflict" && canEdit && !bound ? comBorFormHtml(sub, "submission") : "") +
-    (mc.status === "conflict" && canOverride ? `<h4 style="margin:14px 0 6px;">Or clear as separate risks</h4><div style="display:flex;gap:8px;"><input id="com_ovrWhy" class="form-control" style="flex:1;" placeholder="Why these are different risks (15+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="comOverrideConflict('${comEsc(sub.id)}')">Clear conflict</button></div>` : "") +
+    (mc.status === "conflict" && canOverride ? `<h4 style="margin:14px 0 6px;">Or clear as separate risks</h4><div style="display:flex;gap:8px;"><input id="com_ovrWhy" class="form-control" style="flex:1;" placeholder="Why these are different risks (15+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="comOverrideConflict('${escHtml(sub.id)}')">Clear conflict</button></div>` : "") +
     (mc.status === "conflict" && typeof triggerDuplicateExit === "function" && hasPermission("workflow", "approve") ? `<div style="margin-top:10px;"><button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="triggerDuplicateExit()"><i class="ph ph-prohibit"></i> Decline as duplicate</button></div>` : "");
 
   box.innerHTML = `<div class="card"><div class="card-header"><h3><i class="ph ph-users-three"></i> Market Clearance &amp; Broker of Record</h3><span class="badge ${ui.b}">${ui.l}</span></div>
@@ -475,28 +469,28 @@ function renderMarketCard(sub) {
 function renderCommissionCard(sub) {
   const box = document.getElementById("commissionContainer");
   if (!box || !sub) return;
-  const bound = comIsBound(sub);
+  const bound = policyIsBound(sub);
   const c = comLockedOrCurrent(sub);
   const net = comNet(sub);
   const canOverride = hasPermission("brokerRelations", "override"), canEdit = hasPermission("brokerRelations", "edit");
-  const adj = (c.adjustments || []).map(a => `<tr><td>${comEsc(a.at)}</td><td>${comEsc(a.label)}</td><td class="font-mono">${comMoney(a.premium)}</td><td class="font-mono">${comMoney(a.commission)}</td></tr>`).join("");
-  const splits = (sub.borHistory || []).map(h => `<tr><td>${comEsc(h.effective)}</td><td>${comEsc(h.from)} → ${comEsc(h.to)}</td><td>${h.split ? comMoney(h.split.oldShare) + " / " + comMoney(h.split.newShare) : "—"}</td><td>${h.oldRate}% → ${h.newRate}%</td></tr>`).join("");
+  const adj = (c.adjustments || []).map(a => `<tr><td>${escHtml(a.at)}</td><td>${escHtml(a.label)}</td><td class="font-mono">${comMoney(a.premium)}</td><td class="font-mono">${comMoney(a.commission)}</td></tr>`).join("");
+  const splits = (sub.borHistory || []).map(h => `<tr><td>${escHtml(h.effective)}</td><td>${escHtml(h.from)} → ${escHtml(h.to)}</td><td>${h.split ? comMoney(h.split.oldShare) + " / " + comMoney(h.split.newShare) : "—"}</td><td>${h.oldRate}% → ${h.newRate}%</td></tr>`).join("");
   const ovr = sub.commissionOverride;
   const controls = (!bound && canOverride) ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
       <input id="com_ovrRate" type="number" step="0.1" class="form-control" style="width:150px;" placeholder="Rate %"><input id="com_ovrReason" class="form-control" style="flex:1;min-width:220px;" placeholder="Reason for the override (10+ characters)">
-      <button class="btn btn-sm btn-outline" style="width:auto;" onclick="comSetOverride('${comEsc(sub.id)}')">Override rate</button>
-      ${ovr ? `<button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="comClearOverride('${comEsc(sub.id)}')">Remove override</button>` : ""}</div>` : "";
+      <button class="btn btn-sm btn-outline" style="width:auto;" onclick="comSetOverride('${escHtml(sub.id)}')">Override rate</button>
+      ${ovr ? `<button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="comClearOverride('${escHtml(sub.id)}')">Remove override</button>` : ""}</div>` : "";
   box.innerHTML = `<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-percent"></i> Broker &amp; Commission</h3>
       <span class="badge ${c.locked ? "badge-success" : "badge-light"}">${c.locked ? "Locked at bind" : "Estimate until bound"}</span></div>
     <div class="card-body">
       <div class="clean-meta-list" style="margin-bottom:10px;">
-        <div class="clean-meta-row"><span class="meta-label">Broker</span><span class="meta-value">${comEsc(sub.broker || "Direct")}</span></div>
-        <div class="clean-meta-row"><span class="meta-label">Agreement</span><span class="meta-value">${c.contractId ? comEsc(c.contractId) : "No agreement on file — default rate"} · ${comEsc(c.businessType)} business</span></div>
-        <div class="clean-meta-row"><span class="meta-label">Rate</span><span class="meta-value"><strong>${c.rate}%</strong> <span class="text-muted">(${comEsc(c.source)}${c.source === "override" ? `, agreement ${c.agreementRate}%` : ""}; ceiling ${c.band ? c.band.max : COMMISSION_DEFAULT.max}%)</span></span></div>
+        <div class="clean-meta-row"><span class="meta-label">Broker</span><span class="meta-value">${escHtml(sub.broker || "Direct")}</span></div>
+        <div class="clean-meta-row"><span class="meta-label">Agreement</span><span class="meta-value">${c.contractId ? escHtml(c.contractId) : "No agreement on file — default rate"} · ${escHtml(c.businessType)} business</span></div>
+        <div class="clean-meta-row"><span class="meta-label">Rate</span><span class="meta-value"><strong>${c.rate}%</strong> <span class="text-muted">(${escHtml(c.source)}${c.source === "override" ? `, agreement ${c.agreementRate}%` : ""}; ceiling ${c.band ? c.band.max : COMMISSION_DEFAULT.max}%)</span></span></div>
         <div class="clean-meta-row"><span class="meta-label">Commissionable premium</span><span class="meta-value">${comMoney(c.commissionable)} <span class="text-muted">(${c.deducted ? `final ${comMoney(c.final)} less ${comMoney(c.deducted)} taxes and fees` : `final ${comMoney(c.final)} includes this commission, loaded on top`})</span></span></div>
         <div class="clean-meta-row"><span class="meta-label">Commission</span><span class="meta-value"><strong>${comMoney(net.net)}</strong>${net.adjustments ? ` <span class="text-muted">(${comMoney(net.base)} at bind ${net.adjustments >= 0 ? "+" : "−"} ${comMoney(Math.abs(net.adjustments))} adjustments)</span>` : ""}</span></div>
       </div>
-      ${ovr ? `<div class="alert alert-warning text-xs"><i class="ph ph-pencil-simple"></i> Override ${ovr.rate}% (agreement ${ovr.agreementRate}%) by ${comEsc(ovr.by)}: ${comEsc(ovr.reason)}</div>` : ""}
+      ${ovr ? `<div class="alert alert-warning text-xs"><i class="ph ph-pencil-simple"></i> Override ${ovr.rate}% (agreement ${ovr.agreementRate}%) by ${escHtml(ovr.by)}: ${escHtml(ovr.reason)}</div>` : ""}
       ${adj ? `<h4 style="margin:10px 0 4px;">Adjustments</h4><div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>When</th><th>Event</th><th>Premium</th><th>Commission</th></tr></thead><tbody>${adj}</tbody></table></div>` : ""}
       ${splits ? `<h4 style="margin:10px 0 4px;">Broker changes on this policy</h4><div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Effective</th><th>Change</th><th>Commission old / new broker</th><th>Rate</th></tr></thead><tbody>${splits}</tbody></table></div>` : ""}
       ${controls}
@@ -599,7 +593,7 @@ function comBorGuardBind(source, subId) {
         const L = pcLedger(sub);
         if (L.adjustments.length > before && sub.commission && sub.commission.locked) {
           const a = L.adjustments[L.adjustments.length - 1];
-          sub.commission.adjustments.push({ at: comNow(), label: `Endorsement ${a.endorsement}`, premium: a.proRata, commission: comRound(a.proRata * sub.commission.rate / 100) });
+          sub.commission.adjustments.push({ at: nowStamp(), label: `Endorsement ${a.endorsement}`, premium: a.proRata, commission: comRound(a.proRata * sub.commission.rate / 100) });
           comLog(sub, "commission_adjusted", `Endorsement ${a.endorsement}: premium ${comMoney(a.proRata)} → commission ${comMoney(a.proRata * sub.commission.rate / 100)} at ${sub.commission.rate}%.`);
           comPersist(); renderCommissionCard(sub);
         }
@@ -618,7 +612,7 @@ function comBorGuardBind(source, subId) {
         if (ev && ev.refund) {
           sub.commission.cancelAdjusted = true;
           const ret = -comRound(ev.refund.refund * sub.commission.rate / 100);
-          sub.commission.adjustments.push({ at: comNow(), label: `Cancellation ${ev.id}`, premium: -ev.refund.refund, commission: ret });
+          sub.commission.adjustments.push({ at: nowStamp(), label: `Cancellation ${ev.id}`, premium: -ev.refund.refund, commission: ret });
           comLog(sub, "commission_adjusted", `Cancellation ${ev.id}: commission of ${comMoney(Math.abs(ret))} on the ${comMoney(ev.refund.refund)} return premium is returned by ${sub.broker}.`);
           comPersist();
         }

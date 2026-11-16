@@ -24,9 +24,8 @@
  */
 
 var P1_APPETITE = {
-  minYearsInBusiness: 2,          // placeholder: confirm with underwriting guidelines
-  blockedStates: ["AK", "HI"]     // placeholder: states the carrier does not write
-};
+  minYearsInBusiness: 2           // placeholder: confirm with underwriting guidelines
+};   // where the carrier writes is NOT here: the state guidelines register (js/state-guidelines.js) is the one store of state rules
 
 var P1_MIN_COMMENT = 10;
 var P1_ANIMATE = true;            // the checks are revealed one by one; tests switch this off
@@ -42,16 +41,11 @@ var P1_CHECKS = [
 var P1 = { step: "create", subId: null, editing: false, draft: "", form: null, timers: [] };
 
 function p1Sub() { return SUBMISSIONS_DATASET.find(s => s.id === P1.subId) || null; }
-function p1Now() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function p1Esc(s) { return wsEsc(s); }
 function p1Persist() { if (typeof persistAppState === "function") persistAppState(); }
 function p1Role(key) { return USER_ROLES_CONFIG[key] || null; }
 function p1RoleName(key) { const r = p1Role(key); return r ? r.name + " (" + r.title + ")" : String(key || "—"); }
 function p1Store(sub) { if (!sub.phase1) sub.phase1 = { stage: "received", reviewer: null, checks: null, ranAt: null, runs: 0, review: null }; return sub.phase1; }
-function p1Log(sub, decision, notes) {
-  if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: 1, decision: decision, by: wsActor(), at: p1Now(), notes: notes });
-}
+function p1Log(sub, decision, notes) { logDecision(sub, 1, decision, notes); }
 function p1Digits(s) { return String(s || "").replace(/\D/g, ""); }
 function p1ClearTimers() { P1.timers.forEach(t => clearTimeout(t)); P1.timers = []; }
 
@@ -63,8 +57,9 @@ function p1CheckProducer(sub) {
   if (sub.channelType === "direct" || !sub.broker) return Object.assign(base, { status: "pass", summary: "Not applicable: a direct customer has no producer.", lines: [] });
   const r = runProducerCheck(sub, "phase1");
   const lines = r.checks.map(c => ({ ok: c.pass === null ? true : !!c.pass, text: c.label + ": " + c.detail }));
-  if (r.status === "verified" || r.status === "not_applicable") return Object.assign(base, { status: "pass", summary: `${r.producerName} is licensed in ${r.riskState} and appointed with ${r.carrier}.`, lines });
-  if (r.status === "not_found" && PRODUCER_REGISTRY.length === 0) return Object.assign(base, { status: "unable", summary: "No licensing registry is loaded, so the producer could not be checked.", lines: [], needs: "registry" });
+  const st = clearanceGateStatus(sub).producer;   // the one pass / fail / unable classification, shared with the Clearance board
+  if (st === "pass") return Object.assign(base, { status: "pass", summary: `${r.producerName} is licensed in ${r.riskState} and appointed with ${r.carrier}.`, lines });
+  if (st === "unable") return Object.assign(base, { status: "unable", summary: "No licensing registry is loaded, so the producer could not be checked.", lines: [], needs: "registry" });
   const bad = r.checks.filter(c => c.pass === false)[0];
   return Object.assign(base, { status: "fail", summary: bad ? bad.detail : "The producer could not be verified.", lines });
 }
@@ -72,7 +67,9 @@ function p1CheckProducer(sub) {
 function p1CheckFein(sub) {
   const meta = P1_CHECKS[1], base = { key: meta.key, title: meta.title };
   const mine = p1Digits(sub.fein);
-  const clash = SUBMISSIONS_DATASET.filter(s => s.id !== sub.id && p1Digits(s.fein) === mine && s.lifecycleStatus !== "declined");
+  // a copy of a case (js/case-money.js) and the case it was copied from are the same customer, not a duplicate
+  const related = s => s.copiedFrom === sub.id || sub.copiedFrom === s.id || (!!s.copiedFrom && s.copiedFrom === sub.copiedFrom);
+  const clash = SUBMISSIONS_DATASET.filter(s => s.id !== sub.id && p1Digits(s.fein) === mine && s.lifecycleStatus !== "declined" && !related(s));
   const lines = [];
   if (clash.length) {
     clash.forEach(c => lines.push({ ok: false, text: `${c.id}: ${c.insured}, sent by ${c.broker || "unknown"}, ${c.statusText || "in progress"}.` }));
@@ -91,8 +88,10 @@ function p1CheckAppetite(sub) {
   const years = ops.years_in_business;
   const lobOk = LOB_CATALOG.some(l => l.key === sub.lobKey);
   lines.push({ ok: lobOk, text: lobOk ? `Line of business: ${sub.lobName} is written.` : `Line of business: ${sub.lobName || sub.lobKey} is not written.` });
-  const stateOk = !!st && P1_APPETITE.blockedStates.indexOf(st) < 0;
-  lines.push({ ok: stateOk, text: !st ? "State: not given." : stateOk ? `State: ${st} is written.` : `State: ${st} is not written (not written: ${P1_APPETITE.blockedStates.join(", ")}).` });
+  const guide = st && typeof sgFor === "function" ? sgFor(st, sub.lobKey) : null;   // the state guidelines register: the one store of state rules
+  const guideStop = !!guide && guide.position === "Do not write";
+  lines.push({ ok: !!st && !guideStop, text: !st ? "State: not given." : guideStop ? `State: ${st} is not written for ${sub.lobName || sub.lobKey} (state guideline ${guide.id}: ${guide.note}; source ${guide.source}).` : guide ? `State: ${st} is written (state guideline ${guide.id}).` : `State: ${st}; no state guideline is recorded, so nothing restricts it.` });
+  if (guide && guide.position === "Refer") lines.push({ ok: true, text: `State guideline ${guide.id}: ${st} is a refer state for ${guide.lob === "all" ? "all lines" : sub.lobName || sub.lobKey}: ${guide.note} (source ${guide.source}). Send to a senior underwriter.` });
   const yearsKnown = years !== undefined && years !== null && years !== "" && !isNaN(Number(years));
   const yearsOk = yearsKnown && Number(years) >= P1_APPETITE.minYearsInBusiness;
   lines.push({ ok: yearsOk, text: !yearsKnown ? "Years in business: not given." : yearsOk ? `Years in business: ${years} (at least ${P1_APPETITE.minYearsInBusiness} required).` : `Years in business: ${years}; at least ${P1_APPETITE.minYearsInBusiness} required.` });
@@ -112,7 +111,7 @@ function p1CheckWatchlist(sub) {
   sanctionsEnsureScreened(sub, "clearance");
   const s = getSanctionsStatus(sub), latest = s.latest;
   const n = latest && latest.parties ? latest.parties.length : 0;
-  if (s.state === "no_list" || s.state === "not_screened") return Object.assign(base, { status: "unable", summary: "No watchlist is loaded, so the parties could not be screened.", lines: [], needs: "watchlist" });
+  if (clearanceGateStatus(sub).sanctions === "unable") return Object.assign(base, { status: "unable", summary: "No watchlist is loaded, so the parties could not be screened.", lines: [], needs: "watchlist" });
   if (s.state === "blocked") return Object.assign(base, { status: "fail", summary: "A confirmed watchlist match is on file for this case.", lines: s.items.map(i => ({ ok: false, text: `${i.partyName} matches ${i.entryName} (${Math.round(i.score * 100)}%).` })), compliance: true });
   if (s.state === "review_required") {
     const open = s.items.filter(i => !i.review);
@@ -130,7 +129,7 @@ function p1RunChecks(sub) {
     try { out[P1_CHECKS[i].key] = fn(sub); }
     catch (e) { console.warn("Phase 1 check failed:", e); out[P1_CHECKS[i].key] = { key: P1_CHECKS[i].key, title: P1_CHECKS[i].title, status: "unable", summary: "The check could not run: " + (e && e.message || e), lines: [] }; }
   });
-  st.checks = out; st.ranAt = p1Now(); st.runs = (st.runs || 0) + 1;
+  st.checks = out; st.ranAt = nowStamp(); st.runs = (st.runs || 0) + 1;
   const o = p1Outcome(sub);
   st.stage = o === "decline" ? "decline" : "review";
   if (o === "decline") { sub.statusText = "Phase 1: Decline recommended"; sub.statusBadge = "badge-danger"; }
@@ -178,13 +177,13 @@ function p1Submit(e) {
   if (!r.ok) { showToast(r.message, "danger"); return false; }
   const sub = r.sub, st = p1Store(sub);
   sub.operationsProfile = Object.assign({}, sub.operationsProfile, { years_in_business: Number(f.years) });
-  sub.riskStateSet = { state: f.state, by: wsActor(), at: p1Now() };
+  sub.riskStateSet = { state: f.state, by: actorLabel(), at: nowStamp() };
   st.reviewer = f.reviewer; st.stage = "received"; st.checks = null;
   if (!existing) {
     sub.statusText = "Phase 1: Received"; sub.statusBadge = "badge-primary";
-    p1Log(sub, "phase1_received", `Submission created by ${wsActor()}: ${sub.insured}, FEIN ${sub.fein}, ${sub.lobName}, ${f.state}${sub.channelType === "broker" ? ", broker " + sub.broker : ", direct"}. Reviewer: ${p1RoleName(f.reviewer)}.`);
+    p1Log(sub, "phase1_received", `Submission created by ${actorLabel()}: ${sub.insured}, FEIN ${sub.fein}, ${sub.lobName}, ${f.state}${sub.channelType === "broker" ? ", broker " + sub.broker : ", direct"}. Reviewer: ${p1RoleName(f.reviewer)}.`);
   } else {
-    p1Log(sub, "phase1_edited", `Details corrected by ${wsActor()} after the checks; the checks run again. Reviewer: ${p1RoleName(f.reviewer)}.`);
+    p1Log(sub, "phase1_edited", `Details corrected by ${actorLabel()} after the checks; the checks run again. Reviewer: ${p1RoleName(f.reviewer)}.`);
   }
   P1.subId = sub.id; P1.editing = false; P1.draft = ""; P1.form = null;
   if (typeof selectSubmission === "function") selectSubmission(sub.id, false);
@@ -270,7 +269,7 @@ function p1Approve() {
   if (p1Outcome(sub) !== "clear") { showToast("⛔ Approval waits until every check has passed.", "danger"); return; }
   const comment = p1CommentOk(); if (comment === null) return;
   const st = sub.phase1;
-  st.review = { decision: "approved", by: wsActor(), role: currentUserRole, at: p1Now(), comment: comment };
+  st.review = { decision: "approved", by: actorLabel(), role: currentUserRole, at: nowStamp(), comment: comment };
   st.stage = "done";
   sub.statusText = "Phase 1 cleared"; sub.statusBadge = "badge-success";
   p1Log(sub, "phase1_approved", "Phase 1 approved. Reviewer comment: " + comment);
@@ -295,7 +294,7 @@ function p1ConfirmDecline() {
   const sub = p1Sub(); if (!sub) return;
   if (!p1CanAct(sub)) { showToast("⛔ Only the assigned reviewer or the Head of Underwriting can decline this.", "danger"); return; }
   const comment = p1CommentOk(); if (comment === null) return;
-  const st = sub.phase1, why = p1DeclineReason(sub), actor = wsActor(), at = p1Now();
+  const st = sub.phase1, why = p1DeclineReason(sub), actor = actorLabel(), at = nowStamp();
   const failedAny = P1_CHECKS.some(c => st.checks && st.checks[c.key].status === "fail");
   const reasonText = (failedAny ? why.text + " " : "Declined at Phase 1 review. ") + "Reviewer comment: " + comment;
   sub.declinedBy = actor; sub.declineReason = reasonText; sub.declineTriggerPoint = why.trigger;
@@ -418,8 +417,8 @@ function p1ViewCreate() {
   const f = P1.form || { channel: "broker", lobKey: "trucking", insured: "", fein: "", state: "", years: "", broker: "", email: "", reviewer: "admin" };
   const sel = (v, cur) => v === cur ? " selected" : "";
   const states = US_STATE_CODES_FOR_PRODUCER.map(c => `<option value="${c}"${sel(c, f.state)}>${c}</option>`).join("");
-  const lobs = LOB_CATALOG.map(l => `<option value="${l.key}"${sel(l.key, f.lobKey)}>${p1Esc(l.name)}</option>`).join("");
-  const reviewers = ["admin"].concat(ASSIGNABLE_WORKER_ROLES).map(k => `<option value="${k}"${sel(k, f.reviewer)}>${p1Esc(p1RoleName(k))}${k === currentUserRole ? " — me" : ""}</option>`).join("");
+  const lobs = LOB_CATALOG.map(l => `<option value="${l.key}"${sel(l.key, f.lobKey)}>${escHtml(l.name)}</option>`).join("");
+  const reviewers = ["admin"].concat(ASSIGNABLE_WORKER_ROLES).map(k => `<option value="${k}"${sel(k, f.reviewer)}>${escHtml(p1RoleName(k))}${k === currentUserRole ? " — me" : ""}</option>`).join("");
   const direct = f.channel === "direct";
   return `<div class="card p1-card"><div class="card-body">
     <h2 class="p1-h">${P1.editing ? "Correct the details" : "New submission"}</h2>
@@ -428,12 +427,12 @@ function p1ViewCreate() {
       <div class="p1-grid">
         ${p1Field("Where did it come from?", `<select class="form-control" id="p1_channel" onchange="p1ChannelChanged()"><option value="broker"${sel("broker", f.channel)}>Broker or agency</option><option value="direct"${sel("direct", f.channel)}>Direct customer</option></select>`)}
         ${p1Field("Line of business", `<select class="form-control" id="p1_lob">${lobs}</select>`)}
-        ${p1Field("Named insured", `<input class="form-control" id="p1_insured" value="${p1Esc(f.insured)}" placeholder="e.g. Metro Freight Express LLC" required>`)}
-        ${p1Field("FEIN", `<input class="form-control" id="p1_fein" value="${p1Esc(f.fein)}" placeholder="74-9842109" inputmode="numeric" required>`)}
+        ${p1Field("Named insured", `<input class="form-control" id="p1_insured" value="${escHtml(f.insured)}" placeholder="e.g. Metro Freight Express LLC" required>`)}
+        ${p1Field("FEIN", `<input class="form-control" id="p1_fein" value="${escHtml(f.fein)}" placeholder="74-9842109" inputmode="numeric" required>`)}
         ${p1Field("State of the business", `<select class="form-control" id="p1_state" required><option value="">Choose…</option>${states}</select>`)}
-        ${p1Field("Years in business", `<input class="form-control" id="p1_years" type="number" min="0" step="1" value="${p1Esc(f.years)}" required>`)}
-        <div id="p1_broker_group">${p1Field("Broker or agency", `<input class="form-control" id="p1_broker" value="${p1Esc(f.broker)}" placeholder="Name as it appears on the licence"${direct ? "" : " required"}>`)}</div>
-        ${p1Field("Contact email <span class=\"text-muted\">(optional)</span>", `<input class="form-control" id="p1_email" type="email" value="${p1Esc(f.email)}">`)}
+        ${p1Field("Years in business", `<input class="form-control" id="p1_years" type="number" min="0" step="1" value="${escHtml(f.years)}" required>`)}
+        <div id="p1_broker_group">${p1Field("Broker or agency", `<input class="form-control" id="p1_broker" value="${escHtml(f.broker)}" placeholder="Name as it appears on the licence"${direct ? "" : " required"}>`)}</div>
+        ${p1Field("Contact email <span class=\"text-muted\">(optional)</span>", `<input class="form-control" id="p1_email" type="email" value="${escHtml(f.email)}">`)}
         ${p1Field("Who reviews the results?", `<select class="form-control" id="p1_reviewer">${reviewers}</select>`, "This person reads the check results and signs off before the case moves on.")}
       </div>
       <div class="p1-actions">
@@ -453,7 +452,7 @@ function p1ChannelChanged() {
 
 function p1Summary(sub) {
   const st = sub.phase1 || {};
-  const item = (k, v) => `<div><div class="p1-k">${k}</div><div class="p1-v">${p1Esc(v)}</div></div>`;
+  const item = (k, v) => `<div><div class="p1-k">${k}</div><div class="p1-v">${escHtml(v)}</div></div>`;
   return `<div class="p1-summary">${item("Insured", sub.insured)}${item("FEIN", sub.fein)}${item("Line of business", sub.lobName)}${item("State", (sub.riskStateSet || {}).state || "—")}${item("Years in business", (sub.operationsProfile || {}).years_in_business)}${item("Source", sub.channelType === "broker" ? sub.broker : "Direct customer")}${item("Reviewer", p1RoleName(st.reviewer))}</div>`;
 }
 
@@ -462,7 +461,7 @@ function p1ViewReceived(sub) {
   return `<div class="card p1-card"><div class="card-body p1-center">
     <div class="p1-bigicon ok"><i class="ph ph-check-circle"></i></div>
     <h2 class="p1-h">Submission received</h2>
-    <div class="p1-id">${p1Esc(sub.id)}</div>
+    <div class="p1-id">${escHtml(sub.id)}</div>
     <p class="p1-sub">Four checks now run automatically. You do not need to do anything.</p>
     ${p1Summary(sub)}
     <ol class="p1-next">${P1_CHECKS.map(c => `<li><i class="ph ${c.icon}"></i> ${c.title}</li>`).join("")}</ol>
@@ -478,14 +477,14 @@ function p1StatusBadge(status) {
 function p1CheckRow(sub, i, revealed) {
   const meta = P1_CHECKS[i], res = sub.phase1 && sub.phase1.checks && sub.phase1.checks[meta.key];
   if (!revealed || !res) return `<li class="p1-row${i === 0 ? " p1-running" : ""}" id="p1_row_${i}"><span class="p1-rowicon"><i class="ph ${meta.icon}"></i></span><div class="p1-rowmain"><div class="p1-rowtitle">${meta.title}</div><div class="p1-rowtext">${meta.what}</div></div><span class="p1-wait"><span class="p1-spin"></span></span></li>`;
-  return `<li class="p1-row p1-${res.status}" id="p1_row_${i}"><span class="p1-rowicon"><i class="ph ${meta.icon}"></i></span><div class="p1-rowmain"><div class="p1-rowtitle">${meta.title}</div><div class="p1-rowtext">${p1Esc(res.summary)}</div></div>${p1StatusBadge(res.status)}</li>`;
+  return `<li class="p1-row p1-${res.status}" id="p1_row_${i}"><span class="p1-rowicon"><i class="ph ${meta.icon}"></i></span><div class="p1-rowmain"><div class="p1-rowtitle">${meta.title}</div><div class="p1-rowtext">${escHtml(res.summary)}</div></div>${p1StatusBadge(res.status)}</li>`;
 }
 
 function p1ViewChecks(sub) {
   if (!sub) return "";
   return `<div class="card p1-card"><div class="card-body">
     <h2 class="p1-h">Running checks</h2>
-    <p class="p1-sub">${p1Esc(sub.insured)} · ${p1Esc(sub.id)} · checked in this order, automatically.</p>
+    <p class="p1-sub">${escHtml(sub.insured)} · ${escHtml(sub.id)} · checked in this order, automatically.</p>
     <div class="p1-progress"><div class="p1-progress-bar" id="p1_bar" style="width:0"></div></div>
     <ul class="p1-rows">${P1_CHECKS.map((c, i) => p1CheckRow(sub, i, false)).join("")}</ul>
     <div class="p1-actions"><button class="btn btn-outline btn-sm" style="width:auto;" onclick="p1SkipWait()">Skip to results</button></div>
@@ -496,8 +495,8 @@ function p1ViewChecks(sub) {
 function p1ResultsHtml(sub) {
   return `<ul class="p1-rows">` + P1_CHECKS.map((meta, i) => {
     const res = sub.phase1.checks[meta.key];
-    const lines = (res.lines || []).length ? `<details class="p1-details"><summary>Details</summary><ul>${res.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-check" : "ph-x"}"></i> ${p1Esc(l.text)}</li>`).join("")}</ul></details>` : "";
-    return `<li class="p1-row p1-${res.status}"><span class="p1-rowicon"><i class="ph ${meta.icon}"></i></span><div class="p1-rowmain"><div class="p1-rowtitle">${meta.title}</div><div class="p1-rowtext">${p1Esc(res.summary)}</div>${lines}</div>${p1StatusBadge(res.status)}</li>`;
+    const lines = (res.lines || []).length ? `<details class="p1-details"><summary>Details</summary><ul>${res.lines.map(l => `<li class="${l.ok ? "" : "bad"}"><i class="ph ${l.ok ? "ph-check" : "ph-x"}"></i> ${escHtml(l.text)}</li>`).join("")}</ul></details>` : "";
+    return `<li class="p1-row p1-${res.status}"><span class="p1-rowicon"><i class="ph ${meta.icon}"></i></span><div class="p1-rowmain"><div class="p1-rowtitle">${meta.title}</div><div class="p1-rowtext">${escHtml(res.summary)}</div>${lines}</div>${p1StatusBadge(res.status)}</li>`;
   }).join("") + `</ul>`;
 }
 
@@ -506,8 +505,8 @@ function p1ViewDecision(sub) {
   const st = sub.phase1, o = p1Outcome(sub), final = ["done", "declined"].indexOf(st.stage) > -1, can = p1CanAct(sub);
   const checks = st.checks;
   let banner;
-  if (st.stage === "declined") banner = `<div class="p1-banner bad"><i class="ph ph-prohibit"></i><div><strong>Declined.</strong> Recorded in the Decline Center on ${p1Esc(st.review.at)} by ${p1Esc(st.review.by)}.</div></div>`;
-  else if (st.stage === "done") banner = `<div class="p1-banner ok"><i class="ph ph-check-circle"></i><div><strong>Approved</strong> on ${p1Esc(st.review.at)} by ${p1Esc(st.review.by)}.</div></div>`;
+  if (st.stage === "declined") banner = `<div class="p1-banner bad"><i class="ph ph-prohibit"></i><div><strong>Declined.</strong> Recorded in the Decline Center on ${escHtml(st.review.at)} by ${escHtml(st.review.by)}.</div></div>`;
+  else if (st.stage === "done") banner = `<div class="p1-banner ok"><i class="ph ph-check-circle"></i><div><strong>Approved</strong> on ${escHtml(st.review.at)} by ${escHtml(st.review.by)}.</div></div>`;
   else if (o === "decline") {
     const failed = P1_CHECKS.filter(c => checks[c.key].status === "fail");
     banner = `<div class="p1-banner bad"><i class="ph ph-prohibit"></i><div><strong>Decline recommended.</strong> ${failed.length === 1 ? "One check" : failed.length + " checks"} failed: ${failed.map(c => c.title.toLowerCase()).join(", ")}. No quote is prepared and nobody outside the company is told until the reviewer confirms.</div></div>`;
@@ -524,7 +523,7 @@ function p1ViewDecision(sub) {
   let review = "";
   if (final) {
     review = `<div class="card p1-card"><div class="card-body"><h3 class="p1-h3"><i class="ph ph-chat-text"></i> Reviewer's comment</h3>
-      <div class="p1-quote">${p1Esc(st.review.comment)}</div><div class="p1-note">${p1Esc(st.review.by)} · ${p1Esc(st.review.at)}</div>
+      <div class="p1-quote">${escHtml(st.review.comment)}</div><div class="p1-note">${escHtml(st.review.by)} · ${escHtml(st.review.at)}</div>
       <div class="p1-actions">${st.stage === "declined" ? `<button class="btn btn-outline" onclick="p1OpenDeclineCenter()"><i class="ph ph-prohibit"></i> Open Decline Center</button>` : `<button class="btn btn-primary" onclick="p1EnterWorkflow('${sub.id}')">Open workflow</button>`}<button class="btn btn-outline" onclick="showIntakePage()">Back to queue</button></div>
     </div></div>`;
   } else {
@@ -536,16 +535,16 @@ function p1ViewDecision(sub) {
     const decline = o === "decline" ? `<button class="btn btn-danger" onclick="p1ConfirmDecline()"${dis}><i class="ph ph-prohibit"></i> Confirm decline</button>` : `<button class="btn btn-outline-danger" onclick="p1ConfirmDecline()"${dis}><i class="ph ph-prohibit"></i> Decline instead</button>`;
     const hint = o === "decline" ? "Say what you checked and why you are confirming the decline. If a detail was mistyped, correct it instead." : o === "clear" ? "Say what you reviewed and why you are approving." : "Add a note for the file. You can decline now or wait for the missing data.";
     review = `<div class="card p1-card"><div class="card-body"><h3 class="p1-h3"><i class="ph ph-user-check"></i> Human review</h3>
-      <p class="p1-sub" style="margin-bottom:8px;">Reviewer: <strong>${p1Esc(who)}</strong>${can ? "" : ` · you are signed in as ${p1Esc(p1RoleName(currentUserRole))}, so this is read-only. Switch to the reviewer to sign off.`}</p>
+      <p class="p1-sub" style="margin-bottom:8px;">Reviewer: <strong>${escHtml(who)}</strong>${can ? "" : ` · you are signed in as ${escHtml(p1RoleName(currentUserRole))}, so this is read-only. Switch to the reviewer to sign off.`}</p>
       <label class="p1-label" for="p1_comment">Your comment <span class="text-muted">(required)</span></label>
-      <textarea id="p1_comment" class="form-control" rows="3" placeholder="${p1Esc(hint)}" oninput="p1Draft()"${dis}>${p1Esc(P1.draft)}</textarea>
+      <textarea id="p1_comment" class="form-control" rows="3" placeholder="${escHtml(hint)}" oninput="p1Draft()"${dis}>${escHtml(P1.draft)}</textarea>
       <div class="p1-actions">${approve}${rerun}${fix}${decline}</div>
     </div></div>`;
   }
 
-  return `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">${p1Esc(sub.insured)}</h2><div class="p1-id">${p1Esc(sub.id)}</div></div></div>
+  return `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">${escHtml(sub.insured)}</h2><div class="p1-id">${escHtml(sub.id)}</div></div></div>
     ${banner}
-    <div class="card p1-card"><div class="card-body">${p1Summary(sub)}<h3 class="p1-h3" style="margin-top:16px;"><i class="ph ph-list-checks"></i> Check results</h3>${p1ResultsHtml(sub)}<div class="p1-note">Run ${st.runs} time${st.runs === 1 ? "" : "s"}, last at ${p1Esc(st.ranAt)}.</div></div></div>
+    <div class="card p1-card"><div class="card-body">${p1Summary(sub)}<h3 class="p1-h3" style="margin-top:16px;"><i class="ph ph-list-checks"></i> Check results</h3>${p1ResultsHtml(sub)}<div class="p1-note">Run ${st.runs} time${st.runs === 1 ? "" : "s"}, last at ${escHtml(st.ranAt)}.</div></div></div>
     ${needs}
     ${review}`;
 }

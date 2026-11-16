@@ -55,12 +55,9 @@ function obsPathKnown(path) { return !!OBS_PATHS[path] || /^vehicle\.\d+\.(year|
 // ----------------------------------------------------------------------------
 // 2. SMALL HELPERS
 // ----------------------------------------------------------------------------
-function obsEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-function obsNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function obsToday() { return new Date().toISOString().slice(0, 10); }
 function obsActor() { return typeof authActor === "function" ? authActor() : String(currentUserRole); }
 function obsSave() { if (typeof persistAppState === "function") persistAppState(); }
-function obsLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 4, decision: decision, by: obsActor(), at: obsNow(), notes: notes }); }
+function obsLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 4, decision: decision, by: obsActor(), at: nowStamp(), notes: notes }); }
 function obsBlank(v) { return v === null || v === undefined || String(v).trim() === "" || (typeof diIsBlank === "function" && diIsBlank(v)); }
 function obsSub() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
 function obsNextId(list, prefix) { let n = 0; (list || []).forEach(x => { const m = new RegExp("^" + prefix + "-(\\d+)$").exec(x.id); if (m) n = Math.max(n, +m[1]); }); return prefix + "-" + (n + 1); }
@@ -98,7 +95,7 @@ function obsSig(o) { return [o.path, o.sourceType, o.sourceRef, obsNorm(o.path, 
 /** Adds an observation and returns it. */
 function obsAdd(sub, o) {
   if (!sub.dataObservations) sub.dataObservations = [];
-  const rec = Object.assign({ id: obsNextId(sub.dataObservations, "OBS"), page: null, snippet: "", method: "", confidence: 1, asOf: obsToday(), observedBy: "", observedAt: obsNow(), status: "current" }, o);
+  const rec = Object.assign({ id: obsNextId(sub.dataObservations, "OBS"), page: null, snippet: "", method: "", confidence: 1, asOf: todayIso(), observedBy: "", observedAt: nowStamp(), status: "current" }, o);
   rec.value = String(rec.value); if (rec.rawValue === undefined) rec.rawValue = rec.value;
   sub.dataObservations.push(rec);
   return rec;
@@ -129,7 +126,7 @@ function obsCollectFromDocuments(sub, sources, draft) {
     if (cur) { cur.page = o.page; cur.snippet = o.snippet; cur.confidence = o.confidence; cur.method = o.method; keep[sig] = true; }
     else { obsAdd(sub, o); keep[sig] = true; }
   });
-  Object.keys(have).forEach(sig => { if (!keep[sig]) { have[sig].status = "withdrawn"; have[sig].withdrawnAt = obsNow(); } });
+  Object.keys(have).forEach(sig => { if (!keep[sig]) { have[sig].status = "withdrawn"; have[sig].withdrawnAt = nowStamp(); } });
   sub.obsCollected = true;
   obsDetect(sub);
 }
@@ -149,7 +146,7 @@ function obsCandidateSig(sub, path) { return obsLive(sub).filter(o => o.path ===
 /** Writes a resolution: closes the one in force and points back at it. Does not check who may; the callers do. */
 function obsRecordResolution(sub, path, o) {
   if (!sub.dataResolutions) sub.dataResolutions = [];
-  const prev = obsCurrentRes(sub, path), now = obsNow();
+  const prev = obsCurrentRes(sub, path), now = nowStamp();
   if (prev) prev.validTo = now;
   const seq = obsResolutions(sub, path).length + 1;
   const rec = { id: obsNextId(sub.dataResolutions, "RES"), path: path, seq: seq, value: String(o.value), chosenObservationId: o.observationId || null, method: o.method, reasonCode: o.reasonCode || "", reason: o.reason || "", resolvedBy: o.by || obsActor(), resolvedAt: now, validFrom: now, validTo: null, supersedesId: prev ? prev.id : null, discrepancyId: o.discrepancyId || null, candidateSig: "" };
@@ -207,7 +204,7 @@ function obsWaive(sub, discId, reason) {
   if (reason.length < OBS_MIN_REASON) return { ok: false, error: "reason" };
   const d = (sub.dataDiscrepancies || []).find(x => x.id === discId && x.status === "open");
   if (!d) return { ok: false, error: "none" };
-  d.status = "waived"; d.waivedBy = obsActor(); d.waivedAt = obsNow(); d.waiveReason = reason; d.waivedSig = d.sig;
+  d.status = "waived"; d.waivedBy = obsActor(); d.waivedAt = nowStamp(); d.waiveReason = reason; d.waivedSig = d.sig;
   obsLog(sub, "data_waived", obsPathInfo(d.path).label + " (" + d.type.replace("_", " ") + ") waived: " + reason);
   obsSave();
   return { ok: true };
@@ -261,7 +258,7 @@ function obsDetect(sub) {
     let d = sub.dataDiscrepancies.find(x => x.path === w.path && x.type === w.type);
     const blocks = w.type === "stale_rating" ? "quote" : info.blocks;
     if (!d) {
-      d = { id: obsNextId(sub.dataDiscrepancies, "DSC"), path: w.path, label: info.label, type: w.type, severity: obsSeverity(blocks), blocksStage: blocks, status: "open", detectedAt: obsNow(), assignedTo: sub.assignedTo || null, candidateIds: w.candidateIds || [], sig: w.sig };
+      d = { id: obsNextId(sub.dataDiscrepancies, "DSC"), path: w.path, label: info.label, type: w.type, severity: obsSeverity(blocks), blocksStage: blocks, status: "open", detectedAt: nowStamp(), assignedTo: sub.assignedTo || null, candidateIds: w.candidateIds || [], sig: w.sig };
       sub.dataDiscrepancies.push(d);
     } else {
       d.blocksStage = blocks; d.severity = obsSeverity(blocks); d.candidateIds = w.candidateIds || d.candidateIds;
@@ -279,7 +276,7 @@ function obsDetect(sub) {
     }
   });
   // Whatever is no longer wanted has settled by itself.
-  sub.dataDiscrepancies.forEach(d => { if (d.status === "open" && !wanted[d.path + "|" + d.type]) { d.status = "resolved"; d.resolvedAt = obsNow(); d.resolutionId = (obsCurrentRes(sub, d.path) || {}).id || null; d.settledBy = "System"; } });
+  sub.dataDiscrepancies.forEach(d => { if (d.status === "open" && !wanted[d.path + "|" + d.type]) { d.status = "resolved"; d.resolvedAt = nowStamp(); d.resolutionId = (obsCurrentRes(sub, d.path) || {}).id || null; d.settledBy = "System"; } });
   return sub.dataDiscrepancies;
 }
 
@@ -297,7 +294,7 @@ function obsBlockText(list) { return list.map(d => d.label + " (" + d.type.repla
 function obsPinResolutions(sub) {
   const pins = {};
   (sub.dataResolutions || []).filter(r => !r.validTo).forEach(r => { pins[r.path] = r.id; });
-  sub.ratingPins = { at: obsNow(), by: obsActor(), pins: pins };
+  sub.ratingPins = { at: nowStamp(), by: obsActor(), pins: pins };
   obsDetect(sub); obsSave();
   return sub.ratingPins;
 }
@@ -344,7 +341,7 @@ function enrichOrder(sub, code, opts) {
   const fr = enrFreshness(enrLatestResponse(sub, code));
   if (fr.state === "fresh" && !opts.force) return { ok: false, error: "fresh", until: fr.until };
   if (!sub.enrichmentRequests) sub.enrichmentRequests = [];
-  const req = { id: obsNextId(sub.enrichmentRequests, "ENR"), productCode: code, providerCode: p.provider, reason: String(opts.reason || "").trim(), requestedBy: obsActor(), requestedAt: obsNow(), status: "sent", estimatedCost: p.unitCost, currency: p.currency };
+  const req = { id: obsNextId(sub.enrichmentRequests, "ENR"), productCode: code, providerCode: p.provider, reason: String(opts.reason || "").trim(), requestedBy: obsActor(), requestedAt: nowStamp(), status: "sent", estimatedCost: p.unitCost, currency: p.currency };
   sub.enrichmentRequests.push(req);
   obsLog(sub, "data_ordered", p.name + " ordered from " + (DATA_PROVIDERS.find(x => x.code === p.provider) || {}).name + (p.unitCost === null ? " (fee set by the state)" : p.unitCost ? " (about $" + p.unitCost + ")" : " (no fee)") + ".");
   obsSave();
@@ -381,7 +378,7 @@ function enrichReceive(sub, requestId, o) {
   if (status === "matched") {
     // the previous answer from this product is superseded
     const old = enrResponses(sub).filter(r => r.productCode === req.productCode && r.id !== resp.id).map(r => r.id);
-    (sub.dataObservations || []).forEach(x => { if (x.status === "current" && x.sourceType === "PROVIDER" && old.indexOf(x.responseId) > -1) { x.status = "superseded"; x.supersededAt = obsNow(); } });
+    (sub.dataObservations || []).forEach(x => { if (x.status === "current" && x.sourceType === "PROVIDER" && old.indexOf(x.responseId) > -1) { x.status = "superseded"; x.supersededAt = nowStamp(); } });
     Object.keys(resp.values).forEach(path => obsAdd(sub, { path: path, value: resp.values[path], sourceType: "PROVIDER", sourceRef: req.productCode, responseId: resp.id, method: (DATA_PROVIDERS.find(x => x.code === req.providerCode) || {}).name, confidence: match, asOf: nowIso.slice(0, 10), expiresAt: resp.expiresAt, observedBy: obsActor() }));
     sub.obsCollected = true;
   }
@@ -491,19 +488,19 @@ function obsConfPct(c) { return Math.round((c || 0) * 100) + "%"; }
 
 function obsCandidateHtml(sub, d, o, canResolve) {
   const where = [o.sourceType === "USER" ? "Entered by " + o.sourceRef : o.sourceType === "PROVIDER" ? o.method + " (" + o.sourceRef + ")" : o.sourceRef, o.page ? "page " + o.page : "", o.method && o.sourceType !== "PROVIDER" && o.sourceType !== "USER" ? o.method : ""].filter(Boolean).join(", ");
-  return `<tr><td><strong>${obsEsc(o.value)}</strong></td><td>${obsEsc(where)}${o.snippet ? `<div class="text-xs text-muted">${obsEsc(o.snippet)}</div>` : ""}</td><td>${obsConfPct(o.confidence)}</td><td>${obsEsc(o.asOf)}${o.expiresAt ? `<div class="text-xs text-muted">fresh until ${obsEsc(o.expiresAt.slice(0, 10))}</div>` : ""}</td><td>${canResolve ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="obsUiPick('${sub.id}','${d.id}','${o.id}')">Use this</button>` : ""}</td></tr>`;
+  return `<tr><td><strong>${escHtml(o.value)}</strong></td><td>${escHtml(where)}${o.snippet ? `<div class="text-xs text-muted">${escHtml(o.snippet)}</div>` : ""}</td><td>${obsConfPct(o.confidence)}</td><td>${escHtml(o.asOf)}${o.expiresAt ? `<div class="text-xs text-muted">fresh until ${escHtml(o.expiresAt.slice(0, 10))}</div>` : ""}</td><td>${canResolve ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="obsUiPick('${sub.id}','${d.id}','${o.id}')">Use this</button>` : ""}</td></tr>`;
 }
 function obsDiscrepancyHtml(sub, d) {
   const canResolve = hasPermission("completeness", "edit"), canWaive = hasPermission("completeness", "approve");
   const cands = obsLive(sub).filter(o => o.path === d.path);
-  const blocks = d.blocksStage ? `<span class="badge badge-danger">blocks ${obsEsc(OBS_STAGE_LABELS[d.blocksStage])}</span>` : '<span class="badge badge-light">does not block</span>';
+  const blocks = d.blocksStage ? `<span class="badge badge-danger">blocks ${escHtml(OBS_STAGE_LABELS[d.blocksStage])}</span>` : '<span class="badge badge-light">does not block</span>';
   return `<div style="border:1px solid var(--border-color,#ddd);border-radius:6px;padding:10px;margin-bottom:8px;" data-disc="${d.id}">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><strong>${obsEsc(d.label)}</strong><span class="badge badge-warning">${obsEsc(OBS_TYPE_TEXT[d.type])}</span>${blocks}<span class="text-xs text-muted">${obsEsc(d.id)}, found ${obsEsc(d.detectedAt)}</span></div>
-    ${d.type === "stale_rating" ? `<p class="ws-small" style="margin:6px 0;">The case was rated on a different value for this field. Change history: <strong>${obsEsc(obsChainText(sub, d.path))}</strong>. Re-rate, then confirm below.</p>${canResolve ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="obsUiRepin('${sub.id}')">The case is re-rated on the current values</button>` : ""}` : `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><strong>${escHtml(d.label)}</strong><span class="badge badge-warning">${escHtml(OBS_TYPE_TEXT[d.type])}</span>${blocks}<span class="text-xs text-muted">${escHtml(d.id)}, found ${escHtml(d.detectedAt)}</span></div>
+    ${d.type === "stale_rating" ? `<p class="ws-small" style="margin:6px 0;">The case was rated on a different value for this field. Change history: <strong>${escHtml(obsChainText(sub, d.path))}</strong>. Re-rate, then confirm below.</p>${canResolve ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="obsUiRepin('${sub.id}')">The case is re-rated on the current values</button>` : ""}` : `
     ${cands.length ? `<table class="data-table" style="margin-top:6px;"><thead><tr><th>Value</th><th>Source</th><th>Confidence</th><th>As of</th><th></th></tr></thead><tbody>${cands.map(o => obsCandidateHtml(sub, d, o, canResolve && d.type !== "stale")).join("")}</tbody></table>` : '<p class="ws-small" style="margin:6px 0;">No source states this value.</p>'}
     ${canResolve ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;margin-top:6px;" class="ws-small">
       <input id="obs_val_${d.id}" class="form-control form-control-sm" placeholder="Or enter the value">
-      <select id="obs_code_${d.id}" class="form-control form-control-sm">${Object.keys(OBS_REASON_CODES).map(k => `<option value="${k}">${obsEsc(OBS_REASON_CODES[k])}</option>`).join("")}</select>
+      <select id="obs_code_${d.id}" class="form-control form-control-sm">${Object.keys(OBS_REASON_CODES).map(k => `<option value="${k}">${escHtml(OBS_REASON_CODES[k])}</option>`).join("")}</select>
       <input id="obs_reason_${d.id}" class="form-control form-control-sm" placeholder="Why (at least ${OBS_MIN_REASON} characters)">
       <button class="btn btn-sm btn-primary" style="width:auto;" onclick="obsUiEnter('${sub.id}','${d.id}')">Resolve with this value</button>
       ${canWaive ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="obsUiWaive('${sub.id}','${d.id}')">Accept as it is (waive)</button>` : ""}</div>` : '<p class="ws-small text-muted" style="margin:6px 0;">You can read this; resolving needs the completeness edit permission.</p>'}`}
@@ -522,10 +519,10 @@ function renderDataObservations(sub) {
     <div class="card-body">
       <p class="ws-small text-muted" style="margin:0 0 8px;">Every value any source gave is kept with where it came from, how sure the reading was and the date it is as of. The case uses only resolved values. A discrepancy blocks rating, the quote or the bind until a person resolves it.</p>
       ${open.length ? open.map(d => obsDiscrepancyHtml(sub, d)).join("") : '<p class="ws-small" style="margin:0 0 8px;">Nothing is open.</p>'}
-      ${chains.length ? `<div class="uwp-subsection-title">Change history</div><ul class="ws-small" style="margin:0 0 8px;">${chains.map(p => `<li><strong>${obsEsc(obsPathInfo(p).label)}</strong>: ${obsEsc(obsChainText(sub, p))}</li>`).join("")}</ul>` : ""}
-      ${resolved.length ? `<details><summary class="ws-small">${resolved.length} settled</summary><ul class="ws-small">${resolved.map(d => `<li>${obsEsc(d.label)} (${obsEsc(OBS_TYPE_TEXT[d.type])}): ${d.status === "waived" ? "waived by " + obsEsc(d.waivedBy) + ", " + obsEsc(d.waiveReason) : "resolved to " + obsEsc((sub.dataResolutions || []).filter(r => r.id === d.resolutionId).map(r => r.value)[0] || "")}</li>`).join("")}</ul></details>` : ""}
+      ${chains.length ? `<div class="uwp-subsection-title">Change history</div><ul class="ws-small" style="margin:0 0 8px;">${chains.map(p => `<li><strong>${escHtml(obsPathInfo(p).label)}</strong>: ${escHtml(obsChainText(sub, p))}</li>`).join("")}</ul>` : ""}
+      ${resolved.length ? `<details><summary class="ws-small">${resolved.length} settled</summary><ul class="ws-small">${resolved.map(d => `<li>${escHtml(d.label)} (${escHtml(OBS_TYPE_TEXT[d.type])}): ${d.status === "waived" ? "waived by " + escHtml(d.waivedBy) + ", " + escHtml(d.waiveReason) : "resolved to " + escHtml((sub.dataResolutions || []).filter(r => r.id === d.resolutionId).map(r => r.value)[0] || "")}</li>`).join("")}</ul></details>` : ""}
       <details style="margin-top:6px;"><summary class="ws-small">Where each value came from (${live.length})</summary>
-        <table class="data-table"><thead><tr><th>Field</th><th>Value</th><th>Source</th><th>Location</th><th>Confidence</th><th>As of</th></tr></thead><tbody>${live.map(o => `<tr><td>${obsEsc(obsPathInfo(o.path).label)}</td><td>${obsEsc(o.value)}</td><td>${obsEsc(o.sourceType)}: ${obsEsc(o.sourceRef)}</td><td>${obsEsc([o.page ? "page " + o.page : "", o.method].filter(Boolean).join(", "))}</td><td>${obsConfPct(o.confidence)}</td><td>${obsEsc(o.asOf)}</td></tr>`).join("")}</tbody></table></details>
+        <table class="data-table"><thead><tr><th>Field</th><th>Value</th><th>Source</th><th>Location</th><th>Confidence</th><th>As of</th></tr></thead><tbody>${live.map(o => `<tr><td>${escHtml(obsPathInfo(o.path).label)}</td><td>${escHtml(o.value)}</td><td>${escHtml(o.sourceType)}: ${escHtml(o.sourceRef)}</td><td>${escHtml([o.page ? "page " + o.page : "", o.method].filter(Boolean).join(", "))}</td><td>${obsConfPct(o.confidence)}</td><td>${escHtml(o.asOf)}</td></tr>`).join("")}</tbody></table></details>
     </div></div>`;
   hosts.forEach(h => { h.innerHTML = html; });
 }
@@ -537,13 +534,13 @@ function renderEnrichment(sub) {
   const canEdit = hasPermission("submissionData", "edit");
   const rows = DATA_PRODUCTS.filter(p => !p.lob || p.lob.indexOf(sub.lobKey || "trucking") > -1).map(p => {
     const open = enrRequests(sub).filter(r => r.productCode === p.code && r.status === "sent")[0], resp = enrLatestResponse(sub, p.code), fr = enrFreshness(resp);
-    const status = open ? `<span class="badge badge-warning">Ordered ${obsEsc(open.requestedAt)}, waiting</span>` : fr.state === "fresh" ? `<span class="badge badge-success">Fresh until ${obsEsc(fr.until)}</span>` : fr.state === "expired" ? `<span class="badge badge-danger">Expired ${obsEsc(fr.until)}</span>` : '<span class="badge badge-light">Not ordered</span>';
+    const status = open ? `<span class="badge badge-warning">Ordered ${escHtml(open.requestedAt)}, waiting</span>` : fr.state === "fresh" ? `<span class="badge badge-success">Fresh until ${escHtml(fr.until)}</span>` : fr.state === "expired" ? `<span class="badge badge-danger">Expired ${escHtml(fr.until)}</span>` : '<span class="badge badge-light">Not ordered</span>';
     const cost = p.unitCost === null ? "set by the state" : p.unitCost === 0 ? "no fee" : "$" + p.unitCost;
     const form = open && canEdit ? `<div style="margin-top:6px;" class="ws-small"><textarea id="enr_vals_${open.id}" class="form-control" rows="3" placeholder="One value per line, e.g.&#10;insured: Links LLC&#10;dot: 1234567"></textarea>
       <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;"><input id="enr_cost_${open.id}" type="number" step="0.01" class="form-control form-control-sm" style="width:130px;" placeholder="Cost ($)"><input id="enr_match_${open.id}" type="number" min="0" max="100" class="form-control form-control-sm" style="width:130px;" placeholder="Match %" value="100">
       <select id="enr_status_${open.id}" class="form-control form-control-sm" style="width:auto;"><option value="matched">Provider matched</option><option value="no_match">No match</option><option value="error">Request failed</option></select>
       <button class="btn btn-sm btn-primary" style="width:auto;" onclick="enrUiRecord('${sub.id}','${open.id}')">Record the response</button></div></div>` : "";
-    return `<tr><td><strong>${obsEsc(p.name)}</strong><div class="text-xs text-muted">${obsEsc((DATA_PROVIDERS.find(x => x.code === p.provider) || {}).name)}. ${obsEsc(p.note)}</div>${form}</td><td>${cost}</td><td>${p.ttlHours >= 8760 ? Math.round(p.ttlHours / 8760) + " year" : p.ttlHours % 24 === 0 ? p.ttlHours / 24 + " days" : p.ttlHours + " h"}</td><td>${status}${resp ? `<div class="text-xs text-muted">${resp.status === "matched" ? Object.keys(resp.values).length + " value(s)" : resp.status}, ${resp.costAmount === null ? "fee not entered" : "$" + resp.costAmount}, match ${obsConfPct(resp.matchConfidence)}</div>` : ""}</td><td>${canEdit && !open ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="enrUiOrder('${sub.id}','${p.code}')">${fr.state === "none" ? "Order" : "Order again"}</button>` : ""}</td></tr>`;
+    return `<tr><td><strong>${escHtml(p.name)}</strong><div class="text-xs text-muted">${escHtml((DATA_PROVIDERS.find(x => x.code === p.provider) || {}).name)}. ${escHtml(p.note)}</div>${form}</td><td>${cost}</td><td>${p.ttlHours >= 8760 ? Math.round(p.ttlHours / 8760) + " year" : p.ttlHours % 24 === 0 ? p.ttlHours / 24 + " days" : p.ttlHours + " h"}</td><td>${status}${resp ? `<div class="text-xs text-muted">${resp.status === "matched" ? Object.keys(resp.values).length + " value(s)" : resp.status}, ${resp.costAmount === null ? "fee not entered" : "$" + resp.costAmount}, match ${obsConfPct(resp.matchConfidence)}</div>` : ""}</td><td>${canEdit && !open ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="enrUiOrder('${sub.id}','${p.code}')">${fr.state === "none" ? "Order" : "Order again"}</button>` : ""}</td></tr>`;
   }).join("");
   box.innerHTML = `<div class="card" style="margin-top:12px;"><div class="card-header"><h3><i class="ph ph-cloud-arrow-down"></i> Provider data: orders, cost and freshness</h3><span class="badge badge-light">Spent on this case: $${enrTotalCost(sub).toFixed(2)}</span></div>
     <div class="card-body"><div class="alert alert-warning ws-small"><i class="ph ph-plug"></i> <strong>No provider is connected.</strong> An order here records the request; get the answer from the provider's public record and enter it. Its values are compared with what the documents said, and the answer expires after the window shown.</div>

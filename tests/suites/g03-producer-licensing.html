@@ -154,7 +154,7 @@
     window.openESignatureModal();
     t('both guards pass -> e-signature opens', modal.style.display === 'flex');
     modal.style.display = 'none';
-    t('XSS-safe', producerEsc('<script>') === '&lt;script&gt;');
+    t('XSS-safe', escHtml('<script>') === '&lt;script&gt;');
 
     // --- the risk state is where the customer's business is, read from the email when the case has no address of its own
     var DEMO_EMAIL = 'Please quote auto liability for Delta Haulers LLC, a for-hire dry-freight carrier based in Dallas, TX.\n\nInsured: Delta Haulers LLC\nAddress: 1200 Commerce St, Dallas, TX 75202\nStates Operated: OK, NM, AZ\n';

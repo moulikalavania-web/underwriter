@@ -32,7 +32,7 @@ function referralPending(sub) { return !!authPendingReferral(sub); }
 function referralBadgeHtml(sub) {
   if (referralPending(sub)) {
     if (referredToRole(sub, currentUserRole)) return '<span class="badge badge-danger text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you</span>';
-    return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-hourglass-medium"></i> Awaiting ' + authEsc(authRoleOwnerName(authPendingReferral(sub).requiredRole)) + '</span>';
+    return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-hourglass-medium"></i> Awaiting ' + escHtml(authRoleOwnerName(authPendingReferral(sub).requiredRole)) + '</span>';
   }
   return '<span class="badge badge-warning text-xs" style="font-size: 10px; margin-left: 4px;"><i class="ph ph-user"></i> Referral</span>';
 }
@@ -84,7 +84,7 @@ function renderScopeOverviewHtml(roleConfig) {
   const box = (icon, label, n) => `<div class="metric-box"><span class="lbl"><i class="ph ${icon}"></i> ${label}</span><strong class="val">${n}</strong></div>`;
   return `
     <div class="card mb-2"><div class="card-body">
-      <p class="text-sm" style="margin:0;"><i class="ph ph-eye"></i> ${authEsc(roleConfig.limitText || "Read-only access")}. The cases you may see are listed in the queue below; none of them is assigned to you.</p>
+      <p class="text-sm" style="margin:0;"><i class="ph ph-eye"></i> ${escHtml(roleConfig.limitText || "Read-only access")}. The cases you may see are listed in the queue below; none of them is assigned to you.</p>
     </div></div>
     <div class="metric-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:12px;">
       ${box("ph-folders", "Cases in view (all products)", seen.length)}
@@ -143,11 +143,11 @@ function renderManagerDashboardHtml() {
             const ref = authPendingReferral(sub);
             return `<tr onclick="openCaseAtCurrentStep('${sub.id}')" style="cursor:pointer;">
               <td><span class="badge badge-light font-mono">${sub.id}</span></td>
-              <td>${authEsc(sub.insured)}</td>
-              <td><strong>${authEsc(authRoleOwner(ref.requiredRole))}</strong></td>
-              <td>${authEsc(ref.raisedBy)}</td>
+              <td>${escHtml(sub.insured)}</td>
+              <td><strong>${escHtml(authRoleOwner(ref.requiredRole))}</strong></td>
+              <td>${escHtml(ref.raisedBy)}</td>
               <td>${referralAgeLabel(ref)}</td>
-              <td class="text-xs">${authEsc(String(ref.note || "").slice(0, 110))}</td>
+              <td class="text-xs">${escHtml(String(ref.note || "").slice(0, 110))}</td>
               <td><button class="btn-action-view btn-action-primary" onclick="event.stopPropagation(); openCaseAtCurrentStep('${sub.id}');"><i class="ph ph-eye"></i> View</button></td>
             </tr>`;
           }).join("")}</tbody></table></div>` : `<p class="text-sm text-muted" style="margin:12px 16px;">No referral is waiting for a decision.</p>`}
@@ -254,7 +254,7 @@ function renderWorkerDashboardHtml() {
     <div class="card mb-2" style="border-color:#fca5a5; background:#fef2f2;">
       <div class="card-body">
         <h3 style="margin:0 0 6px;"><i class="ph ph-arrow-fat-line-right"></i> Referred to you (${referredToMe.length})</h3>
-        ${referredToMe.map(r => { const ref = authPendingReferral(r); return `<div class="text-sm" style="margin:4px 0;"><strong>${authEsc(r.insured)}</strong> <code class="font-mono text-xs">${r.id}</code> from ${authEsc(String(ref.raisedBy || "").split(" (")[0])}, ${referralAgeLabel(ref)} ago: <span class="text-muted">${authEsc(String(ref.note || "").slice(0, 120))}</span> <a href="#" onclick="openCaseAtCurrentStep('${r.id}'); return false;">Review &amp; decide</a></div>`; }).join("")}
+        ${referredToMe.map(r => { const ref = authPendingReferral(r); return `<div class="text-sm" style="margin:4px 0;"><strong>${escHtml(r.insured)}</strong> <code class="font-mono text-xs">${r.id}</code> from ${escHtml(String(ref.raisedBy || "").split(" (")[0])}, ${referralAgeLabel(ref)} ago: <span class="text-muted">${escHtml(String(ref.note || "").slice(0, 120))}</span> <a href="#" onclick="openCaseAtCurrentStep('${r.id}'); return false;">Review &amp; decide</a></div>`; }).join("")}
       </div>
     </div>` : "";
 

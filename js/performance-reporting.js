@@ -41,7 +41,6 @@ var PERF_REFERRAL_BUCKETS = [{ label: "under 1 day", max: 24 }, { label: "1 to 3
 // ----------------------------------------------------------------------------
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
-function perfEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
 function perfMs(str) {
   if (typeof str === "number") return str;
   if (!str) return null;
@@ -68,7 +67,7 @@ function perfLog(sub, d) { return (sub.decisionLog || []).filter(function (x) { 
 /** The facts about one submission that every measure is built from. */
 function perfFacts(sub) {
   var q = perfLog(sub, "quote_issued")[0];
-  var bound = !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+  var bound = policyIsBound(sub);
   var declined = sub.lifecycleStatus === "declined";
   var quoted = !!(q || sub.quoteIssued || bound);
   var ref = sub.authorityRef || null;
@@ -154,7 +153,7 @@ function perfCompute(subs, opts, now) {
     count: facts.length, funnel: perfFunnel(facts, t), sla: perfSla(facts, t), referrals: perfReferrals(facts, t),
     authority: { blocks: blocks, submissionsBlocked: facts.filter(function (f) { return f.blocks > 0; }).length },
     declines: perfGroup(facts.filter(function (f) { return f.declined; }), function (f) { return f.trigger || "Not recorded"; }, t).map(function (g) { return { trigger: g.key, n: g.received }; }),
-    byLob: perfGroup(facts, function (f) { return f.lob || "Unknown"; }, t), byProducer: perfGroup(facts, function (f) { return f.producer; }, t), byAssignee: perfGroup(facts, function (f) { return f.assignee; }, t)
+    byLob: perfGroup(facts, function (f) { return f.lob || "Unknown"; }, t), byProducer: perfGroup(facts, function (f) { return f.producer; }, t)
   };
 }
 
@@ -188,18 +187,17 @@ function renderPerformance() {
   var box = document.getElementById("performanceRoot"); if (!box) return;
   if (!hasPermission("performance", "view")) { box.innerHTML = '<div class="card"><div class="card-body text-xs text-muted"><i class="ph ph-lock"></i> You do not have access to performance reporting.</div></div>'; return; }
   var o = perfOpts(), m = perfCompute(SUBMISSIONS_DATASET, o), f = m.funnel, s = m.sla, r = m.referrals;
-  var canPeople = hasPermission("performance", "approve");
-  var kpi = function (label, val, sub) { return '<div class="metric-box"><div class="metric-value">' + perfEsc(val) + '</div><div class="metric-label">' + perfEsc(label) + '</div>' + (sub ? '<div class="text-xs text-muted">' + perfEsc(sub) + '</div>' : '') + '</div>'; };
-  var lobOpts = '<option value="all">All lines</option>' + (typeof LOB_CATALOG !== "undefined" ? LOB_CATALOG : []).map(function (l) { return '<option value="' + l.key + '"' + (o.lob === l.key ? " selected" : "") + ">" + perfEsc(l.name) + "</option>"; }).join("");
+  var kpi = function (label, val, sub) { return '<div class="metric-box"><div class="metric-value">' + escHtml(val) + '</div><div class="metric-label">' + escHtml(label) + '</div>' + (sub ? '<div class="text-xs text-muted">' + escHtml(sub) + '</div>' : '') + '</div>'; };
+  var lobOpts = '<option value="all">All lines</option>' + (typeof LOB_CATALOG !== "undefined" ? LOB_CATALOG : []).map(function (l) { return '<option value="' + l.key + '"' + (o.lob === l.key ? " selected" : "") + ">" + escHtml(l.name) + "</option>"; }).join("");
   var tbl = function (rows, head) {
     return rows.length ? '<div class="rules-table-container" style="max-height:none;overflow:auto;"><table class="data-table"><thead><tr>' + head.map(function (h) { return "<th>" + h + "</th>"; }).join("") + "</tr></thead><tbody>" + rows.join("") + "</tbody></table></div>" : '<div class="text-xs text-muted">No data in this window.</div>';
   };
-  var groupRows = function (arr, nameFn) { return arr.map(function (g) { return "<tr><td>" + perfEsc(nameFn ? nameFn(g.key) : g.key) + "</td><td>" + g.received + "</td><td>" + g.quoted + "</td><td>" + g.bound + "</td><td>" + g.declined + "</td><td>" + perfFmtPct(g.hitRatio) + "</td><td>" + perfFmtHours(g.turnaround.median) + "</td><td>" + perfMoney(g.premium) + "</td></tr>"; }); };
+  var groupRows = function (arr, nameFn) { return arr.map(function (g) { return "<tr><td>" + escHtml(nameFn ? nameFn(g.key) : g.key) + "</td><td>" + g.received + "</td><td>" + g.quoted + "</td><td>" + g.bound + "</td><td>" + g.declined + "</td><td>" + perfFmtPct(g.hitRatio) + "</td><td>" + perfFmtHours(g.turnaround.median) + "</td><td>" + perfMoney(g.premium) + "</td></tr>"; }); };
   var gHead = ["", "Received", "Quoted", "Bound", "Declined", "Hit ratio", "Median to quote", "Premium bound"];
-  var lateRows = s.late.concat(s.openPast.map(function (x) { return Object.assign({ open: true }, x); })).sort(function (a, b) { return b.hours - a.hours; }).slice(0, 10).map(function (x) { return "<tr><td class=\"font-mono\">" + perfEsc(x.id) + "</td><td>" + perfEsc(x.priority) + "</td><td>" + perfFmtHours(x.hours) + " vs " + x.target + " h target</td><td>" + (x.open ? '<span class="badge badge-danger text-xs">open, past target</span>' : '<span class="badge badge-warning text-xs">quoted late</span>') + "</td></tr>"; });
+  var lateRows = s.late.concat(s.openPast.map(function (x) { return Object.assign({ open: true }, x); })).sort(function (a, b) { return b.hours - a.hours; }).slice(0, 10).map(function (x) { return "<tr><td class=\"font-mono\">" + escHtml(x.id) + "</td><td>" + escHtml(x.priority) + "</td><td>" + perfFmtHours(x.hours) + " vs " + x.target + " h target</td><td>" + (x.open ? '<span class="badge badge-danger text-xs">open, past target</span>' : '<span class="badge badge-warning text-xs">quoted late</span>') + "</td></tr>"; });
 
   box.innerHTML = '<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-chart-line-up"></i> Underwriting Performance</h3><span class="badge badge-info">' + m.count + " submissions in window</span></div><div class=\"card-body\">" +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;"><label class="text-xs">Received from <input id="perf_from" type="date" class="form-control" style="width:150px;" value="' + perfEsc(o.from) + '" onchange="renderPerformance()"></label><label class="text-xs">to <input id="perf_to" type="date" class="form-control" style="width:150px;" value="' + perfEsc(o.to) + '" onchange="renderPerformance()"></label><label class="text-xs">Line <select id="perf_lob" class="form-control" style="width:240px;" onchange="renderPerformance()">' + lobOpts + '</select></label><button class="btn btn-sm btn-outline" style="width:auto;" onclick="perfExport()"><i class="ph ph-download-simple"></i> Export CSV</button></div>' +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;"><label class="text-xs">Received from <input id="perf_from" type="date" class="form-control" style="width:150px;" value="' + escHtml(o.from) + '" onchange="renderPerformance()"></label><label class="text-xs">to <input id="perf_to" type="date" class="form-control" style="width:150px;" value="' + escHtml(o.to) + '" onchange="renderPerformance()"></label><label class="text-xs">Line <select id="perf_lob" class="form-control" style="width:240px;" onchange="renderPerformance()">' + lobOpts + '</select></label><button class="btn btn-sm btn-outline" style="width:auto;" onclick="perfExport()"><i class="ph ph-download-simple"></i> Export CSV</button></div>' +
     '<div class="metric-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;">' +
     kpi("Quote ratio", perfFmtPct(f.quoteRatio), f.quoted + " of " + f.received + " received") + kpi("Hit ratio", perfFmtPct(f.hitRatio), f.bound + " bound of " + f.quoted + " quoted") + kpi("Decline ratio", perfFmtPct(f.declineRatio), f.declined + " declined") +
     kpi("Median time to quote", perfFmtHours(f.turnaround.median), "90th percentile " + perfFmtHours(f.turnaround.p90)) + kpi("SLA met", perfFmtPct(s.rate), s.onTime + " of " + s.measured + " quoted") + kpi("Premium bound", perfMoney(f.premium), f.bound + " policies") + "</div>" +
@@ -208,10 +206,10 @@ function renderPerformance() {
     '<div class="text-xs text-muted" style="margin:6px 0;">Open and within target: ' + s.openWithin + ". Open past target: " + s.openPast.length + ". Targets are placeholders for the business to set.</div>" +
     (lateRows.length ? tbl(lateRows, ["Submission", "Priority", "Time", "Status"]) : "") +
     '<h4 style="margin:14px 0 6px;">Referrals and authority</h4><div class="text-xs">' + r.count + " referral(s) (" + perfFmtPct(r.rate) + " of received). Median time to decision " + perfFmtHours(r.turnaround.median) + " (" + r.turnaround.n + " decided). <strong>Open: " + r.open + "</strong> — " + r.buckets.map(function (b) { return b.n + " " + b.label; }).join(", ") + (r.noTime ? "; " + r.noTime + " with no timestamp" : "") + ". Authority controls blocked " + m.authority.blocks + " attempt(s) on " + m.authority.submissionsBlocked + " submission(s).</div>" +
-    '<h4 style="margin:14px 0 6px;">Declines by trigger point</h4>' + (m.declines.length ? m.declines.map(function (d) { return '<span class="badge badge-light" style="margin-right:6px;">' + perfEsc(d.trigger) + ": " + d.n + "</span>"; }).join("") : '<span class="text-xs text-muted">None.</span>') +
+    '<h4 style="margin:14px 0 6px;">Declines by trigger point</h4>' + (m.declines.length ? m.declines.map(function (d) { return '<span class="badge badge-light" style="margin-right:6px;">' + escHtml(d.trigger) + ": " + d.n + "</span>"; }).join("") : '<span class="text-xs text-muted">None.</span>') +
     '<h4 style="margin:14px 0 6px;">By line of business</h4>' + tbl(groupRows(m.byLob), ["Line"].concat(gHead.slice(1))) +
     '<h4 style="margin:14px 0 6px;">By producer</h4>' + tbl(groupRows(m.byProducer), ["Producer"].concat(gHead.slice(1))) +
-    (canPeople ? '<h4 style="margin:14px 0 6px;">By assigned underwriter</h4>' + tbl(groupRows(m.byAssignee, function (k) { var c = typeof USER_ROLES_CONFIG !== "undefined" ? USER_ROLES_CONFIG[k] : null; return c ? c.name : (k === "unassigned" ? "Unassigned" : k); }), ["Underwriter"].concat(gHead.slice(1))) : '<div class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-lock"></i> Underwriter-level measures need approval authority on this report.</div>') +
+    '<div class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-users"></i> Underwriters are compared in one place: Reports, Underwriter comparison' + (hasPermission("performance", "approve") ? "." : " (it needs approval authority on this report).") + '</div>' +
     '<p class="text-xs text-muted" style="margin-top:12px;"><i class="ph ph-info"></i> Ratios are for submissions received in the window. Loss ratio is not reported: the prototype holds no claims data.</p></div></div>';
 }
 

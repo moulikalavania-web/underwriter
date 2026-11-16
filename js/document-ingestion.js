@@ -65,7 +65,6 @@ var DI_TEXT_KINDS = ["eml", "json", "csv", "txt"];
 var DI_SUPPORTED_KINDS = ["pdf", "docx", "xlsx", "pptx", "jpeg", "png", "tiff", "eml", "json", "csv", "txt"];
 var DI_IMAGE_KINDS = ["jpeg", "png", "tiff"];
 
-function diEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function diBytes(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(0) + " KB" : (n / 1048576).toFixed(1) + " MB"; }
 function diExt(name) { const m = /\.([A-Za-z0-9]+)$/.exec(String(name || "")); return m ? m[1].toLowerCase() : ""; }
 
@@ -990,13 +989,13 @@ async function diRunForSubmission(sub) {
 }
 
 function diStatusText(s) { return { extracted: "Read", empty: "Read, no text", needs_ocr: "Needs OCR", unsupported: "Unsupported", rejected: "Refused", failed: "Could not be read" }[s] || s; }
-function diStatusBadge(s) { const cls = { extracted: "badge-success", empty: "badge-warning", needs_ocr: "badge-warning", unsupported: "badge-danger", rejected: "badge-danger", failed: "badge-danger" }[s] || "badge-light"; return `<span class="badge ${cls}">${diEsc(diStatusText(s))}</span>`; }
+function diStatusBadge(s) { const cls = { extracted: "badge-success", empty: "badge-warning", needs_ocr: "badge-warning", unsupported: "badge-danger", rejected: "badge-danger", failed: "badge-danger" }[s] || "badge-light"; return `<span class="badge ${cls}">${escHtml(diStatusText(s))}</span>`; }
 
 /** One Loss Run History table for the whole submission, whatever number of companies supplied loss runs. */
 function diLossTableHtml(losses) {
   if (!losses.length) return "";
   const total = losses.reduce((s, l) => s + (parseFloat(String(l.incurred || "0").replace(/[^0-9.]/g, "")) || 0), 0);
-  const rows = losses.map(l => `<tr><td>${diEsc(l.carrier || "Not stated")}</td><td>${diEsc(l.sourceDocument || "")}</td><td>${diEsc(l.year)}</td><td>${diEsc(l.claimNo || "—")}</td><td>${diEsc(l.desc)}</td><td>${diEsc(l.status)}</td><td class="font-mono">${diEsc(l.incurred)}</td></tr>`).join("");
+  const rows = losses.map(l => `<tr><td>${escHtml(l.carrier || "Not stated")}</td><td>${escHtml(l.sourceDocument || "")}</td><td>${escHtml(l.year)}</td><td>${escHtml(l.claimNo || "—")}</td><td>${escHtml(l.desc)}</td><td>${escHtml(l.status)}</td><td class="font-mono">${escHtml(l.incurred)}</td></tr>`).join("");
   return `<div style="margin-top:12px;"><div class="email-digest-section-title"><i class="ph ph-file-text"></i> Loss Run History (${losses.length} claim${losses.length === 1 ? "" : "s"}, all companies combined)</div>
     <table class="data-table"><thead><tr><th>Insurance company</th><th>Source document</th><th>Policy year</th><th>Claim no.</th><th>Description</th><th>Status</th><th>Incurred</th></tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="6"><strong>Total incurred, all companies</strong></td><td class="font-mono"><strong>$${total.toLocaleString()}</strong></td></tr></tfoot></table></div>`;
@@ -1007,7 +1006,7 @@ function diVehicleTableHtml(vehicleDetails) {
   const units = Object.keys(vehicleDetails || {}).map(k => vehicleDetails[k]);
   if (!units.length) return "";
   const total = units.reduce((s, v) => s + (v.stated_value || 0), 0);
-  const rows = units.map((v, i) => `<tr><td>${i + 1}</td><td>${diEsc(v.year || "—")}</td><td>${diEsc(v.make || "—")}</td><td>${diEsc(v.model || "—")}</td><td class="font-mono">${diEsc(v.vin || "—")}</td><td class="font-mono">${v.stated_value === null || v.stated_value === undefined ? "Not stated" : "$" + Number(v.stated_value).toLocaleString()}</td><td class="text-xs">${diEsc(v.sourceDocument || "")}</td></tr>`).join("");
+  const rows = units.map((v, i) => `<tr><td>${i + 1}</td><td>${escHtml(v.year || "—")}</td><td>${escHtml(v.make || "—")}</td><td>${escHtml(v.model || "—")}</td><td class="font-mono">${escHtml(v.vin || "—")}</td><td class="font-mono">${v.stated_value === null || v.stated_value === undefined ? "Not stated" : "$" + Number(v.stated_value).toLocaleString()}</td><td class="text-xs">${escHtml(v.sourceDocument || "")}</td></tr>`).join("");
   return `<div style="margin-top:12px;"><div class="email-digest-section-title"><i class="ph ph-truck"></i> Vehicle schedule (${units.length} unit${units.length === 1 ? "" : "s"})</div>
     <table class="data-table"><thead><tr><th>#</th><th>Year</th><th>Make</th><th>Model</th><th>VIN</th><th>Stated value</th><th>Source document</th></tr></thead><tbody>${rows}</tbody>
     <tfoot><tr><td colspan="5"><strong>Total stated value</strong></td><td class="font-mono"><strong>$${total.toLocaleString()}</strong></td><td></td></tr></tfoot></table></div>`;
@@ -1015,9 +1014,9 @@ function diVehicleTableHtml(vehicleDetails) {
 
 function diSourcePanelHtml(draft) {
   const docs = draft.sourceDocuments || [];
-  const rows = docs.map(d => `<tr><td>${d.parent ? "↳ " : ""}${diEsc(d.name)}</td><td>${diEsc(d.label || "")}</td><td>${diEsc(d.method || "")}</td><td>${diStatusBadge(d.status)}</td><td class="text-xs">${diEsc((d.notes || []).join(" "))}</td></tr>`).join("");
-  const val = (draft.validation || []).map(v => `<li><span class="badge ${v.level === "error" ? "badge-danger" : "badge-warning"}">${v.level === "error" ? "Fix before applying" : "Check"}</span> ${diEsc(v.text)}</li>`).join("");
-  const conf = (draft.conflicts || []).map(c => `<li><strong>${diEsc(c.label)}</strong>: kept <em>${diEsc(c.kept.value)}</em> (${diEsc(c.kept.document)}); also found ${c.others.map(o => `<em>${diEsc(o.value)}</em> (${diEsc(o.document)})`).join(", ")}</li>`).join("");
+  const rows = docs.map(d => `<tr><td>${d.parent ? "↳ " : ""}${escHtml(d.name)}</td><td>${escHtml(d.label || "")}</td><td>${escHtml(d.method || "")}</td><td>${diStatusBadge(d.status)}</td><td class="text-xs">${escHtml((d.notes || []).join(" "))}</td></tr>`).join("");
+  const val = (draft.validation || []).map(v => `<li><span class="badge ${v.level === "error" ? "badge-danger" : "badge-warning"}">${v.level === "error" ? "Fix before applying" : "Check"}</span> ${escHtml(v.text)}</li>`).join("");
+  const conf = (draft.conflicts || []).map(c => `<li><strong>${escHtml(c.label)}</strong>: kept <em>${escHtml(c.kept.value)}</em> (${escHtml(c.kept.document)}); also found ${c.others.map(o => `<em>${escHtml(o.value)}</em> (${escHtml(o.document)})`).join(", ")}</li>`).join("");
   return `<div class="email-digest-section" id="diSourcePanel">
     <div class="email-digest-section-title"><i class="ph ph-files"></i> Source documents and checks</div>
     ${docs.length ? `<table class="data-table"><thead><tr><th>Document</th><th>Detected as</th><th>Read with</th><th>Result</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>` : `<p class="text-sm text-muted">No documents were attached. Values come from the pasted email text only.</p>`}
@@ -1060,7 +1059,7 @@ function diRefreshValidation(subId) {
   const draft = emailIngestionDraftBySubId[subId]; const box = document.getElementById("diValidationBox");
   if (!draft || !box) return;
   const list = diValidate(diCurrentValues(draft), draft);
-  box.innerHTML = list.length ? `<ul class="email-digest-flag-list" style="list-style:none;padding-left:0;">${list.map(v => `<li><span class="badge ${v.level === "error" ? "badge-danger" : "badge-warning"}">${v.level === "error" ? "Fix before applying" : "Check"}</span> ${diEsc(v.text)}</li>`).join("")}</ul>` : `<div class="email-digest-clean-flag"><i class="ph ph-check-circle"></i> The extracted values pass the format checks.</div>`;
+  box.innerHTML = list.length ? `<ul class="email-digest-flag-list" style="list-style:none;padding-left:0;">${list.map(v => `<li><span class="badge ${v.level === "error" ? "badge-danger" : "badge-warning"}">${v.level === "error" ? "Fix before applying" : "Check"}</span> ${escHtml(v.text)}</li>`).join("")}</ul>` : `<div class="email-digest-clean-flag"><i class="ph ph-check-circle"></i> The extracted values pass the format checks.</div>`;
 }
 
 // ----------------------------------------------------------------------------
@@ -1259,7 +1258,7 @@ function diRenderPipelineCard(sub) {
       if (activeSubmissionId === sub.id) origReview.call(window, sub, target);
       diRenderPipelineCard(sub);
       if (typeof persistAppState === "function") persistAppState();
-    }).catch(e => { diRunning[sub.id] = false; box.innerHTML = `<div class="card"><div class="card-body text-danger">Document ingestion failed: ${diEsc(e.message)}</div></div>`; });
+    }).catch(e => { diRunning[sub.id] = false; box.innerHTML = `<div class="card"><div class="card-body text-danger">Document ingestion failed: ${escHtml(e.message)}</div></div>`; });
   };
 
   const origNorm = window.renderNormalizationReview;

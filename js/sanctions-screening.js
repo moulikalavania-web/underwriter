@@ -113,9 +113,6 @@ function sanctionsStore(sub) {
   return sub.sanctions;
 }
 
-function sanctionsNow() {
-  return new Date().toISOString().slice(0, 16).replace("T", " ");
-}
 
 function sanctionsActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
@@ -126,9 +123,6 @@ function sanctionsActiveSub() {
   return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null;
 }
 
-function sanctionsEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function sanctionsGatherParties(sub) {
   const out = [];
@@ -157,7 +151,7 @@ function sanctionsLog(sub, decision, notes, byOverride) {
     step: sub.currentStep || 2,
     decision,
     by: byOverride || sanctionsActor(),
-    at: sanctionsNow(),
+    at: nowStamp(),
     notes
   });
 }
@@ -193,7 +187,7 @@ function runSanctionsScreening(sub, trigger) {
   const store = sanctionsStore(sub);
   if (!sanctionsListLoaded()) {
     const parties = sanctionsGatherParties(sub).map(p => ({ name: p.name, role: p.role, result: "not_screened", matches: [] }));
-    const screen = { id: "SCR-" + (store.screens.length + 1), at: sanctionsNow(), ts: Date.now(), listStamp: sanctionsListStamp(), trigger, by: sanctionsActor(), listName: SANCTIONS_LIST_NAME, listVersion: SANCTIONS_LIST_VERSION, threshold: SANCTIONS_MATCH_THRESHOLD, parties, noList: true };
+    const screen = { id: "SCR-" + (store.screens.length + 1), at: nowStamp(), ts: Date.now(), listStamp: sanctionsListStamp(), trigger, by: sanctionsActor(), listName: SANCTIONS_LIST_NAME, listVersion: SANCTIONS_LIST_VERSION, threshold: SANCTIONS_MATCH_THRESHOLD, parties, noList: true };
     store.screens.push(screen);
     sanctionsLog(sub, "sanctions_no_list", `Sanctions screening ${trigger}: NOT PERFORMED. No watchlist is loaded, so ${parties.length} part${parties.length === 1 ? "y was" : "ies were"} not screened. Load a list or record an external screening.`);
     persistSanctions();
@@ -205,7 +199,7 @@ function runSanctionsScreening(sub, trigger) {
   });
   const screen = {
     id: "SCR-" + (store.screens.length + 1),
-    at: sanctionsNow(),
+    at: nowStamp(),
     ts: Date.now(),
     listStamp: sanctionsListStamp(),
     trigger,
@@ -290,7 +284,7 @@ function sanctionsAddParty() {
   const roleEl = document.getElementById("sanctionsNewPartyRole");
   const name = nameEl ? nameEl.value.trim() : "";
   if (name.length < 2) { showToast("Enter the party's full legal name.", "danger"); return; }
-  sanctionsStore(sub).extraParties.push({ name, role: roleEl ? roleEl.value : "Other Named Party", addedBy: sanctionsActor(), addedAt: sanctionsNow() });
+  sanctionsStore(sub).extraParties.push({ name, role: roleEl ? roleEl.value : "Other Named Party", addedBy: sanctionsActor(), addedAt: nowStamp() });
   runSanctionsScreening(sub, "party_added");
   renderSanctionsCard(sub);
   showToast(`Added "${name}" and re-ran screening.`, "info");
@@ -308,7 +302,7 @@ function sanctionsAttestExternal() {
   const store = sanctionsStore(sub);
   if (!store.external) store.external = [];
   const parties = sanctionsGatherParties(sub);
-  store.external.push({ by: sanctionsActor(), at: sanctionsNow(), reference, partyKey: sanctionsPartyKey(sub), parties: parties.map(p => p.name) });
+  store.external.push({ by: sanctionsActor(), at: nowStamp(), reference, partyKey: sanctionsPartyKey(sub), parties: parties.map(p => p.name) });
   sanctionsLog(sub, "sanctions_external", `External sanctions screening recorded for ${parties.length} part${parties.length === 1 ? "y" : "ies"} (${parties.map(p => p.name).join(", ")}). Reference: ${reference}. No watchlist is loaded in this system.`);
   persistSanctions();
   renderSanctionsCard(sub);
@@ -333,7 +327,7 @@ function sanctionsReviewMatch(itemIdx, decision) {
   const store = sanctionsStore(sub);
   store.reviews.push({
     key: item.key, partyName: item.partyName, entryName: item.entryName,
-    decision, by: sanctionsActor(), at: sanctionsNow(), reason, screenId: status.latest.id
+    decision, by: sanctionsActor(), at: nowStamp(), reason, screenId: status.latest.id
   });
   if (decision === "false_positive") {
     sanctionsLog(sub, "sanctions_cleared",
@@ -376,7 +370,7 @@ function renderSanctionsCard(sub) {
   } else if (status.state === "no_list") {
     banner = `<div class="alert alert-warning text-xs"><i class="ph ph-warning-octagon"></i> <strong>These parties have NOT been screened.</strong> No sanctions watchlist is loaded in this system, so a "clear" result cannot be given. The quote cannot be issued or bound until a list is loaded and the case re-screened, or an approver records that the parties were screened elsewhere.</div>`;
   } else if (status.state === "externally_screened") {
-    banner = `<div class="alert alert-info text-xs"><i class="ph ph-clipboard-text"></i> Screened outside this system: ${sanctionsEsc(status.external.by)} on ${sanctionsEsc(status.external.at)}, reference ${sanctionsEsc(status.external.reference)}. If a party is added or changed, the record no longer covers it.</div>`;
+    banner = `<div class="alert alert-info text-xs"><i class="ph ph-clipboard-text"></i> Screened outside this system: ${escHtml(status.external.by)} on ${escHtml(status.external.at)}, reference ${escHtml(status.external.reference)}. If a party is added or changed, the record no longer covers it.</div>`;
   } else if (status.state === "review_required") {
     banner = `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> <strong>${status.unresolved.length} potential match(es) need review.</strong> Quote cannot be signed or bound until each is resolved by a user with sanctions approval authority.</div>`;
   } else if (status.state === "blocked") {
@@ -390,7 +384,7 @@ function renderSanctionsCard(sub) {
     const resultBadge = p.result === "clear"
       ? `<span class="badge badge-success text-xs">Clear</span>`
       : (p.result === "not_screened" ? `<span class="badge badge-warning text-xs">Not screened</span>` : `<span class="badge badge-warning text-xs">Potential Match</span>`);
-    return `<tr><td>${sanctionsEsc(p.name)}</td><td>${sanctionsEsc(p.role)}</td><td>${resultBadge}</td></tr>`;
+    return `<tr><td>${escHtml(p.name)}</td><td>${escHtml(p.role)}</td><td>${resultBadge}</td></tr>`;
   }).join("") : `<tr><td colspan="3" class="text-muted" style="text-align:center;">No screening has been run.</td></tr>`;
 
   // Match review rows
@@ -400,7 +394,7 @@ function renderSanctionsCard(sub) {
     if (it.review) {
       const isConf = it.review.decision === "confirmed";
       action = `<span class="badge ${isConf ? "badge-danger" : "badge-success"} text-xs">${isConf ? "Confirmed match" : "Cleared — false positive"}</span>
-        <div class="text-xs text-muted" style="margin-top:4px;">${sanctionsEsc(it.review.by)} · ${sanctionsEsc(it.review.at)}<br>${sanctionsEsc(it.review.reason)}</div>`;
+        <div class="text-xs text-muted" style="margin-top:4px;">${escHtml(it.review.by)} · ${escHtml(it.review.at)}<br>${escHtml(it.review.reason)}</div>`;
     } else if (canApprove) {
       action = `<textarea id="sanctionsReason_${idx}" class="form-control" rows="3" placeholder="Reason (min. 10 characters): how was this resolved?" style="margin-bottom:6px; min-width:260px; width:100%;"></textarea>
         <button class="btn btn-sm btn-success" style="width:auto;" onclick="sanctionsReviewMatch(${idx}, 'false_positive')"><i class="ph ph-check"></i> Clear — false positive</button>
@@ -409,8 +403,8 @@ function renderSanctionsCard(sub) {
       action = `<span class="text-xs text-muted"><i class="ph ph-lock"></i> Needs a user with sanctions approval authority (for example the Chief Underwriting Officer).</span>`;
     }
     return `<tr>
-      <td><strong>${sanctionsEsc(it.partyName)}</strong><div class="text-xs text-muted">${sanctionsEsc(it.role)}</div></td>
-      <td>${sanctionsEsc(it.entryName)}<div class="text-xs text-muted">${sanctionsEsc(it.type)} · ${sanctionsEsc(it.program)}</div></td>
+      <td><strong>${escHtml(it.partyName)}</strong><div class="text-xs text-muted">${escHtml(it.role)}</div></td>
+      <td>${escHtml(it.entryName)}<div class="text-xs text-muted">${escHtml(it.type)} · ${escHtml(it.program)}</div></td>
       <td class="font-mono">${pct}%</td>
       <td>${action}</td>
     </tr>`;
@@ -418,7 +412,7 @@ function renderSanctionsCard(sub) {
 
   const history = store.screens.slice(-5).reverse().map(s => {
     const hits = s.parties.filter(p => p.result === "potential_match").length;
-    return `<tr><td>${sanctionsEsc(s.id)}</td><td>${sanctionsEsc(s.at)}</td><td>${sanctionsEsc(s.trigger)}</td><td>${s.parties.length}</td><td>${hits}</td><td>${sanctionsEsc(s.by)}</td></tr>`;
+    return `<tr><td>${escHtml(s.id)}</td><td>${escHtml(s.at)}</td><td>${escHtml(s.trigger)}</td><td>${s.parties.length}</td><td>${hits}</td><td>${escHtml(s.by)}</td></tr>`;
   }).join("");
 
   const attestForm = (status.state === "no_list" && canApprove) ? `
@@ -436,7 +430,7 @@ function renderSanctionsCard(sub) {
       <span class="tool-label"><i class="ph ph-user-plus"></i> Add a named party</span>
       <input id="sanctionsNewPartyName" class="form-control" style="width:240px; flex:0 0 auto;" placeholder="Full legal name">
       <select id="sanctionsNewPartyRole" class="form-control" style="width:190px; flex:0 0 auto;">
-        ${SANCTIONS_PARTY_ROLES.map(r => `<option>${sanctionsEsc(r)}</option>`).join("")}
+        ${SANCTIONS_PARTY_ROLES.map(r => `<option>${escHtml(r)}</option>`).join("")}
       </select>
       <button class="btn btn-sm btn-primary" style="width:auto; flex:0 0 auto;" onclick="sanctionsAddParty()"><i class="ph ph-plus"></i> Add &amp; screen</button>
       <button class="btn btn-sm btn-outline" style="width:auto; flex:0 0 auto;" onclick="sanctionsRunClicked()"><i class="ph ph-arrows-clockwise"></i> Run screening</button>
@@ -475,7 +469,7 @@ function renderSanctionsCard(sub) {
           </table>
         </div>` : ""}
         <p class="text-xs text-muted" style="margin-top:10px;">
-          <i class="ph ph-info"></i> List used: ${sanctionsEsc(SANCTIONS_LIST_NAME)}, version ${sanctionsEsc(SANCTIONS_LIST_VERSION)}, match threshold ${Math.round(SANCTIONS_MATCH_THRESHOLD * 100)}%.
+          <i class="ph ph-info"></i> List used: ${escHtml(SANCTIONS_LIST_NAME)}, version ${escHtml(SANCTIONS_LIST_VERSION)}, match threshold ${Math.round(SANCTIONS_MATCH_THRESHOLD * 100)}%.
         </p>
       </div>
     </div>`;

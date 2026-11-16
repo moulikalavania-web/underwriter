@@ -22,14 +22,8 @@
  * ============================================================================
  */
 
-function wsEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function wsSub() { return typeof activeSubmissionId !== "undefined" ? (SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null) : null; }
-function wsNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function wsActor() { const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || {}; return (r.name || currentUserRole) + (r.title ? " (" + r.title + ")" : ""); }
-function wsLog(sub, decision, notes) {
-  if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 1, decision: decision, by: wsActor(), at: wsNow(), notes: notes });
-}
+function wsLog(sub, decision, notes) { logDecision(sub, sub.currentStep || 1, decision, notes); }
 function wsPersist() { if (typeof persistAppState === "function") persistAppState(); }
 function wsIsPlaceholder(v) { return v === undefined || v === null || v === "" || v === "PENDING" || /^\((?:pending|see raw)/i.test(String(v)); }
 
@@ -57,7 +51,7 @@ function applyWorkflowView(stepObj, sub) {
   if (text && h) h.textContent = text[0];
   if (text && d) d.textContent = text[1];
   const pill = document.getElementById("step7PhasePill");
-  if (pill && stepObj.id === "screen-8") pill.innerHTML = '<i class="ph ph-calculator"></i> Stage ' + stepObj.stage + " • " + wsEsc(stepObj.title);
+  if (pill && stepObj.id === "screen-8") pill.innerHTML = '<i class="ph ph-calculator"></i> Stage ' + stepObj.stage + " • " + escHtml(stepObj.title);
   if (stepObj.view === "bind") setTimeout(() => { const c = document.getElementById("pasSyncCard"); if (c && currentWorkflowStep === BIND_STEP) c.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80);
 }
 window.applyWorkflowView = applyWorkflowView;
@@ -138,7 +132,7 @@ function triageQuickRead(sub) {
   const read = { insured: pick("insured"), fein: pick("fein"), dot: pick("dot"), mcNumber: pick("mcNumber"), address: pick("address"), broker: pick("broker"), email: pick("email") };
   const filled = [];
   Object.keys(read).forEach(k => { if (read[k] && wsIsPlaceholder(sub[k])) { sub[k] = read[k]; filled.push(k); } });
-  sub.triage = Object.assign({}, sub.triage, { read: read, readAt: wsNow(), method: "Quick read of the email text only", filled: filled });
+  sub.triage = Object.assign({}, sub.triage, { read: read, readAt: nowStamp(), method: "Quick read of the email text only", filled: filled });
   return read;
 }
 window.triageQuickRead = triageQuickRead;
@@ -174,27 +168,27 @@ function renderTriageCard(sub) {
   sub.triage = Object.assign({}, sub.triage, { kind: cls.kind });
   const read = (sub.triage && sub.triage.read) || null;
   const fields = [["Insured", sub.insured], ["FEIN", sub.fein], ["DOT", sub.dot], ["MC number", sub.mcNumber], ["Producer / broker", sub.broker], ["Contact", sub.email], ["Address", sub.address]];
-  const rows = fields.map(([l, v]) => `<tr><td class="text-muted">${l}</td><td>${wsIsPlaceholder(v) ? '<span class="text-muted">not found in the email</span>' : wsEsc(v)}</td></tr>`).join("");
+  const rows = fields.map(([l, v]) => `<tr><td class="text-muted">${l}</td><td>${wsIsPlaceholder(v) ? '<span class="text-muted">not found in the email</span>' : escHtml(v)}</td></tr>`).join("");
   const docs = triageExpectedDocs(sub);
   const missing = docs.filter(d => !d.present);
   const dup = typeof findDuplicateSubmission === "function" ? findDuplicateSubmission(sub.insured, sub.fein, sub.id) : null;
   let dupHtml = '<div class="ws-small"><i class="ph ph-check-circle text-success"></i> No other case has this FEIN or insured name.</div>';
   if (dup) {
     const sameBroker = String(dup.broker || "").toLowerCase() === String(sub.broker || "").toLowerCase();
-    dupHtml = `<div class="alert ${sameBroker ? "alert-warning" : "alert-danger"} ws-small"><i class="ph ph-copy"></i> <strong>${wsEsc(dup.id)}</strong> (${wsEsc(dup.insured)}) already has this FEIN or insured name${sameBroker ? " from the same producer. This may be the same submission sent again; attach it there instead of working it twice." : ` from a different producer (${wsEsc(dup.broker)}). That is a market conflict; the market clearance below decides who holds the risk.`}</div>`;
+    dupHtml = `<div class="alert ${sameBroker ? "alert-warning" : "alert-danger"} ws-small"><i class="ph ph-copy"></i> <strong>${escHtml(dup.id)}</strong> (${escHtml(dup.insured)}) already has this FEIN or insured name${sameBroker ? " from the same producer. This may be the same submission sent again; attach it there instead of working it twice." : ` from a different producer (${escHtml(dup.broker)}). That is a market conflict; the market clearance below decides who holds the risk.`}</div>`;
   }
   box.innerHTML = `<div class="card">
     <div class="card-header"><h3><i class="ph ph-funnel"></i> Triage</h3><span class="badge ${k.badge}">${k.label}</span></div>
     <div class="card-body">
-      <p class="text-sm" style="margin:0 0 8px;">${wsEsc(k.next)} <span class="ws-small text-muted">${wsEsc(cls.reasons.join(" "))}</span></p>
+      <p class="text-sm" style="margin:0 0 8px;">${escHtml(k.next)} <span class="ws-small text-muted">${escHtml(cls.reasons.join(" "))}</span></p>
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px;">
         <div>
           <div class="ws-small text-muted" style="margin-bottom:4px;">Who is named${read ? ", read from the email text only (preliminary; confirmed at Step " + CONFIRM_STEP + ")" : ""}</div>
           <table class="data-table"><tbody>${rows}</tbody></table>
         </div>
         <div>
-          <div class="ws-small text-muted" style="margin-bottom:4px;">Documents expected for ${wsEsc(sub.lobName || sub.lobKey || "this line")}</div>
-          <table class="data-table"><tbody>${docs.map(d => `<tr><td>${wsEsc(d.label)}</td><td>${d.present ? `<span class="badge badge-success">Received</span> <span class="ws-small text-muted">${wsEsc(d.via || "")}</span>` : '<span class="badge badge-warning">Not received</span>'}</td></tr>`).join("")}</tbody></table>
+          <div class="ws-small text-muted" style="margin-bottom:4px;">Documents expected for ${escHtml(sub.lobName || sub.lobKey || "this line")}</div>
+          <table class="data-table"><tbody>${docs.map(d => `<tr><td>${escHtml(d.label)}</td><td>${d.present ? `<span class="badge badge-success">Received</span> <span class="ws-small text-muted">${escHtml(d.via || "")}</span>` : '<span class="badge badge-warning">Not received</span>'}</td></tr>`).join("")}</tbody></table>
           ${missing.length ? `<button class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="openRFIModal()"><i class="ph ph-envelope-open"></i> Ask the producer for ${missing.length} missing item${missing.length === 1 ? "" : "s"}</button>` : ""}
         </div>
       </div>
@@ -231,19 +225,19 @@ function renderIngestReceived(sub) {
   if (!sub) { box.innerHTML = ""; return; }
   const files = sub.rawAttachments || [];
   const hasEmail = sub.rawEmailText !== undefined;
-  const fileRows = files.map(a => `<tr><td>${wsEsc(a.name)}</td><td>${wsEsc(wsFileKind(a))}</td><td>${wsBytes(a.size || 0)}</td><td><span class="badge badge-light">${a.base64 ? "Stored unchanged" : "Not kept (storage limit)"}</span></td></tr>`).join("");
+  const fileRows = files.map(a => `<tr><td>${escHtml(a.name)}</td><td>${escHtml(wsFileKind(a))}</td><td>${wsBytes(a.size || 0)}</td><td><span class="badge badge-light">${a.base64 ? "Stored unchanged" : "Not kept (storage limit)"}</span></td></tr>`).join("");
   const direct = !hasEmail && !files.length;
   box.innerHTML = `<div class="card">
     <div class="card-header"><h3><i class="ph ph-tray-arrow-down"></i> Received</h3><span class="badge badge-light"><i class="ph ph-lock-simple"></i> Kept exactly as received</span></div>
     <div class="card-body">
       <table class="data-table" style="margin-bottom:10px;"><tbody>
-        <tr><td class="text-muted">Case</td><td>${wsEsc(sub.id)}</td></tr>
-        <tr><td class="text-muted">Channel</td><td>${wsEsc(sub.channelName || sub.channelType || "")}</td></tr>
-        <tr><td class="text-muted">Received</td><td>${wsEsc(sub.receivedAt || "")}</td></tr>
+        <tr><td class="text-muted">Case</td><td>${escHtml(sub.id)}</td></tr>
+        <tr><td class="text-muted">Channel</td><td>${escHtml(sub.channelName || sub.channelType || "")}</td></tr>
+        <tr><td class="text-muted">Received</td><td>${escHtml(sub.receivedAt || "")}</td></tr>
         <tr><td class="text-muted">Files</td><td>${files.length}</td></tr>
       </tbody></table>
       ${direct ? `<p class="text-sm text-muted" style="margin:0;">This case was entered directly as structured fields. There is no email or file to keep; the values on the case are the submission.</p>` : ""}
-      ${hasEmail ? `<div class="ws-small text-muted" style="margin-bottom:4px;">Email text, as received</div><pre style="max-height:220px; overflow:auto; background:var(--bg-subtle,#f8fafc); border:1px solid var(--border-color,#e2e8f0); border-radius:6px; padding:10px; font-size:12px; white-space:pre-wrap; margin:0 0 10px;">${wsEsc(sub.rawEmailText)}</pre>` : ""}
+      ${hasEmail ? `<div class="ws-small text-muted" style="margin-bottom:4px;">Email text, as received</div><pre style="max-height:220px; overflow:auto; background:var(--bg-subtle,#f8fafc); border:1px solid var(--border-color,#e2e8f0); border-radius:6px; padding:10px; font-size:12px; white-space:pre-wrap; margin:0 0 10px;">${escHtml(sub.rawEmailText)}</pre>` : ""}
       ${files.length ? `<table class="data-table"><thead><tr><th>File</th><th>Type (from its content)</th><th>Size</th><th>State</th></tr></thead><tbody>${fileRows}</tbody></table>` : ""}
       <p class="ws-small text-muted" style="margin:10px 0 0;">Nothing has been read yet. Triage and the legal checks come next (Step ${CLEARANCE_STEP}); the files are read at Step ${EXTRACT_STEP}.</p>
     </div>
@@ -262,7 +256,7 @@ function renderExtractSummary(sub) {
   const types = draft && draft.docTypes ? draft.docTypes : {};
   const rows = ex.map(d => {
     const t = types[d.name] || recognizeDocument(d.name, "");
-    return `<tr><td>${d.parent ? "↳ " : ""}${wsEsc(d.name)}</td><td>${wsEsc(t.label)}</td><td>${wsEsc(d.method || "")}</td><td>${typeof diStatusBadge === "function" ? diStatusBadge(d.status) : wsEsc(d.status)}</td><td class="ws-small">${wsEsc((d.notes || []).join(" "))}</td></tr>`;
+    return `<tr><td>${d.parent ? "↳ " : ""}${escHtml(d.name)}</td><td>${escHtml(t.label)}</td><td>${escHtml(d.method || "")}</td><td>${typeof diStatusBadge === "function" ? diStatusBadge(d.status) : escHtml(d.status)}</td><td class="ws-small">${escHtml((d.notes || []).join(" "))}</td></tr>`;
   }).join("");
   const counts = draft ? [["Vehicles", Object.keys(draft.vehicleDetails || {}).length], ["Drivers", Object.keys(draft.driverDetails || {}).length], ["Claims", (draft.lossHistory || []).length]] : [];
   box.innerHTML = `<div class="card">

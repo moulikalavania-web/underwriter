@@ -88,7 +88,7 @@
     var cardHtml = document.getElementById('sanctionsScreeningContainer').innerHTML;
     t('card renders', cardHtml.indexOf('Sanctions') > -1 && cardHtml.indexOf('Confirmed Match') > -1);
     t('bind banner renders blocked', renderSanctionsBindBanner(sub).indexOf('Bind blocked') > -1);
-    t('XSS-safe names', sanctionsEsc('<img onerror=1>') === '&lt;img onerror=1&gt;');
+    t('XSS-safe names', escHtml('<img onerror=1>') === '&lt;img onerror=1&gt;');
     t('issue quote entry point is a function', typeof window.issueQuoteAction === 'function');
     t('e-signature entry point is a function', typeof window.openESignatureModal === 'function');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }

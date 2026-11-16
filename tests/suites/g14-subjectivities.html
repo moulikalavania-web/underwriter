@@ -146,7 +146,7 @@
     t('quote list groups before and after binding', /After binding/.test(q) && /due 2026-/.test(q));
     var cleared = clone(sub); cleared.subjectivityItems.forEach(function(i){ i.status = 'waived'; });
     t('quote list says so when nothing is open', /No open subjectivities/.test(renderSubjectivitiesQuoteList(cleared)));
-    t('XSS-safe', subjEsc('<img onerror=1>') === '&lt;img onerror=1&gt;');
+    t('XSS-safe', escHtml('<img onerror=1>') === '&lt;img onerror=1&gt;');
 
     // ---------- staging: the quote goes out with its subjectivities; the real bind ("Bind & Sync to PAS") is what they gate
     SUBMISSIONS_DATASET.length = 0;

@@ -28,9 +28,6 @@ var CF_FORMS = [];
 try { const r = JSON.parse(localStorage.getItem(CF_FORMS_KEY)); if (Array.isArray(r)) CF_FORMS = r; } catch (e) { /* none yet */ }
 var CF = { tab: "notes", noteSearch: "", emailOpen: null };
 
-function cfEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s); }
-function cfNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function cfActor() { const r = typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]; return r ? r.name + " (" + r.title + ")" : String(currentUserRole); }
 function cfSub() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
 function cfSave() { if (typeof persistAppState === "function") persistAppState(); }
 function cfRead(id) { const e = document.getElementById(id); return e ? e.value.trim() : ""; }
@@ -46,7 +43,7 @@ function cfAddNote(sub, f) {
   if (text.length < 3) return { ok: false, message: "Write the note (at least 3 characters)." };
   if (CF_NOTE_TYPES.indexOf(f.type) < 0) return { ok: false, message: "Choose the type of note." };
   if (!sub.notes) sub.notes = [];
-  const n = { id: "NOTE-" + (sub.notes.length + 1), type: f.type, text, by: cfActor(), role: currentUserRole, at: cfNow(), pinned: !!f.pinned };
+  const n = { id: "NOTE-" + (sub.notes.length + 1), type: f.type, text, by: actorLabel(), role: currentUserRole, at: nowStamp(), pinned: !!f.pinned };
   sub.notes.push(n);
   cfSave();
   return { ok: true, note: n };
@@ -63,8 +60,8 @@ function cfNotesHtml(sub) {
   const form = can ? `<div class="card"><div class="card-body"><div class="mw-grid"><div class="form-group"><label for="cf_ntype">Type</label><select class="form-control" id="cf_ntype">${CF_NOTE_TYPES.map(t => `<option>${t}</option>`).join("")}</select></div>
     <div class="form-group mw-wide"><label for="cf_ntext">Note</label><textarea class="form-control" id="cf_ntext" rows="3" placeholder="What you learned, agreed or are worried about"></textarea></div></div>
     <div class="p1-actions"><label class="mw-check" style="margin-right:auto;"><input type="checkbox" id="cf_npin"> Pin to the top</label><button class="btn btn-primary" onclick="cfAddNoteForm()"><i class="ph ph-plus"></i> Add note</button></div></div></div>` : `<div class="p1-note">Adding notes needs edit rights on submission data.</div>`;
-  const search = (sub.notes || []).length > 3 ? `<input class="form-control" id="cf_nsearch" placeholder="Search notes" value="${cfEsc(CF.noteSearch)}" onkeyup="cfNoteSearch()" style="margin-bottom:10px;">` : "";
-  const items = list.length ? list.map(n => `<div class="cf-note${n.pinned ? " pinned" : ""}"><div class="cf-note-h"><span class="badge badge-light">${cfEsc(n.type)}</span> <strong>${cfEsc(n.by)}</strong> <span class="text-muted">${cfEsc(n.at)}</span>${n.pinned ? ' <i class="ph ph-push-pin"></i>' : ""}<button class="btn btn-xs btn-outline" style="width:auto;margin-left:auto;" onclick="cfPinForm('${n.id}')">${n.pinned ? "Unpin" : "Pin"}</button></div><div class="cf-note-t">${cfEsc(n.text)}</div></div>`).join("")
+  const search = (sub.notes || []).length > 3 ? `<input class="form-control" id="cf_nsearch" placeholder="Search notes" value="${escHtml(CF.noteSearch)}" onkeyup="cfNoteSearch()" style="margin-bottom:10px;">` : "";
+  const items = list.length ? list.map(n => `<div class="cf-note${n.pinned ? " pinned" : ""}"><div class="cf-note-h"><span class="badge badge-light">${escHtml(n.type)}</span> <strong>${escHtml(n.by)}</strong> <span class="text-muted">${escHtml(n.at)}</span>${n.pinned ? ' <i class="ph ph-push-pin"></i>' : ""}<button class="btn btn-xs btn-outline" style="width:auto;margin-left:auto;" onclick="cfPinForm('${n.id}')">${n.pinned ? "Unpin" : "Pin"}</button></div><div class="cf-note-t">${escHtml(n.text)}</div></div>`).join("")
     : `<div class="mw-empty">${(sub.notes || []).length ? "No note matches." : "No notes yet."}</div>`;
   return form + search + items + `<div class="p1-note">Notes are never edited or deleted, so the file keeps what was known and when.</div>`;
 }
@@ -88,7 +85,7 @@ function cfLogEmail(sub, f) {
   if (!String(f.party || "").trim()) return { ok: false, message: "Enter who it was " + (f.direction === "in" ? "from" : "to") + "." };
   if (String(f.subject || "").trim().length < 3) return { ok: false, message: "Enter the subject." };
   if (!sub.emailLog) sub.emailLog = [];
-  const e = { id: "EML-" + (sub.emailLog.length + 1), direction: f.direction, party: String(f.party).trim(), subject: String(f.subject).trim(), body: String(f.body || "").trim(), at: f.at || cfNow(), by: cfActor(), source: "logged" };
+  const e = { id: "EML-" + (sub.emailLog.length + 1), direction: f.direction, party: String(f.party).trim(), subject: String(f.subject).trim(), body: String(f.body || "").trim(), at: f.at || nowStamp(), by: actorLabel(), source: "logged" };
   sub.emailLog.push(e); cfSave();
   return { ok: true, email: e };
 }
@@ -111,9 +108,9 @@ function cfEmailsHtml(sub) {
     <div class="form-group"><label for="cf_eparty">From / to</label><input class="form-control" id="cf_eparty"></div><div class="form-group mw-wide"><label for="cf_esubj">Subject</label><input class="form-control" id="cf_esubj"></div>
     <div class="form-group mw-wide"><label for="cf_ebody">Message <span class="text-muted">(optional)</span></label><textarea class="form-control" id="cf_ebody" rows="3"></textarea></div></div>
     <div class="p1-actions"><button class="btn btn-primary" onclick="cfLogEmailForm()">Add to history</button></div></div></details>` : "";
-  const items = list.length ? list.map(e => `<div class="cf-note"><div class="cf-note-h"><span class="badge ${e.direction === "in" ? "badge-info" : "badge-success"}">${e.direction === "in" ? "Received" : "Sent"}</span> <strong>${cfEsc(e.subject)}</strong><span class="text-muted" style="margin-left:auto;">${cfEsc(e.at)}</span></div>
-    <div class="p1-note" style="margin:0 0 4px;">${e.direction === "in" ? "From" : "To"}: ${cfEsc(e.party)}${e.by ? " · logged by " + cfEsc(e.by) : ""}${e.files && e.files.length ? " · files: " + cfEsc(e.files.join(", ")) : ""}</div>
-    ${e.body ? `<details><summary class="text-xs" style="cursor:pointer;">Show message</summary><pre class="cf-pre">${cfEsc(e.body)}</pre></details>` : ""}</div>`).join("") : `<div class="mw-empty">No messages on this case yet.</div>`;
+  const items = list.length ? list.map(e => `<div class="cf-note"><div class="cf-note-h"><span class="badge ${e.direction === "in" ? "badge-info" : "badge-success"}">${e.direction === "in" ? "Received" : "Sent"}</span> <strong>${escHtml(e.subject)}</strong><span class="text-muted" style="margin-left:auto;">${escHtml(e.at)}</span></div>
+    <div class="p1-note" style="margin:0 0 4px;">${e.direction === "in" ? "From" : "To"}: ${escHtml(e.party)}${e.by ? " · logged by " + escHtml(e.by) : ""}${e.files && e.files.length ? " · files: " + escHtml(e.files.join(", ")) : ""}</div>
+    ${e.body ? `<details><summary class="text-xs" style="cursor:pointer;">Show message</summary><pre class="cf-pre">${escHtml(e.body)}</pre></details>` : ""}</div>`).join("") : `<div class="mw-empty">No messages on this case yet.</div>`;
   return form + items;
 }
 function cfLogEmailForm() {
@@ -158,7 +155,7 @@ function cfAddTelematics(sub, text, name) {
   const p = cfParseTelematics(text, name);
   if (!p.ok) return p;
   if (!sub.telematics) sub.telematics = [];
-  const load = { id: "TEL-" + (sub.telematics.length + 1), file: name || "pasted", at: cfNow(), by: cfActor(), rows: p.rows, skipped: p.skipped };
+  const load = { id: "TEL-" + (sub.telematics.length + 1), file: name || "pasted", at: nowStamp(), by: actorLabel(), rows: p.rows, skipped: p.skipped };
   sub.telematics.push(load); cfSave();
   return { ok: true, load };
 }
@@ -179,8 +176,8 @@ function cfTelematicsHtml(sub) {
   if (!loads.length) return form + `<div class="mw-empty">No telematics data has been loaded for this case. Load the carrier's or the insured's telematics export to see it here.</div>`;
   const f = v => v === null ? "—" : v;
   const tiles = `<div class="mw-tiles"><div class="mw-tile"><div class="mw-tile-n">${s.vehicles}</div><div class="mw-tile-l">Vehicles</div></div><div class="mw-tile"><div class="mw-tile-n">${s.miles.toLocaleString("en-US")}</div><div class="mw-tile-l">Miles</div></div><div class="mw-tile"><div class="mw-tile-n">${f(s.hardBrakePer1000)}</div><div class="mw-tile-l">Hard brakes per 1,000 mi</div></div><div class="mw-tile"><div class="mw-tile-n">${f(s.speedingPer1000)}</div><div class="mw-tile-l">Speeding per 1,000 mi</div></div><div class="mw-tile"><div class="mw-tile-n">${f(s.avgScore)}</div><div class="mw-tile-l">Average score</div></div></div>`;
-  const rows = `<div class="card"><div class="card-header"><h3>Latest by vehicle</h3></div><div class="card-body"><div class="rules-table-container" style="max-height:none;"><table class="data-table"><thead><tr><th>Unit / VIN</th><th>Period</th><th>Miles</th><th>Hard brakes</th><th>Speeding</th><th>Harsh accel.</th><th>Score</th></tr></thead><tbody>${s.rows.map(r => `<tr><td>${cfEsc(r.unit)}</td><td>${cfEsc(r.start || "—")} to ${cfEsc(r.end || "—")}</td><td>${r.miles.toLocaleString("en-US")}</td><td>${f(r.hardBrake)}</td><td>${f(r.speeding)}</td><td>${f(r.accel)}</td><td>${f(r.score)}</td></tr>`).join("")}</tbody></table></div></div></div>`;
-  const hist = `<div class="card"><div class="card-header"><h3>History</h3></div><div class="card-body"><table class="data-table"><thead><tr><th>Load</th><th>File</th><th>When</th><th>By</th><th>Rows</th><th>Skipped</th></tr></thead><tbody>${loads.slice().reverse().map(l => `<tr><td>${l.id}</td><td>${cfEsc(l.file)}</td><td>${cfEsc(l.at)}</td><td>${cfEsc(l.by)}</td><td>${l.rows.length}</td><td>${l.skipped.length ? l.skipped.length + " (" + cfEsc(l.skipped.slice(0, 3).map(x => "row " + x.row + ": " + x.reason).join("; ")) + ")" : 0}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const rows = `<div class="card"><div class="card-header"><h3>Latest by vehicle</h3></div><div class="card-body"><div class="rules-table-container" style="max-height:none;"><table class="data-table"><thead><tr><th>Unit / VIN</th><th>Period</th><th>Miles</th><th>Hard brakes</th><th>Speeding</th><th>Harsh accel.</th><th>Score</th></tr></thead><tbody>${s.rows.map(r => `<tr><td>${escHtml(r.unit)}</td><td>${escHtml(r.start || "—")} to ${escHtml(r.end || "—")}</td><td>${r.miles.toLocaleString("en-US")}</td><td>${f(r.hardBrake)}</td><td>${f(r.speeding)}</td><td>${f(r.accel)}</td><td>${f(r.score)}</td></tr>`).join("")}</tbody></table></div></div></div>`;
+  const hist = `<div class="card"><div class="card-header"><h3>History</h3></div><div class="card-body"><table class="data-table"><thead><tr><th>Load</th><th>File</th><th>When</th><th>By</th><th>Rows</th><th>Skipped</th></tr></thead><tbody>${loads.slice().reverse().map(l => `<tr><td>${l.id}</td><td>${escHtml(l.file)}</td><td>${escHtml(l.at)}</td><td>${escHtml(l.by)}</td><td>${l.rows.length}</td><td>${l.skipped.length ? l.skipped.length + " (" + escHtml(l.skipped.slice(0, 3).map(x => "row " + x.row + ": " + x.reason).join("; ")) + ")" : 0}</td></tr>`).join("")}</tbody></table></div></div>`;
   return form + tiles + rows + hist;
 }
 async function cfLoadTelematicsFile() {
@@ -226,20 +223,20 @@ function cfToggleForm(sub, id, on) {
   if (f.mandatory) return false;
   const p = cfPack(sub), i = p.selected.indexOf(id);
   if (on && i < 0) p.selected.push(id); else if (!on && i > -1) p.selected.splice(i, 1); else return true;
-  p.updatedBy = cfActor(); p.updatedAt = cfNow(); cfSave();
+  p.updatedBy = actorLabel(); p.updatedAt = nowStamp(); cfSave();
   return true;
 }
 /** The export: a CSV of the chosen forms, with who chose them and when. */
 function cfFormsCsv(sub) {
   const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"', p = cfPack(sub);
-  return ["Case,Insured,Line of business,Exported by,Exported at", [sub.id, sub.insured, sub.lobName, cfActor(), cfNow()].map(q).join(","), "", "Form number,Title,Edition,Mandatory"].concat(cfSelectedForms(sub).map(f => [f.number, f.title, f.edition, f.mandatory ? "Yes" : "No"].map(q).join(","))).join("\n");
+  return ["Case,Insured,Line of business,Exported by,Exported at", [sub.id, sub.insured, sub.lobName, actorLabel(), nowStamp()].map(q).join(","), "", "Form number,Title,Edition,Mandatory"].concat(cfSelectedForms(sub).map(f => [f.number, f.title, f.edition, f.mandatory ? "Yes" : "No"].map(q).join(","))).join("\n");
 }
 function cfExportForms() {
   const sub = cfSub(); if (!sub) return;
   const forms = cfSelectedForms(sub);
   if (!forms.length) { showToast("⚠️ No forms are selected.", "warning"); return; }
   const csv = cfFormsCsv(sub), p = cfPack(sub);
-  p.exports.push({ at: cfNow(), by: cfActor(), count: forms.length }); cfSave();
+  p.exports.push({ at: nowStamp(), by: actorLabel(), count: forms.length }); cfSave();
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = sub.id + "_forms.csv"; document.body.appendChild(a); a.click(); a.remove();
   showToast(`✅ ${forms.length} form(s) exported.`, "success");
   cfRender();
@@ -248,9 +245,9 @@ function cfFormsHtml(sub) {
   const can = cfCanEdit(sub), canLib = hasPermission("reviewRules", "edit"), lib = cfFormsFor(sub), sel = cfSelectedForms(sub).map(f => f.id), p = cfPack(sub);
   let body;
   if (!CF_FORMS.length) body = `<div class="mw-empty">The forms library is empty. ${canLib ? "Add forms below or import a CSV, then tick the ones that apply to each case." : "Someone with rights on review rules adds the library."}</div>`;
-  else if (!lib.length) body = `<div class="mw-empty">No form in the library applies to ${cfEsc(sub.lobName || sub.lobKey)}.</div>`;
-  else body = `<div class="card"><div class="card-body"><div class="rules-table-container" style="max-height:none;"><table class="data-table"><thead><tr><th></th><th>Form</th><th>Title</th><th>Edition</th></tr></thead><tbody>${lib.map(f => `<tr><td><input type="checkbox" aria-label="Include ${cfEsc(f.number)}" ${sel.indexOf(f.id) > -1 ? "checked" : ""} ${f.mandatory || !can ? "disabled" : ""} onchange="cfToggleFormUi('${f.id}', this.checked)"></td><td class="font-mono">${cfEsc(f.number)}</td><td>${cfEsc(f.title)}${f.mandatory ? ' <span class="badge badge-warning">Mandatory</span>' : ""}</td><td>${cfEsc(f.edition || "—")}</td></tr>`).join("")}</tbody></table></div>
-    <div class="p1-actions"><span class="p1-note" style="margin-right:auto;">${sel.length} selected${p.updatedBy ? " · last changed by " + cfEsc(p.updatedBy) + " " + cfEsc(p.updatedAt) : ""}${p.exports.length ? " · exported " + p.exports.length + " time(s)" : ""}</span><button class="btn btn-primary" onclick="cfExportForms()"${sel.length ? "" : " disabled"}><i class="ph ph-download-simple"></i> Export list</button></div></div></div>`;
+  else if (!lib.length) body = `<div class="mw-empty">No form in the library applies to ${escHtml(sub.lobName || sub.lobKey)}.</div>`;
+  else body = `<div class="card"><div class="card-body"><div class="rules-table-container" style="max-height:none;"><table class="data-table"><thead><tr><th></th><th>Form</th><th>Title</th><th>Edition</th></tr></thead><tbody>${lib.map(f => `<tr><td><input type="checkbox" aria-label="Include ${escHtml(f.number)}" ${sel.indexOf(f.id) > -1 ? "checked" : ""} ${f.mandatory || !can ? "disabled" : ""} onchange="cfToggleFormUi('${f.id}', this.checked)"></td><td class="font-mono">${escHtml(f.number)}</td><td>${escHtml(f.title)}${f.mandatory ? ' <span class="badge badge-warning">Mandatory</span>' : ""}</td><td>${escHtml(f.edition || "—")}</td></tr>`).join("")}</tbody></table></div>
+    <div class="p1-actions"><span class="p1-note" style="margin-right:auto;">${sel.length} selected${p.updatedBy ? " · last changed by " + escHtml(p.updatedBy) + " " + escHtml(p.updatedAt) : ""}${p.exports.length ? " · exported " + p.exports.length + " time(s)" : ""}</span><button class="btn btn-primary" onclick="cfExportForms()"${sel.length ? "" : " disabled"}><i class="ph ph-download-simple"></i> Export list</button></div></div></div>`;
   const libForm = canLib ? `<details class="card"><summary style="cursor:pointer;padding:12px 16px;font-weight:700;"><i class="ph ph-books"></i> Forms library (${CF_FORMS.length})</summary><div class="card-body"><div class="mw-grid">
     <div class="form-group"><label for="cf_fnum">Form number</label><input class="form-control" id="cf_fnum"></div><div class="form-group mw-wide"><label for="cf_ftitle">Title</label><input class="form-control" id="cf_ftitle"></div><div class="form-group"><label for="cf_fed">Edition</label><input class="form-control" id="cf_fed" placeholder="e.g. 10 13"></div>
     <div class="form-group mw-wide"><label for="cf_flobs">Lines of business <span class="text-muted">(keys, separated by ; or leave empty for all)</span></label><input class="form-control" id="cf_flobs" placeholder="${LOB_CATALOG.map(l => l.key).join("; ")}"></div><div class="form-group"><label><input type="checkbox" id="cf_fmand"> Mandatory</label></div></div>
@@ -288,14 +285,15 @@ function showCaseFilePage() {
   cfRender();
 }
 function cfTab(t) { CF.tab = t; cfRender(); }
-function cfExtraTabs() { return typeof cmTabs === "function" ? cmTabs() : []; }
+function cfExtraTabs() { return (typeof cmTabs === "function" ? cmTabs() : []).concat(typeof twCaseTabs === "function" ? twCaseTabs() : []); }
 function cfRender() {
   const root = document.getElementById("caseFileRoot"), sub = cfSub(); if (!root || !sub) return;
   const tabs = CF_TABS.concat(cfExtraTabs());
   if (!tabs.some(t => t[0] === CF.tab)) CF.tab = "notes";
   const counts = { notes: (sub.notes || []).length, emails: cfEmails(sub).length, telematics: (sub.telematics || []).length, forms: cfSelectedForms(sub).length };
   const bodies = { notes: cfNotesHtml, emails: cfEmailsHtml, telematics: cfTelematicsHtml, forms: cfFormsHtml };
-  const body = bodies[CF.tab] ? bodies[CF.tab](sub) : (typeof cmBody === "function" ? cmBody(CF.tab, sub) : "");
-  root.innerHTML = `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">${cfEsc(sub.insured)}</h2><div class="p1-id">${cfEsc(sub.id)} · ${cfEsc(sub.lobName || "")} · ${typeof fdStatus === "function" ? fdStatus(sub) : ""}</div></div><button class="btn btn-sm btn-outline" style="width:auto;" onclick="resumeActiveCaseWorkflow()"><i class="ph ph-arrow-left"></i> Back to workflow</button></div>
+  const money = typeof cmTabs === "function" && cmTabs().some(t => t[0] === CF.tab);
+  const body = bodies[CF.tab] ? bodies[CF.tab](sub) : money ? cmBody(CF.tab, sub) : (typeof twCaseBody === "function" ? twCaseBody(CF.tab, sub) : "");
+  root.innerHTML = `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">${escHtml(sub.insured)}</h2><div class="p1-id">${escHtml(sub.id)} · ${escHtml(sub.lobName || "")} · ${typeof caseStatus === "function" ? caseStatus(sub) : ""}</div></div><button class="btn btn-sm btn-outline" style="width:auto;" onclick="resumeActiveCaseWorkflow()"><i class="ph ph-arrow-left"></i> Back to workflow</button></div>
     <div class="mw-tabs">${tabs.map(t => `<button class="tab-btn${CF.tab === t[0] ? " active" : ""}" onclick="cfTab('${t[0]}')"><i class="ph ${t[2]}"></i> ${t[1]}${counts[t[0]] ? ` <span class="badge badge-light">${counts[t[0]]}</span>` : ""}</button>`).join("")}</div>${body}`;
 }

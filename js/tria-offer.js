@@ -133,18 +133,14 @@ function triaNoticeText(sub, premium) {
 // 2. STATE + AUDIT
 // ----------------------------------------------------------------------------
 function triaActiveSub() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
-function triaNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function triaActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function triaEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function triaMoney(n) { return "$" + Number(n || 0).toLocaleString("en-US"); }
 function triaLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: triaActor(), at: triaNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: triaActor(), at: nowStamp(), notes });
 }
 function triaPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -179,7 +175,7 @@ function triaCreateOffer() {
     federalSharePct: TRIA_FEDERAL_SHARE_PCT, capText: TRIA_CAP_TEXT,
     disclosures: { premiumSeparateLine: true, federalShare: true, cap: true },
     noticeText: triaNoticeText(sub, premium),
-    offeredBy: triaActor(), offeredAt: triaNow()
+    offeredBy: triaActor(), offeredAt: nowStamp()
   };
   triaLog(sub, "tria_offered", `TRIA offer made: premium for certified acts ${triaMoney(premium)}; federal share ${TRIA_FEDERAL_SHARE_PCT}% and ${TRIA_CAP_TEXT} cap disclosed. Delivered: ${sub.tria.offer.deliveryMethod}.`);
   triaPersist();
@@ -206,7 +202,7 @@ function triaRecordElection() {
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
 
   e.recordedBy = triaActor();
-  e.recordedAt = triaNow();
+  e.recordedAt = nowStamp();
   sub.tria.election = e;
   triaLog(sub, decision === "accepted" ? "tria_accepted" : "tria_rejected",
     `Insured ${decision === "accepted" ? "ACCEPTED" : "REJECTED"} terrorism coverage: ${e.signer}, ${e.title}; ${e.method}; ref ${e.reference}. Offered premium ${triaMoney(sub.tria.offer.premium)}.${e.notes ? " Notes: " + e.notes : ""}`);
@@ -222,7 +218,7 @@ function triaWithdrawOffer() {
   const reason = triaVal("triaWithdrawReason");
   if (reason.length < 5) { showToast("Enter a reason for withdrawing the offer.", "danger"); return; }
   if (!sub.tria.history) sub.tria.history = [];
-  sub.tria.history.push({ offer: sub.tria.offer, election: sub.tria.election || null, withdrawnBy: triaActor(), withdrawnAt: triaNow(), reason });
+  sub.tria.history.push({ offer: sub.tria.offer, election: sub.tria.election || null, withdrawnBy: triaActor(), withdrawnAt: nowStamp(), reason });
   triaLog(sub, "tria_offer_withdrawn", `TRIA offer withdrawn${sub.tria.election ? " (including the recorded election)" : ""}: ${reason}`);
   sub.tria.offer = null;
   sub.tria.election = null;
@@ -255,10 +251,10 @@ function renderTriaCard(sub) {
     const cls = i.level === "block" ? "alert-danger" : (i.level === "warn" ? "alert-warning" : "");
     const icon = i.level === "block" ? "ph-prohibit" : (i.level === "warn" ? "ph-warning" : "ph-info");
     const neutral = i.level === "info" ? " background:#eff6ff; border-color:#bfdbfe; color:#1e40af;" : "";
-    return `<div class="alert ${cls} text-xs" style="margin-top:8px;${neutral}"><i class="ph ${icon}"></i> ${triaEsc(i.text)}</div>`;
+    return `<div class="alert ${cls} text-xs" style="margin-top:8px;${neutral}"><i class="ph ${icon}"></i> ${escHtml(i.text)}</div>`;
   }).join("");
 
-  let body = `<div class="text-xs text-muted" style="margin-bottom:8px;"><i class="ph ph-info"></i> ${triaEsc(st.app.reason)}</div>`;
+  let body = `<div class="text-xs text-muted" style="margin-bottom:8px;"><i class="ph ph-info"></i> ${escHtml(st.app.reason)}</div>`;
 
   if (st.state === "not_applicable") {
     body += `<div class="alert alert-success text-xs"><i class="ph ph-minus-circle"></i> No TRIA offer is required for this submission.</div>`;
@@ -271,13 +267,13 @@ function renderTriaCard(sub) {
         <span class="tool-label" style="display:block; margin-bottom:8px;"><i class="ph ph-paper-plane-tilt"></i> Make the offer</span>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
           <label class="text-xs text-muted" style="font-size:12px;">Premium for certified acts ($) <input id="triaOfferPremium" type="number" min="0" step="1" class="form-control" style="width:140px;" value="${defaultPrem}"></label>
-          <select id="triaDelivery" class="form-control" style="width:250px;">${TRIA_DELIVERY_METHODS.map(m => `<option>${triaEsc(m)}</option>`).join("")}</select>
+          <select id="triaDelivery" class="form-control" style="width:250px;">${TRIA_DELIVERY_METHODS.map(m => `<option>${escHtml(m)}</option>`).join("")}</select>
           <input id="triaOfferNotes" class="form-control" style="flex:1; min-width:180px;" placeholder="Notes (optional)">
         </div>
         <div style="margin-top:8px; font-size:12px;">
           <label style="display:block;"><input type="checkbox" id="triaDiscPremium"> The premium is shown to the insured as a separate line item (not described as a "surcharge")</label>
           <label style="display:block;"><input type="checkbox" id="triaDiscShare"> The federal share of compensation (${TRIA_FEDERAL_SHARE_PCT}%) is disclosed</label>
-          <label style="display:block;"><input type="checkbox" id="triaDiscCap"> The ${triaEsc(TRIA_CAP_TEXT)} cap on insured losses is disclosed</label>
+          <label style="display:block;"><input type="checkbox" id="triaDiscCap"> The ${escHtml(TRIA_CAP_TEXT)} cap on insured losses is disclosed</label>
         </div>
         <button class="btn btn-sm btn-primary" style="width:auto; margin-top:8px;" onclick="triaCreateOffer()"><i class="ph ph-check"></i> Record offer</button>
       </div>`;
@@ -288,13 +284,13 @@ function renderTriaCard(sub) {
     // there is an offer
     body += `<div class="clean-meta-list" style="margin-bottom:10px;">
       <div class="clean-meta-row"><span class="meta-label">Premium offered (certified acts)</span><span class="meta-value">${triaMoney(t.offer.premium)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Offered</span><span class="meta-value">${triaEsc(t.offer.offeredAt)} · ${triaEsc(t.offer.offeredBy)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Delivered by</span><span class="meta-value">${triaEsc(t.offer.deliveryMethod)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Disclosures</span><span class="meta-value">Premium (separate line) · Federal share ${t.offer.federalSharePct}% · ${triaEsc(t.offer.capText)} cap</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Offered</span><span class="meta-value">${escHtml(t.offer.offeredAt)} · ${escHtml(t.offer.offeredBy)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Delivered by</span><span class="meta-value">${escHtml(t.offer.deliveryMethod)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Disclosures</span><span class="meta-value">Premium (separate line) · Federal share ${t.offer.federalSharePct}% · ${escHtml(t.offer.capText)} cap</span></div>
       ${st.quoted !== null ? `<div class="clean-meta-row"><span class="meta-label">TRIA charge on the quote</span><span class="meta-value">${triaMoney(st.quoted)}</span></div>` : ""}
     </div>
     <details style="margin-bottom:10px;"><summary class="text-xs" style="cursor:pointer;">View notice text sent with the offer</summary>
-      <pre style="white-space:pre-wrap; font-size:11.5px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px; margin-top:6px;">${triaEsc(t.offer.noticeText)}</pre>
+      <pre style="white-space:pre-wrap; font-size:11.5px; background:#f8fafc; padding:10px; border:1px solid #e2e8f0; border-radius:6px; margin-top:6px;">${escHtml(t.offer.noticeText)}</pre>
     </details>`;
 
     if (st.state === "awaiting_election") {
@@ -306,7 +302,7 @@ function renderTriaCard(sub) {
             <select id="triaDecision" class="form-control" style="width:150px;"><option value="accepted">Accepted</option>${canApprove ? '<option value="rejected">Rejected</option>' : ""}</select>
             <input id="triaSigner" class="form-control" style="width:200px;" placeholder="Name at the insured">
             <input id="triaSignerTitle" class="form-control" style="width:150px;" placeholder="Title">
-            <select id="triaMethod" class="form-control" style="width:230px;">${TRIA_ELECTION_METHODS.map(m => `<option>${triaEsc(m)}</option>`).join("")}</select>
+            <select id="triaMethod" class="form-control" style="width:230px;">${TRIA_ELECTION_METHODS.map(m => `<option>${escHtml(m)}</option>`).join("")}</select>
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;">
             <input id="triaReference" class="form-control" style="width:240px;" placeholder="Form / document reference">
@@ -321,9 +317,9 @@ function renderTriaCard(sub) {
       const e = t.election;
       body += `<div class="clean-meta-list" style="margin-bottom:10px;">
         <div class="clean-meta-row"><span class="meta-label">Election</span><span class="meta-value"><span class="badge ${e.decision === "accepted" ? "badge-success" : "badge-info"} text-xs">${e.decision === "accepted" ? "Accepted" : "Rejected"}</span></span></div>
-        <div class="clean-meta-row"><span class="meta-label">By</span><span class="meta-value">${triaEsc(e.signer)}, ${triaEsc(e.title)}</span></div>
-        <div class="clean-meta-row"><span class="meta-label">Method / reference</span><span class="meta-value">${triaEsc(e.method)} · ${triaEsc(e.reference)}</span></div>
-        <div class="clean-meta-row"><span class="meta-label">Recorded</span><span class="meta-value">${triaEsc(e.recordedAt)} · ${triaEsc(e.recordedBy)}</span></div>
+        <div class="clean-meta-row"><span class="meta-label">By</span><span class="meta-value">${escHtml(e.signer)}, ${escHtml(e.title)}</span></div>
+        <div class="clean-meta-row"><span class="meta-label">Method / reference</span><span class="meta-value">${escHtml(e.method)} · ${escHtml(e.reference)}</span></div>
+        <div class="clean-meta-row"><span class="meta-label">Recorded</span><span class="meta-value">${escHtml(e.recordedAt)} · ${escHtml(e.recordedBy)}</span></div>
       </div>`;
     }
     if (canEdit) {
@@ -335,7 +331,7 @@ function renderTriaCard(sub) {
   }
 
   const hist = (t.history || []).slice(-3).reverse().map(h =>
-    `<tr><td>${triaMoney(h.offer.premium)}</td><td>${h.election ? triaEsc(h.election.decision) : "no election"}</td><td>${triaEsc(h.withdrawnAt)}</td><td>${triaEsc(h.withdrawnBy)}</td><td>${triaEsc(h.reason)}</td></tr>`).join("");
+    `<tr><td>${triaMoney(h.offer.premium)}</td><td>${h.election ? escHtml(h.election.decision) : "no election"}</td><td>${escHtml(h.withdrawnAt)}</td><td>${escHtml(h.withdrawnBy)}</td><td>${escHtml(h.reason)}</td></tr>`).join("");
 
   box.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
@@ -369,7 +365,7 @@ function renderTriaBindBanner(sub, stage) {
   const why = st.state === "offer_required" ? "no TRIA offer has been recorded"
     : st.state === "awaiting_election" ? "the insured has not accepted or rejected the TRIA offer"
     : st.issues.filter(i => i.level === "block").map(i => i.text).join(" ");
-  return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${triaEsc(why)}</div>`;
+  return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${escHtml(why)}</div>`;
 }
 
 // ----------------------------------------------------------------------------

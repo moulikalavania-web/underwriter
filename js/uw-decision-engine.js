@@ -44,16 +44,13 @@ const UW_SEVERITY = {
 };
 const UW_OVERRIDE_MIN_REASON = 10;
 
-function uwEsc(s) { return typeof authEsc === "function" ? authEsc(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-function uwNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function uwToday() { return new Date().toISOString().slice(0, 10); }
 function uwActor() { return typeof authActor === "function" ? authActor() : String(currentUserRole); }
 function uwRoleIndex(role) { return typeof AUTH_ROLE_ORDER !== "undefined" ? AUTH_ROLE_ORDER.indexOf(role) : -1; }
 function uwActive() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
 function uwSave() { if (typeof persistAppState === "function") persistAppState(); }
 function uwLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 5, decision: decision, by: uwActor(), at: uwNow(), notes: notes });
+  sub.decisionLog.push({ step: sub.currentStep || 5, decision: decision, by: uwActor(), at: nowStamp(), notes: notes });
 }
 
 // ----------------------------------------------------------------------------
@@ -103,7 +100,7 @@ function uwRunRules(sub, stage) {
   if (!sub.ruleRuns) sub.ruleRuns = [];
   const last = sub.ruleRuns[sub.ruleRuns.length - 1];
   if (last && last.sig === sig) return last;
-  const run = Object.assign({ runId: "RUN-" + (sub.ruleRuns.length + 1), sig: sig, at: uwNow(), by: uwActor() }, ev);
+  const run = Object.assign({ runId: "RUN-" + (sub.ruleRuns.length + 1), sig: sig, at: nowStamp(), by: uwActor() }, ev);
   sub.ruleRuns.push(run);
   if (sub.ruleRuns.length > 20) sub.ruleRuns = sub.ruleRuns.slice(-20);
   uwSave();
@@ -130,10 +127,10 @@ function renderRuleRun(sub) {
       <div class="ws-small" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
         <span><strong>${run.passCount}</strong> passed</span><span><strong>${run.overriddenCount}</strong> overridden</span>
         <span><strong>${run.warningCount}</strong> warning(s)</span><span><strong>${run.referCount}</strong> major</span><span><strong>${run.knockoutCount}</strong> knockout</span>${run.baseEditedCount ? `<span class="text-muted">${run.baseEditedCount} rule(s) with an edited threshold, judged against the edited value</span>` : ""}
-        <span class="text-muted">${uwEsc(run.runId)} at the ${uwEsc(run.stage)} stage, ${uwEsc(run.at)}</span>
+        <span class="text-muted">${escHtml(run.runId)} at the ${escHtml(run.stage)} stage, ${escHtml(run.at)}</span>
       </div>
-      <p class="ws-small" style="margin:0 0 8px;">${uwEsc(why)}</p>
-      ${failed.length ? `<table class="data-table"><thead><tr><th>Rule</th><th>Severity</th><th>Submitted</th><th>Required</th><th>What happens</th></tr></thead><tbody>${failed.map(r => `<tr><td>${uwEsc(r.factor)}</td><td><span class="badge ${UW_SEVERITY[r.severity].badge}">${UW_SEVERITY[r.severity].label}</span></td><td>${uwEsc(r.val)}</td><td>${uwEsc(r.required)}${r.baseEdited ? '<div class="text-xs text-muted">threshold edited by the MGA</div>' : ""}</td><td>${uwRuleAction(r.onFail)}</td></tr>`).join("")}</tbody></table>` : ""}
+      <p class="ws-small" style="margin:0 0 8px;">${escHtml(why)}</p>
+      ${failed.length ? `<table class="data-table"><thead><tr><th>Rule</th><th>Severity</th><th>Submitted</th><th>Required</th><th>What happens</th></tr></thead><tbody>${failed.map(r => `<tr><td>${escHtml(r.factor)}</td><td><span class="badge ${UW_SEVERITY[r.severity].badge}">${UW_SEVERITY[r.severity].label}</span></td><td>${escHtml(r.val)}</td><td>${escHtml(r.required)}${r.baseEdited ? '<div class="text-xs text-muted">threshold edited by the MGA</div>' : ""}</td><td>${uwRuleAction(r.onFail)}</td></tr>`).join("")}</tbody></table>` : ""}
       ${canDecline ? `<div style="margin-top:8px;"><button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="triggerAppetiteFailureExit()"><i class="ph ph-prohibit"></i> Record the decline</button></div>` : ""}
       ${uwOverrideListHtml(sub)}
     </div>
@@ -149,7 +146,7 @@ function uwOverrideRoleNeeded(sev) { return sev === "knockout" ? "senior_uw" : n
 function uwRecordOverride(sub, rec) {
   if (!sub.uwOverrides) sub.uwOverrides = [];
   rec.id = "OVR-" + (sub.uwOverrides.length + 1);
-  rec.by = uwActor(); rec.byRole = currentUserRole; rec.at = uwNow(); rec.status = "active";
+  rec.by = uwActor(); rec.byRole = currentUserRole; rec.at = nowStamp(); rec.status = "active";
   sub.uwOverrides.push(rec);
   uwLog(sub, "uw_override_applied", "Override " + rec.id + " on " + rec.label + ": " + rec.oldValue + " to " + rec.newValue + ". Reason: " + rec.reason);
   if (rec.severity === "knockout" && typeof notify === "function") {
@@ -161,7 +158,7 @@ function uwRecordOverride(sub, rec) {
 function uwRevokeRecords(sub, targetType, targetId) {
   (sub.uwOverrides || []).forEach(o => {
     if (o.targetType === targetType && o.targetId === targetId && o.status === "active") {
-      o.status = "revoked"; o.revokedAt = uwNow(); o.revokedBy = uwActor();
+      o.status = "revoked"; o.revokedAt = nowStamp(); o.revokedBy = uwActor();
       uwLog(sub, "uw_override_revoked", "Override " + o.id + " on " + o.label + " was revoked.");
     }
   });
@@ -227,7 +224,7 @@ window.renderRiskScoreCard = function (sub) {
     const box = document.getElementById("wbRiskScoreContainer"), row = box && box.querySelector(".risk-score-edit-row");
     if (row && sub && !document.getElementById("riskScoreReason")) {
       const d = document.createElement("div"); d.className = "risk-score-edit-row"; d.style.marginTop = "6px";
-      d.innerHTML = `<label class="form-label" style="margin:0;">Reason:</label><input type="text" id="riskScoreReason" class="form-control form-control-sm" style="max-width:420px;" placeholder="Required when the score differs from the calculated one" value="${uwEsc(sub.riskScoreReason || "")}">`;
+      d.innerHTML = `<label class="form-label" style="margin:0;">Reason:</label><input type="text" id="riskScoreReason" class="form-control form-control-sm" style="max-width:420px;" placeholder="Required when the score differs from the calculated one" value="${escHtml(sub.riskScoreReason || "")}">`;
       row.parentNode.insertBefore(d, row.nextSibling);
     }
   } catch (e) { /* the card still works without the reason box */ }
@@ -266,7 +263,7 @@ function uwOverrideListHtml(sub) {
   const list = sub.uwOverrides || [];
   if (!list.length) return "";
   return `<div class="uwp-subsection-title" style="margin-top:12px;">Overrides on this case</div>
-  <table class="data-table"><thead><tr><th>Record</th><th>What</th><th>Change</th><th>Reason</th><th>By</th><th>Status</th></tr></thead><tbody>${list.slice().reverse().map(o => `<tr><td>${uwEsc(o.id)}</td><td>${uwEsc(o.label)}</td><td>${uwEsc(o.oldValue)} &rarr; ${uwEsc(o.newValue)}</td><td>${uwEsc(o.reason)}</td><td>${uwEsc(o.by)}<div class="text-xs text-muted">${uwEsc(o.at)}</div></td><td>${o.status === "active" ? '<span class="badge badge-warning">Active</span>' : '<span class="badge badge-light">Revoked ' + uwEsc(o.revokedAt) + '</span>'}</td></tr>`).join("")}</tbody></table>`;
+  <table class="data-table"><thead><tr><th>Record</th><th>What</th><th>Change</th><th>Reason</th><th>By</th><th>Status</th></tr></thead><tbody>${list.slice().reverse().map(o => `<tr><td>${escHtml(o.id)}</td><td>${escHtml(o.label)}</td><td>${escHtml(o.oldValue)} &rarr; ${escHtml(o.newValue)}</td><td>${escHtml(o.reason)}</td><td>${escHtml(o.by)}<div class="text-xs text-muted">${escHtml(o.at)}</div></td><td>${o.status === "active" ? '<span class="badge badge-warning">Active</span>' : '<span class="badge badge-light">Revoked ' + escHtml(o.revokedAt) + '</span>'}</td></tr>`).join("")}</tbody></table>`;
 }
 
 var _uwOrigRenderRules = window.renderAppetiteRules;
@@ -361,7 +358,7 @@ function uwAssessmentFinalise(sub) {
   if (!sc.complete) return { ok: false, error: "incomplete", missing: UW_FRAMEWORK.dimensions.filter(d => !(a.responses[d.code] && a.responses[d.code].score)).map(d => d.name) };
   const bare = UW_FRAMEWORK.dimensions.filter(d => a.responses[d.code].score <= 2 && !a.responses[d.code].comment);
   if (bare.length) return { ok: false, error: "comment", missing: bare.map(d => d.name) };
-  a.overall = sc.overall; a.grade = sc.grade; a.status = "final"; a.assessedBy = uwActor(); a.assessedByRole = currentUserRole; a.assessedAt = uwNow();
+  a.overall = sc.overall; a.grade = sc.grade; a.status = "final"; a.assessedBy = uwActor(); a.assessedByRole = currentUserRole; a.assessedAt = nowStamp();
   uwLog(sub, "uw_assessment_final", "Assessment finalised: " + sc.overall.toFixed(2) + " / 5, grade " + sc.grade + ".");
   uwSave();
   return { ok: true, overall: sc.overall, grade: sc.grade };
@@ -370,7 +367,7 @@ function uwAssessmentReopen(sub) {
   const a = uwAssessmentSeed(sub);
   if (a.status !== "final") return { ok: false };
   if (uwRoleIndex(currentUserRole) < uwRoleIndex("senior_uw")) return { ok: false, error: "authority" };
-  a.status = "draft"; a.reopenedBy = uwActor(); a.reopenedAt = uwNow();
+  a.status = "draft"; a.reopenedBy = uwActor(); a.reopenedAt = nowStamp();
   uwLog(sub, "uw_assessment_reopened", "Assessment reopened for changes.");
   uwSave();
   return { ok: true };
@@ -415,11 +412,11 @@ function renderUwAssessment(sub) {
   const rows = UW_FRAMEWORK.dimensions.map(d => {
     const r = a.responses[d.code] || {}, s = sug[d.code];
     return `<tr>
-      <td><strong>${uwEsc(d.name)}</strong><div class="text-xs text-muted">${uwEsc(d.hint)}</div></td>
+      <td><strong>${escHtml(d.name)}</strong><div class="text-xs text-muted">${escHtml(d.hint)}</div></td>
       <td>${d.weight}%</td>
       <td>${canEdit ? `<select id="uwa_s_${d.code}" class="form-control form-control-sm" style="width:auto;"><option value="">-</option>${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${Number(r.score) === n ? "selected" : ""}>${n} ${UW_SCORE_LABELS[n]}</option>`).join("")}</select>` : (r.score ? r.score + " " + UW_SCORE_LABELS[r.score] : "-")}
-        ${s ? `<div class="text-xs text-muted">Suggested ${s.score}: ${uwEsc(s.basis)}${canEdit ? ` <a href="#" onclick="uwAssessUseSuggestion('${sub.id}','${d.code}');return false;">use</a>` : ""}</div>` : ""}</td>
-      <td>${canEdit ? `<input type="text" id="uwa_c_${d.code}" class="form-control form-control-sm" value="${uwEsc(r.comment || "")}" placeholder="Evidence or comment" onchange="uwAssessSave('${sub.id}','${d.code}')">` : uwEsc(r.comment || "")}</td>
+        ${s ? `<div class="text-xs text-muted">Suggested ${s.score}: ${escHtml(s.basis)}${canEdit ? ` <a href="#" onclick="uwAssessUseSuggestion('${sub.id}','${d.code}');return false;">use</a>` : ""}</div>` : ""}</td>
+      <td>${canEdit ? `<input type="text" id="uwa_c_${d.code}" class="form-control form-control-sm" value="${escHtml(r.comment || "")}" placeholder="Evidence or comment" onchange="uwAssessSave('${sub.id}','${d.code}')">` : escHtml(r.comment || "")}</td>
       <td>${canEdit ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="uwAssessSave('${sub.id}','${d.code}')">Save</button>` : ""}</td>
     </tr>`;
   }).join("");
@@ -431,7 +428,7 @@ function renderUwAssessment(sub) {
       <p class="ws-small text-muted" style="margin:0 0 8px;">Six weighted dimensions, each scored 1 (poor) to 5 (strong). Beside the risk score, which is the calculated figure; this is the underwriter's own judgment with the evidence.</p>
       <table class="data-table"><thead><tr><th>Dimension</th><th>Weight</th><th>Score</th><th>Comment</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        ${final ? `<span class="ws-small text-muted">Finalised by ${uwEsc(a.assessedBy)} on ${uwEsc(a.assessedAt)}.</span><button class="btn btn-sm btn-outline" style="width:auto;" onclick="uwAssessReopen('${sub.id}')">Reopen</button>`
+        ${final ? `<span class="ws-small text-muted">Finalised by ${escHtml(a.assessedBy)} on ${escHtml(a.assessedAt)}.</span><button class="btn btn-sm btn-outline" style="width:auto;" onclick="uwAssessReopen('${sub.id}')">Reopen</button>`
       : (canEdit ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="uwAssessFinalise('${sub.id}')">Finalise assessment</button><span class="ws-small text-muted">${sc.scored} of ${UW_FRAMEWORK.dimensions.length} scored${sc.grade ? ", running grade " + sc.grade : ""}.</span>` : '<span class="ws-small text-muted">You can read the assessment; scoring needs the authority edit permission.</span>')}
       </div>
     </div>
@@ -488,7 +485,7 @@ function uwLevelsFor(role) { return UW_AUTHORITY_LEVELS.filter(l => l.role === r
 
 /** The most specific level in force for a role and risk, or null. `m` is what authMeasures returns (line, state, product, program, transaction). */
 function uwLevelFor(role, m, today) {
-  const t = today || uwToday(), txn = (m && m.txn) || "new";
+  const t = today || todayIso(), txn = (m && m.txn) || "new";
   let best = null, bestScore = -1;
   uwLevelsFor(role).forEach(l => {
     if (l.lob !== "*" && l.lob !== m.lob) return;
@@ -555,7 +552,7 @@ function uwLevelsValidate(levels) {
 
 // ---- changing the levels: a proposal that cites the authority letter, approved by someone else
 function uwLevelsActorKey() { return typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole] ? USER_ROLES_CONFIG[currentUserRole].name : String(currentUserRole); }
-function uwLevelsHistoryAdd(action, text) { UW_LEVELS_HISTORY.push({ at: uwNow(), by: uwActor(), action: action, text: text }); if (UW_LEVELS_HISTORY.length > 50) UW_LEVELS_HISTORY = UW_LEVELS_HISTORY.slice(-50); }
+function uwLevelsHistoryAdd(action, text) { UW_LEVELS_HISTORY.push({ at: nowStamp(), by: uwActor(), action: action, text: text }); if (UW_LEVELS_HISTORY.length > 50) UW_LEVELS_HISTORY = UW_LEVELS_HISTORY.slice(-50); }
 function uwNormaliseLevel(l) {
   const o = Object.assign({ lob: "*", states: "*", product: "*", program: "*", to: null, note: "" }, l);
   o.maxCreditPct = o.maxCreditPct === "" || o.maxCreditPct === null || o.maxCreditPct === undefined ? o.maxCreditPct : Number(o.maxCreditPct);
@@ -571,7 +568,7 @@ function uwLevelsPropose(levels, letterRef, note) {
   if (letterRef.length < 3) return { ok: false, error: "letter" };
   const list = (levels || []).map(uwNormaliseLevel), errs = uwLevelsValidate(list);
   if (errs.length) return { ok: false, error: "invalid", errors: errs };
-  UW_LEVELS_PENDING = { levels: list, letterRef: letterRef, note: String(note || "").trim(), proposedBy: uwActor(), proposedByKey: uwLevelsActorKey(), proposedAt: uwNow() };
+  UW_LEVELS_PENDING = { levels: list, letterRef: letterRef, note: String(note || "").trim(), proposedBy: uwActor(), proposedByKey: uwLevelsActorKey(), proposedAt: nowStamp() };
   uwLevelsHistoryAdd("proposed", "Proposed " + list.length + " level(s) citing " + letterRef + ".");
   uwLevelsSaveStore();
   return { ok: true };
@@ -595,7 +592,7 @@ function uwLevelsApprove() {
   if (p.proposedByKey === uwLevelsActorKey()) return { ok: false, error: "self" };
   const errs = uwLevelsValidate(p.levels); if (errs.length) return { ok: false, error: "invalid", errors: errs };
   uwLevelsSet(p.levels.map(l => Object.assign({}, l, { source: p.letterRef })));
-  UW_LEVELS_META = { source: "letter", letterRef: p.letterRef, approvedBy: uwActor(), approvedAt: uwNow() };
+  UW_LEVELS_META = { source: "letter", letterRef: p.letterRef, approvedBy: uwActor(), approvedAt: nowStamp() };
   uwLevelsHistoryAdd("approved", "Approved the proposal by " + p.proposedBy + " citing " + p.letterRef + ".");
   UW_LEVELS_PENDING = null; uwLevelsSaveStore();
   return { ok: true };
@@ -673,14 +670,14 @@ function uwScopeText(l) {
   return bits.length ? bits.join(", ") : "everything";
 }
 function uwLevelRowHtml(l, edit) {
-  return `<tr><td>${uwEsc(l.id)}</td><td>${uwEsc(authRoleIdent(l.role))}</td><td>${uwEsc(uwScopeText(l))}</td><td>${l.txn === "*" ? "all" : l.txn.map(t => UW_TXN_LABELS[t] || t).join(", ")}</td><td>${l.maxCreditPct}%</td><td>${l.maxDebitPct}%</td><td>${l.canBind ? "Yes" : "No"}</td><td>${uwEsc(l.from || "")} to ${uwEsc(l.to || "open")}</td><td>${l.source === "placeholder" ? '<span class="badge badge-warning">Placeholder</span>' : uwEsc(l.source || "")}</td>${edit ? `<td><a href="#" onclick="uwLvEdit('${l.id}');return false;">edit</a> <a href="#" onclick="uwLvRemove('${l.id}');return false;">remove</a></td>` : ""}</tr>`;
+  return `<tr><td>${escHtml(l.id)}</td><td>${escHtml(authRoleIdent(l.role))}</td><td>${escHtml(uwScopeText(l))}</td><td>${l.txn === "*" ? "all" : l.txn.map(t => UW_TXN_LABELS[t] || t).join(", ")}</td><td>${l.maxCreditPct}%</td><td>${l.maxDebitPct}%</td><td>${l.canBind ? "Yes" : "No"}</td><td>${escHtml(l.from || "")} to ${escHtml(l.to || "open")}</td><td>${l.source === "placeholder" ? '<span class="badge badge-warning">Placeholder</span>' : escHtml(l.source || "")}</td>${edit ? `<td><a href="#" onclick="uwLvEdit('${l.id}');return false;">edit</a> <a href="#" onclick="uwLvRemove('${l.id}');return false;">remove</a></td>` : ""}</tr>`;
 }
 function uwLevelsEditorHtml() {
   const canEdit = hasPermission("rateConfig", "edit"), canApprove = hasPermission("rateConfig", "approve"), p = UW_LEVELS_PENDING;
   let h = "";
   if (p) {
     const mine = p.proposedByKey === uwLevelsActorKey();
-    h += `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>Proposal waiting</strong> by ${uwEsc(p.proposedBy)} on ${uwEsc(p.proposedAt)}, citing <strong>${uwEsc(p.letterRef)}</strong>${p.note ? ": " + uwEsc(p.note) : ""}. It has ${p.levels.length} level(s); the levels in force stay as they are until it is approved.
+    h += `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>Proposal waiting</strong> by ${escHtml(p.proposedBy)} on ${escHtml(p.proposedAt)}, citing <strong>${escHtml(p.letterRef)}</strong>${p.note ? ": " + escHtml(p.note) : ""}. It has ${p.levels.length} level(s); the levels in force stay as they are until it is approved.
       <div style="margin-top:6px;">${mine ? '<span class="text-muted">You proposed this; a different approver must decide it.</span> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="uwLvReject()">Withdraw</button>'
         : (canApprove ? '<button class="btn btn-xs btn-primary" style="width:auto;" onclick="uwLvApprove()">Approve</button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="uwLvReject()">Reject</button>' : '<span class="text-muted">You cannot approve level changes.</span>')}</div>
       <table class="data-table" style="margin-top:6px;"><thead><tr><th>Level</th><th>Person</th><th>Scope</th><th>Transactions</th><th>Credit</th><th>Debit</th><th>Bind</th><th>Period</th><th>Source</th></tr></thead><tbody>${p.levels.map(l => uwLevelRowHtml(l, false)).join("")}</tbody></table></div>`;
@@ -689,7 +686,7 @@ function uwLevelsEditorHtml() {
   h += `<div class="uwp-subsection-title" style="margin-top:8px;">Change a level (proposal, approved by someone else)</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;" class="ws-small">
       <input id="uwlv_id" class="form-control form-control-sm" placeholder="Level id, e.g. LV-SU-TX">
-      <select id="uwlv_role" class="form-control form-control-sm">${AUTH_ROLE_ORDER.map(r => `<option value="${r}">${uwEsc(authRoleIdent(r))}</option>`).join("")}</select>
+      <select id="uwlv_role" class="form-control form-control-sm">${AUTH_ROLE_ORDER.map(r => `<option value="${r}">${escHtml(authRoleIdent(r))}</option>`).join("")}</select>
       <input id="uwlv_txn" class="form-control form-control-sm" placeholder="Transactions: * or new,renew,endorse" value="*">
       <input id="uwlv_lob" class="form-control form-control-sm" placeholder="Line (* = all)" value="*">
       <input id="uwlv_states" class="form-control form-control-sm" placeholder="States (* or TX,OH)" value="*">
@@ -701,7 +698,7 @@ function uwLevelsEditorHtml() {
       <input id="uwlv_from" class="form-control form-control-sm" placeholder="From yyyy-mm-dd">
       <input id="uwlv_to" class="form-control form-control-sm" placeholder="To (empty = open)">
       <input id="uwlv_note" class="form-control form-control-sm" placeholder="Note">
-      <input id="uwlv_letter" class="form-control form-control-sm" placeholder="Authority letter reference (required)" value="${p ? uwEsc(p.letterRef) : ""}">
+      <input id="uwlv_letter" class="form-control form-control-sm" placeholder="Authority letter reference (required)" value="${p ? escHtml(p.letterRef) : ""}">
     </div>
     <div style="margin-top:6px;"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="uwLvSubmit()">Propose this level</button></div>
     <details style="margin-top:6px;"><summary class="ws-small">Load all levels from an authority letter (JSON)</summary>
@@ -750,13 +747,13 @@ window.renderAuthorityCard = function (sub) {
       const old = box.querySelector(".uw-level-block"); if (old) old.remove();
       const div = document.createElement("div"); div.className = "uw-level-block"; div.style.marginTop = "10px";
       div.innerHTML = `<div class="uwp-subsection-title">Your authority level for this case</div>
-        <div class="ws-small">${lv ? `<strong>${uwEsc(authRoleIdent(currentUserRole))}</strong>, ${uwEsc(lv.id)}: ${UW_TXN_LABELS[m.txn] || m.txn}; credit up to ${lv.maxCreditPct}%, debit up to ${lv.maxDebitPct}%; ${lv.canBind ? "may bind" : "may not bind"}; in force ${uwEsc(lv.from || "-")} to ${uwEsc(lv.to || "open")}.` : uwEsc(lc.reasons[0] || "No level applies.")}</div>
-        ${uwLevelsArePlaceholder() ? '<div class="text-xs" style="margin-top:4px;"><span class="badge badge-warning">Placeholder figures</span> These levels are illustrative and have not been loaded from an authority letter.</div>' : '<div class="text-xs text-muted" style="margin-top:4px;">Levels in force from ' + uwEsc(UW_LEVELS_META.letterRef || "") + ', approved by ' + uwEsc(UW_LEVELS_META.approvedBy || "") + ' on ' + uwEsc(UW_LEVELS_META.approvedAt || "") + '.</div>'}
+        <div class="ws-small">${lv ? `<strong>${escHtml(authRoleIdent(currentUserRole))}</strong>, ${escHtml(lv.id)}: ${UW_TXN_LABELS[m.txn] || m.txn}; credit up to ${lv.maxCreditPct}%, debit up to ${lv.maxDebitPct}%; ${lv.canBind ? "may bind" : "may not bind"}; in force ${escHtml(lv.from || "-")} to ${escHtml(lv.to || "open")}.` : escHtml(lc.reasons[0] || "No level applies.")}</div>
+        ${uwLevelsArePlaceholder() ? '<div class="text-xs" style="margin-top:4px;"><span class="badge badge-warning">Placeholder figures</span> These levels are illustrative and have not been loaded from an authority letter.</div>' : '<div class="text-xs text-muted" style="margin-top:4px;">Levels in force from ' + escHtml(UW_LEVELS_META.letterRef || "") + ', approved by ' + escHtml(UW_LEVELS_META.approvedBy || "") + ' on ' + escHtml(UW_LEVELS_META.approvedAt || "") + '.</div>'}
         <details style="margin-top:6px;"${UW_LEVELS_PENDING ? " open" : ""}><summary class="ws-small">All authority levels${over.length ? " (" + over.length + " overlap(s) to fix)" : " (no overlaps)"}${UW_LEVELS_PENDING ? ", a proposal is waiting" : ""}</summary>
         <table class="data-table"><thead><tr><th>Level</th><th>Person</th><th>Scope</th><th>Transactions</th><th>Credit</th><th>Debit</th><th>Bind</th><th>Period</th><th>Source</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>${UW_AUTHORITY_LEVELS.map(l => uwLevelRowHtml(l, canEdit)).join("")}</tbody></table>
         <div class="text-xs text-muted">Premium and limit ceilings by line and state are in the table above. A level's scope narrows it to a line, states, a product (the case's product code or name) or a program.</div>
         ${uwLevelsEditorHtml()}
-        ${UW_LEVELS_HISTORY.length ? `<div class="text-xs text-muted" style="margin-top:6px;">History: ${UW_LEVELS_HISTORY.slice(-3).reverse().map(h => uwEsc(h.at + " " + h.text)).join("; ")}</div>` : ""}</details>
+        ${UW_LEVELS_HISTORY.length ? `<div class="text-xs text-muted" style="margin-top:6px;">History: ${UW_LEVELS_HISTORY.slice(-3).reverse().map(h => escHtml(h.at + " " + h.text)).join("; ")}</div>` : ""}</details>
         ${uwOverrideListHtml(sub)}`;
       box.appendChild(div);
     }

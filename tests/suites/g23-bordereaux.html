@@ -132,7 +132,7 @@
     renderBordereaux();
     t('a producer is refused the screen', /do not have access/.test(el('bordereauxRoot').innerHTML));
     changeUserRole('senior');
-    t('XSS-safe', bdxEsc('<b>') === '&lt;b&gt;');
+    t('XSS-safe', escHtml('<b>') === '&lt;b&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   try { localStorage.removeItem(BDX_STORAGE_KEY); } catch(e) {}
   window.showToast = origToast;

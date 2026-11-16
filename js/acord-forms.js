@@ -116,7 +116,6 @@ const ACORD_FORMS = {
 // ----------------------------------------------------------------------------
 // 1. READ
 // ----------------------------------------------------------------------------
-function acEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s === null || s === undefined ? "" : s); }
 
 /** The value printed against a label: "LABEL: value" on one line, or the label alone on a line with the value under it. */
 function acordFindValue(text, labels) {
@@ -237,9 +236,9 @@ function renderAcordRead(sub) {
     return;
   }
   box.innerHTML = `<div class="card"><div class="card-header"><h3><i class="ph ph-file-text"></i> ACORD forms read</h3>${btn}</div><div class="card-body">${a.forms.map(f => `
-    <div style="margin-bottom:12px;"><strong>${acEsc(f.title)}</strong> <span class="ws-small text-muted">from ${acEsc(f.document)}: ${f.count} field(s) found${f.premises ? ", " + f.premises + " premises" : ""}</span>
-    <table class="data-table"><tbody>${Object.keys(f.found).map(k => `<tr><td class="text-muted">${acEsc(acordFieldLabel(f.form, k))}</td><td>${acEsc(f.found[k])}</td></tr>`).join("")}</tbody></table>
-    ${f.missing.length ? `<div class="ws-small text-muted">Not on the form: ${acEsc(f.missing.join(", "))}.</div>` : ""}</div>`).join("")}</div></div>`;
+    <div style="margin-bottom:12px;"><strong>${escHtml(f.title)}</strong> <span class="ws-small text-muted">from ${escHtml(f.document)}: ${f.count} field(s) found${f.premises ? ", " + f.premises + " premises" : ""}</span>
+    <table class="data-table"><tbody>${Object.keys(f.found).map(k => `<tr><td class="text-muted">${escHtml(acordFieldLabel(f.form, k))}</td><td>${escHtml(f.found[k])}</td></tr>`).join("")}</tbody></table>
+    ${f.missing.length ? `<div class="ws-small text-muted">Not on the form: ${escHtml(f.missing.join(", "))}.</div>` : ""}</div>`).join("")}</div></div>`;
 }
 function acordFieldLabel(formId, key) {
   for (const s of ACORD_FORMS[formId].sections) { const f = s.fields.find(x => x.key === key); if (f) return f.label; }
@@ -310,8 +309,8 @@ function acordPrefill(sub, formId) {
 
 function acordPrefillHtml(sub, formId) {
   const p = acordPrefill(sub, formId);
-  return `<div class="ws-small text-muted" style="margin-bottom:6px;">${acEsc(sub.insured || "")} · ${acEsc(sub.id)} · ${p.filled} of ${p.total} fields filled from the case, <strong>${p.confirm} to confirm</strong>. Filled values come from the case record; a field marked Confirm is not on the case.</div>` +
-    p.sections.map(s => `<h4 style="margin:10px 0 4px; font-size:12px;">${acEsc(s.title)}</h4><table class="data-table"><tbody>${s.rows.map(r => `<tr><td style="width:36%;" class="text-muted">${acEsc(r.label)}</td><td>${r.state === "filled" ? acEsc(r.value) : `<span style="background:#fef3c7; padding:1px 6px; border-radius:4px;">Confirm</span> <span class="ws-small text-muted">ask: ${acEsc(r.ask)}</span>`}</td></tr>`).join("")}</tbody></table>`).join("");
+  return `<div class="ws-small text-muted" style="margin-bottom:6px;">${escHtml(sub.insured || "")} · ${escHtml(sub.id)} · ${p.filled} of ${p.total} fields filled from the case, <strong>${p.confirm} to confirm</strong>. Filled values come from the case record; a field marked Confirm is not on the case.</div>` +
+    p.sections.map(s => `<h4 style="margin:10px 0 4px; font-size:12px;">${escHtml(s.title)}</h4><table class="data-table"><tbody>${s.rows.map(r => `<tr><td style="width:36%;" class="text-muted">${escHtml(r.label)}</td><td>${r.state === "filled" ? escHtml(r.value) : `<span style="background:#fef3c7; padding:1px 6px; border-radius:4px;">Confirm</span> <span class="ws-small text-muted">ask: ${escHtml(r.ask)}</span>`}</td></tr>`).join("")}</tbody></table>`).join("");
 }
 
 function openAcordPrefill(formId) {
@@ -338,10 +337,10 @@ function showAcordPrefillTab(id) {
   const sub = wsSub(); if (!sub) return;
   const names = { "125": "ACORD 125", "126": "ACORD 126", "127": "ACORD 127", "140": "ACORD 140", "TRK": "Trucking supplement" };
   document.getElementById("acordPrefillTabs").innerHTML = (window.__acordForms || []).map(i => `<button class="btn ${i === id ? "btn-primary" : "btn-outline"} btn-sm" onclick="showAcordPrefillTab('${i}')">${names[i]}</button>`).join("");
-  document.getElementById("acordPrefillBody").innerHTML = `<h3 style="margin:6px 0;">${acEsc((id === "TRK" ? ACORD_SUPPLEMENT : ACORD_FORMS[id]).title)}</h3>` + acordPrefillHtml(sub, id);
+  document.getElementById("acordPrefillBody").innerHTML = `<h3 style="margin:6px 0;">${escHtml((id === "TRK" ? ACORD_SUPPLEMENT : ACORD_FORMS[id]).title)}</h3>` + acordPrefillHtml(sub, id);
   window.__acordTab = id;
   if (!sub.acordPrefilled) sub.acordPrefilled = {};
-  sub.acordPrefilled[id] = { at: wsNow(), by: wsActor() };
+  sub.acordPrefilled[id] = { at: nowStamp(), by: actorLabel() };
 }
 function closeAcordPrefill() { const m = document.getElementById("acordPrefillModal"); if (m) m.style.display = "none"; }
 function printAcordPrefill() {

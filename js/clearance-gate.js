@@ -52,6 +52,26 @@ function clearanceChecks(sub) {
   return out;
 }
 
+/**
+ * How each legal check stands, in the three words every screen uses: "pass", "fail", or "unable" (nothing to check it against: no
+ * registry or no watchlist loaded). Phase 1 and the Clearance board both read this, so a check cannot be a failure on one screen and a
+ * warning on the other. A potential watchlist match counts as "fail": it is not cleared until Compliance clears it.
+ */
+function clearanceGateStatus(sub) {
+  const out = { producer: "pass", sanctions: "pass" };
+  if (!sub) return out;
+  const c = clearanceChecks(sub);
+  if (!c.producer.ok) {
+    const p = typeof producerCurrent === "function" ? producerCurrent(sub) : null;
+    out.producer = p && p.status === "not_found" && typeof PRODUCER_REGISTRY !== "undefined" && PRODUCER_REGISTRY.length === 0 ? "unable" : "fail";
+  }
+  if (!c.sanctions.ok) {
+    const s = typeof getSanctionsStatus === "function" ? getSanctionsStatus(sub) : { state: "not_screened" };
+    out.sanctions = s.state === "blocked" || s.state === "review_required" ? "fail" : "unable";
+  }
+  return out;
+}
+
 /** True when the legal checks are stale: the producer has not passed this session, or the parties or the list changed since the last screening. */
 function clearanceStale(sub) {
   if (!sub) return false;

@@ -67,17 +67,14 @@ var BDX_COLUMNS = [
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
 function bdxRound(n) { return Math.round((Number(n) || 0) * 100) / 100; }
-function bdxToday() { return new Date().toISOString().slice(0, 10); }
-function bdxNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function bdxMoney(n) { return (Number(n) < 0 ? "-$" : "$") + Math.abs(Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function bdxEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
 function bdxPeriodEnd(period) { var p = period.split("-"); return new Date(Date.UTC(+p[0], +p[1], 0)).toISOString().slice(0, 10); }
 function bdxPeriodOf(date) { return String(date || "").slice(0, 7); }
 function bdxAddDays(iso, n) { var d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function bdxDue(period) { return bdxAddDays(bdxPeriodEnd(period), BDX_DUE_DAYS); }
 function bdxCarrierOf(sub) { return sub.carrier || (typeof PRODUCER_DEFAULT_CARRIER !== "undefined" ? PRODUCER_DEFAULT_CARRIER : "Carrier"); }
 function bdxSlug(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); }
-function bdxIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+function bdxIsBound(sub) { return policyIsBound(sub); }
 
 /** Rates at which tax and stamping fee were set at bind (from the surplus lines filing), or null. */
 function bdxTaxRates(sub) {
@@ -253,16 +250,16 @@ function bdxSubmit() {
   if (!hasPermission("bordereaux", "approve")) { denyPermission("bordereaux", "approve"); return; }
   var s = bdxSel();
   if (!/^\d{4}-\d{2}$/.test(s.period) || !s.carrier) { showToast("⛔ Choose the carrier and the reporting period.", "danger"); return; }
-  if (bdxPeriodEnd(s.period) >= bdxToday()) { showToast("⛔ The period has not ended; a bordereau is submitted after month end.", "danger"); return; }
+  if (bdxPeriodEnd(s.period) >= todayIso()) { showToast("⛔ The period has not ended; a bordereau is submitted after month end.", "danger"); return; }
   var rows = bdxDraft(s.carrier, s.period);
   if (!rows.length) { showToast("⛔ There is nothing new to report for this carrier and period.", "danger"); return; }
   var t = bdxTotals(rows);
   if (t.errors) { showToast("⛔ " + t.errors + " error(s) must be fixed before submission (see the exceptions).", "danger"); return; }
   if (!bdxControlCheck(rows)) { showToast("⛔ Control totals do not reconcile (net ≠ gross − commission).", "danger"); return; }
   var seq = bdxNextSeq(s.carrier, s.period), id = "BDX-" + bdxSlug(s.carrier).toUpperCase() + "-" + s.period + "-" + String(seq).padStart(2, "0");
-  var meta = { carrier: s.carrier, period: s.period, reportId: id, generatedAt: bdxNow() };
+  var meta = { carrier: s.carrier, period: s.period, reportId: id, generatedAt: nowStamp() };
   var csv = bdxCsv(rows, meta);
-  var rep = { id: id, carrier: s.carrier, period: s.period, seq: seq, status: "submitted", submittedBy: bdxActor(), submittedAt: bdxNow(), rows: rows, totals: t, checksum: bdxChecksum(csv), filename: id + ".csv", dueDate: bdxDue(s.period), late: bdxToday() > bdxDue(s.period) };
+  var rep = { id: id, carrier: s.carrier, period: s.period, seq: seq, status: "submitted", submittedBy: bdxActor(), submittedAt: nowStamp(), rows: rows, totals: t, checksum: bdxChecksum(csv), filename: id + ".csv", dueDate: bdxDue(s.period), late: todayIso() > bdxDue(s.period) };
   BDX_STATE.reports.push(rep); bdxSave();
   var seen = {};
   rows.forEach(function (r) {
@@ -270,7 +267,7 @@ function bdxSubmit() {
     if (sub && !seen[sub.id]) {
       seen[sub.id] = true;
       if (!sub.decisionLog) sub.decisionLog = [];
-      sub.decisionLog.push({ step: sub.currentStep || 7, decision: "bdx_reported", by: bdxActor(), at: bdxNow(), notes: "Reported to " + s.carrier + " in bordereau " + id + " (" + rows.filter(function (x) { return x.submissionId === sub.id; }).map(function (x) { return x.txnType + " " + bdxMoney(x.gross); }).join(", ") + ")." });
+      sub.decisionLog.push({ step: sub.currentStep || 7, decision: "bdx_reported", by: bdxActor(), at: nowStamp(), notes: "Reported to " + s.carrier + " in bordereau " + id + " (" + rows.filter(function (x) { return x.submissionId === sub.id; }).map(function (x) { return x.txnType + " " + bdxMoney(x.gross); }).join(", ") + ")." });
     }
   });
   if (typeof persistAppState === "function") persistAppState();
@@ -289,7 +286,7 @@ function bdxExportDraft() {
   if (!hasPermission("bordereaux", "edit")) { denyPermission("bordereaux", "edit"); return; }
   var s = bdxSel(); if (!s.period || !s.carrier) return;
   var rows = bdxDraft(s.carrier, s.period);
-  bdxDownloadText("DRAFT-BDX-" + bdxSlug(s.carrier) + "-" + s.period + ".csv", bdxCsv(rows, { carrier: s.carrier, period: s.period, reportId: "DRAFT (not submitted)", generatedAt: bdxNow() }));
+  bdxDownloadText("DRAFT-BDX-" + bdxSlug(s.carrier) + "-" + s.period + ".csv", bdxCsv(rows, { carrier: s.carrier, period: s.period, reportId: "DRAFT (not submitted)", generatedAt: nowStamp() }));
 }
 function bdxDownloadReport(id) {
   if (!hasPermission("bordereaux", "view")) { denyPermission("bordereaux", "view"); return; }
@@ -310,28 +307,28 @@ function renderBordereaux() {
   var period = cur.period || lastMonth.toISOString().slice(0, 7);
   var canEdit = hasPermission("bordereaux", "edit"), canSubmit = hasPermission("bordereaux", "approve");
   var rows = carrier ? bdxDraft(carrier, period) : [], t = bdxTotals(rows);
-  var ended = /^\d{4}-\d{2}$/.test(period) && bdxPeriodEnd(period) < bdxToday();
+  var ended = /^\d{4}-\d{2}$/.test(period) && bdxPeriodEnd(period) < todayIso();
   var due = /^\d{4}-\d{2}$/.test(period) ? bdxDue(period) : "";
-  var carrierOpts = carriers.map(function (c) { return '<option value="' + bdxEsc(c) + '"' + (c === carrier ? " selected" : "") + ">" + bdxEsc(c) + "</option>"; }).join("");
+  var carrierOpts = carriers.map(function (c) { return '<option value="' + escHtml(c) + '"' + (c === carrier ? " selected" : "") + ">" + escHtml(c) + "</option>"; }).join("");
 
   var exceptions = [];
-  rows.forEach(function (r) { (r.errors || []).forEach(function (e) { exceptions.push('<li class="text-danger"><strong>Error</strong> ' + bdxEsc(r.policyNumber || r.submissionId) + " " + bdxEsc(r.txnType) + ": " + bdxEsc(e) + "</li>"); }); (r.flags || []).forEach(function (f) { if (!/^LATE|^corrects|^reverses/.test(f)) exceptions.push("<li><strong>Warning</strong> " + bdxEsc(r.policyNumber) + " " + bdxEsc(r.txnType) + ": " + bdxEsc(f) + "</li>"); }); });
+  rows.forEach(function (r) { (r.errors || []).forEach(function (e) { exceptions.push('<li class="text-danger"><strong>Error</strong> ' + escHtml(r.policyNumber || r.submissionId) + " " + escHtml(r.txnType) + ": " + escHtml(e) + "</li>"); }); (r.flags || []).forEach(function (f) { if (!/^LATE|^corrects|^reverses/.test(f)) exceptions.push("<li><strong>Warning</strong> " + escHtml(r.policyNumber) + " " + escHtml(r.txnType) + ": " + escHtml(f) + "</li>"); }); });
   var body = rows.map(function (r) {
     var fl = (r.flags || []).concat((r.errors || []).map(function (e) { return "ERROR: " + e; }));
-    return "<tr><td>" + bdxEsc(r.txnType) + "</td><td class=\"font-mono\">" + bdxEsc(r.policyNumber) + "</td><td>" + bdxEsc(r.insured) + "</td><td>" + bdxEsc(r.state) + "</td><td>" + bdxEsc(r.txnDate) + "</td><td class=\"text-right\">" + bdxMoney(r.gross) + "</td><td class=\"text-right\">" + bdxMoney(r.commission) + "</td><td class=\"text-right\"><strong>" + bdxMoney(r.net) + "</strong></td><td class=\"text-right\">" + bdxMoney(r.slTax + r.stamping) + '</td><td class="text-xs">' + bdxEsc(fl.join("; ")) + "</td></tr>";
+    return "<tr><td>" + escHtml(r.txnType) + "</td><td class=\"font-mono\">" + escHtml(r.policyNumber) + "</td><td>" + escHtml(r.insured) + "</td><td>" + escHtml(r.state) + "</td><td>" + escHtml(r.txnDate) + "</td><td class=\"text-right\">" + bdxMoney(r.gross) + "</td><td class=\"text-right\">" + bdxMoney(r.commission) + "</td><td class=\"text-right\"><strong>" + bdxMoney(r.net) + "</strong></td><td class=\"text-right\">" + bdxMoney(r.slTax + r.stamping) + '</td><td class="text-xs">' + escHtml(fl.join("; ")) + "</td></tr>";
   }).join("");
   var already = BDX_STATE.reports.filter(function (r) { return r.carrier === carrier && r.period === period; });
   var hist = bdxVisibleReports().slice().reverse().map(function (r) {
-    return "<tr><td class=\"font-mono\">" + bdxEsc(r.id) + "</td><td>" + bdxEsc(r.carrier) + "</td><td>" + bdxEsc(r.period) + "</td><td>" + r.totals.count + "</td><td class=\"text-right\">" + bdxMoney(r.totals.gross) + "</td><td class=\"text-right\">" + bdxMoney(r.totals.net) + "</td><td class=\"text-xs\">" + bdxEsc(r.submittedAt) + " · " + bdxEsc(r.submittedBy) + (r.late ? ' <span class="badge badge-warning text-xs">after due date</span>' : "") + "</td><td class=\"font-mono text-xs\">" + bdxEsc(r.checksum) + '</td><td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bdxDownloadReport(\'' + bdxEsc(r.id) + '\')">CSV</button></td></tr>';
+    return "<tr><td class=\"font-mono\">" + escHtml(r.id) + "</td><td>" + escHtml(r.carrier) + "</td><td>" + escHtml(r.period) + "</td><td>" + r.totals.count + "</td><td class=\"text-right\">" + bdxMoney(r.totals.gross) + "</td><td class=\"text-right\">" + bdxMoney(r.totals.net) + "</td><td class=\"text-xs\">" + escHtml(r.submittedAt) + " · " + escHtml(r.submittedBy) + (r.late ? ' <span class="badge badge-warning text-xs">after due date</span>' : "") + "</td><td class=\"font-mono text-xs\">" + escHtml(r.checksum) + '</td><td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bdxDownloadReport(\'' + escHtml(r.id) + '\')">CSV</button></td></tr>';
   }).join("");
 
   box.innerHTML = '<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-table"></i> Bordereaux</h3><span class="badge badge-info">Premium and risk, monthly</span></div><div class="card-body">' +
-    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><label class="text-xs">Carrier <select id="bdx_carrier" class="form-control" style="width:200px;" onchange="renderBordereaux()">' + carrierOpts + '</select></label><label class="text-xs">Period <input id="bdx_period" type="month" class="form-control" style="width:150px;" value="' + bdxEsc(period) + '" onchange="renderBordereaux()"></label>' +
-    '<span class="text-xs text-muted">' + (ended ? "Period ended; due " + bdxEsc(due) + (bdxToday() > due ? " (past due)" : "") : "Period not yet ended; submission opens after month end") + "</span></div>" +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;"><label class="text-xs">Carrier <select id="bdx_carrier" class="form-control" style="width:200px;" onchange="renderBordereaux()">' + carrierOpts + '</select></label><label class="text-xs">Period <input id="bdx_period" type="month" class="form-control" style="width:150px;" value="' + escHtml(period) + '" onchange="renderBordereaux()"></label>' +
+    '<span class="text-xs text-muted">' + (ended ? "Period ended; due " + escHtml(due) + (todayIso() > due ? " (past due)" : "") : "Period not yet ended; submission opens after month end") + "</span></div>" +
     (rows.length ? '<div class="rules-table-container" style="max-height:none;overflow:auto;"><table class="data-table"><thead><tr><th>Type</th><th>Policy</th><th>Insured</th><th>State</th><th>Date</th><th>Gross</th><th>Commission</th><th>Net to carrier</th><th>Tax + stamping collected</th><th>Flags</th></tr></thead><tbody>' + body + '</tbody><tfoot><tr><td colspan="5"><strong>' + t.count + " line(s)</strong></td><td class=\"text-right\"><strong>" + bdxMoney(t.gross) + "</strong></td><td class=\"text-right\"><strong>" + bdxMoney(t.commission) + "</strong></td><td class=\"text-right\"><strong>" + bdxMoney(t.net) + "</strong></td><td class=\"text-right\"><strong>" + bdxMoney(t.slTax + t.stamping) + "</strong></td><td></td></tr></tfoot></table></div>"
       : '<div class="text-xs text-muted">Nothing new to report for this carrier and period.</div>') +
     (exceptions.length ? '<h4 style="margin:12px 0 4px;">Exceptions</h4><ul class="text-xs" style="margin:0 0 8px 18px;">' + exceptions.join("") + "</ul>" : "") +
-    (already.length ? '<div class="text-xs text-muted">Already submitted for this period: ' + already.map(function (r) { return bdxEsc(r.id); }).join(", ") + ". Only new, late and corrected transactions appear above.</div>" : "") +
+    (already.length ? '<div class="text-xs text-muted">Already submitted for this period: ' + already.map(function (r) { return escHtml(r.id); }).join(", ") + ". Only new, late and corrected transactions appear above.</div>" : "") +
     '<div style="display:flex;gap:8px;margin-top:10px;">' + (canEdit ? '<button class="btn btn-sm btn-outline" style="width:auto;" onclick="bdxExportDraft()"><i class="ph ph-download-simple"></i> Export draft CSV</button>' : "") + (canSubmit ? '<button class="btn btn-sm btn-primary" style="width:auto;" onclick="bdxSubmit()"' + (!rows.length || t.errors || !ended ? " disabled" : "") + '><i class="ph ph-paper-plane-tilt"></i> Submit to carrier</button>' : '<span class="text-xs text-muted"><i class="ph ph-lock"></i> Submission needs approval authority.</span>') + "</div>" +
     '<h4 style="margin:16px 0 6px;">Submitted bordereaux</h4>' + (hist ? '<div class="rules-table-container" style="max-height:none;overflow:auto;"><table class="data-table"><thead><tr><th>Report</th><th>Carrier</th><th>Period</th><th>Lines</th><th>Gross</th><th>Net</th><th>Submitted</th><th>Checksum</th><th></th></tr></thead><tbody>' + hist + "</tbody></table></div>" : '<div class="text-xs text-muted">None yet.</div>') +
     '<p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> Net due to carrier is gross premium less commission; surplus lines tax and stamping fees are shown for reconciliation and are not part of it. The columns, due date and tax treatment are placeholders until mapped to each carrier\'s agreement and template. There is no claims bordereau: the prototype holds no claims data.</p></div></div>';

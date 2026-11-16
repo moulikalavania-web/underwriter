@@ -49,19 +49,14 @@ var COI_HOLDER_TYPES = ["Certificate holder", "Additional interest (lender / lan
 // ----------------------------------------------------------------------------
 function bndSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function bndActiveSub() { return bndSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function bndNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function bndToday() { return new Date().toISOString().slice(0, 10); }
 function bndActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function bndEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function bndMoney(n) { return "$" + Number(n || 0).toLocaleString("en-US"); }
 function bndLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: 7, decision, by: bndActor(), at: bndNow(), notes });
+  sub.decisionLog.push({ step: 7, decision, by: bndActor(), at: nowStamp(), notes });
 }
 function bndPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -75,7 +70,6 @@ function bndParseDate(s) {
   return /^\d{4}-\d{2}-\d{2}/.test(s) ? String(s).slice(0, 10) : null;
 }
 
-function bndIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
 
 function bndFacts(sub) {
   const effective = bndParseDate(sub.effectiveDate) || bndParseDate(sub.genInfo && sub.genInfo.effective_date) || (sub.pasSync && sub.pasSync.effectiveDate) || null;
@@ -108,7 +102,7 @@ function bndBinderState(b, today) {
   return today > b.expires ? "expired" : "active";
 }
 function bndActiveBinder(sub, today) {
-  return bndBinders(sub).filter(b => bndBinderState(b, today || bndToday()) === "active")[0] || null;
+  return bndBinders(sub).filter(b => bndBinderState(b, today || todayIso()) === "active")[0] || null;
 }
 
 // ----------------------------------------------------------------------------
@@ -124,11 +118,11 @@ function bndCoverageTable(cov) {
   if (!cov.length) return `<p>No coverage schedule on file.</p>`;
   return `<table style="border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 12px;"><thead><tr>
     <th style="text-align:left;border-bottom:1px solid #94a3b8;padding:4px;">Coverage</th><th style="text-align:left;border-bottom:1px solid #94a3b8;padding:4px;">Limits</th><th style="text-align:left;border-bottom:1px solid #94a3b8;padding:4px;">Deductible</th></tr></thead><tbody>` +
-    cov.map(c => `<tr><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${bndEsc(c.line)}</td><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${bndEsc(c.limit)}</td><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${bndEsc(c.ded)}</td></tr>`).join("") + `</tbody></table>`;
+    cov.map(c => `<tr><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${escHtml(c.line)}</td><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${escHtml(c.limit)}</td><td style="padding:4px;border-bottom:1px solid #e2e8f0;">${escHtml(c.ded)}</td></tr>`).join("") + `</tbody></table>`;
 }
 
 function bndRow(label, value) {
-  return `<tr><td style="padding:3px 10px 3px 0;color:#475569;white-space:nowrap;vertical-align:top;">${bndEsc(label)}</td><td style="padding:3px 0;">${bndEsc(value)}</td></tr>`;
+  return `<tr><td style="padding:3px 10px 3px 0;color:#475569;white-space:nowrap;vertical-align:top;">${escHtml(label)}</td><td style="padding:3px 0;">${escHtml(value)}</td></tr>`;
 }
 
 function bndBinderHtml(sub, f, b) {
@@ -145,11 +139,11 @@ function bndBinderHtml(sub, f, b) {
       ${f.premium ? bndRow("Estimated premium", bndMoney(f.premium) + " (subject to audit and policy terms)") : ""}
     </table>
     <h3 style="font-size:13px;margin:10px 0 2px;">Coverage bound</h3>${bndCoverageTable(b.coverages)}
-    ${(b.pendingCoverages || []).length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Coverage NOT bound: pending a Quote Condition</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${b.pendingCoverages.map(c => `<li><strong>${bndEsc(c.line)}</strong> (${bndEsc(c.id)}; limit ${bndEsc(c.limit)}, deductible ${bndEsc(c.ded)}) is not in force. It is added only if this is met by ${bndEsc(c.deadline)}: ${bndEsc(c.condition)}</li>`).join("")}</ul>` : ""}
-    ${b.ratingBasis ? `<p style="font-size:12px;color:#475569;">Rating basis: snapshot v${bndEsc(b.ratingBasis.version)} saved ${bndEsc(b.ratingBasis.savedAt)} (risk score ${bndEsc(b.ratingBasis.riskScore === null ? "n/a" : b.ratingBasis.riskScore)}).</p>` : ""}
-    ${conds.length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Conditions still outstanding</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${conds.map(c => `<li>${bndEsc(c.text)} <em>(${bndEsc(c.due)})</em></li>`).join("")}</ul>` : ""}
+    ${(b.pendingCoverages || []).length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Coverage NOT bound: pending a Quote Condition</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${b.pendingCoverages.map(c => `<li><strong>${escHtml(c.line)}</strong> (${escHtml(c.id)}; limit ${escHtml(c.limit)}, deductible ${escHtml(c.ded)}) is not in force. It is added only if this is met by ${escHtml(c.deadline)}: ${escHtml(c.condition)}</li>`).join("")}</ul>` : ""}
+    ${b.ratingBasis ? `<p style="font-size:12px;color:#475569;">Rating basis: snapshot v${escHtml(b.ratingBasis.version)} saved ${escHtml(b.ratingBasis.savedAt)} (risk score ${escHtml(b.ratingBasis.riskScore === null ? "n/a" : b.ratingBasis.riskScore)}).</p>` : ""}
+    ${conds.length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Conditions still outstanding</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${conds.map(c => `<li>${escHtml(c.text)} <em>(${escHtml(c.due)})</em></li>`).join("")}</ul>` : ""}
     <p style="font-size:12px;">This binder is a temporary contract of insurance. It is subject to the terms, conditions, limits and exclusions of the policy to be issued, and it is replaced by that policy. It ends on the date above unless extended in writing. The insurer may cancel it in accordance with applicable law.</p>
-    <p style="font-size:12px;margin-top:14px;">Issued by ${bndEsc(b.issuedBy)}.</p>`;
+    <p style="font-size:12px;margin-top:14px;">Issued by ${escHtml(b.issuedBy)}.</p>`;
 }
 
 function bndCertificateHtml(sub, f, b, c) {
@@ -161,7 +155,7 @@ function bndCertificateHtml(sub, f, b, c) {
   if (c.primaryNonContributory) endorse.push(`Primary and non-contributory: per endorsement ${c.primaryNonContributoryForm}`);
   return `<h2 style="margin:0 0 4px;font-size:17px;">${title}</h2>
     <div style="color:#64748b;font-size:11.5px;margin-bottom:10px;">ACORD-style layout, not an official ACORD form. ${BINDER_TEMPLATE_META.approved ? "" : `Template ${BINDER_TEMPLATE_META.version} — not approved by Compliance.`}</div>
-    <p style="font-size:11px;font-weight:700;border:1px solid #94a3b8;padding:8px;">${bndEsc(COI_DISCLAIMER)}</p>
+    <p style="font-size:11px;font-weight:700;border:1px solid #94a3b8;padding:8px;">${escHtml(COI_DISCLAIMER)}</p>
     <table style="font-size:13px;margin-bottom:10px;">
       ${bndRow("Certificate number", c.id)}${bndRow("Date issued", c.issuedAt)}
       ${bndRow("Producer", f.producer)}${bndRow("Insured", f.insured + (f.address ? ", " + f.address : ""))}
@@ -170,16 +164,16 @@ function bndCertificateHtml(sub, f, b, c) {
       ${prop ? bndRow("Location of covered property", f.address) : ""}
     </table>
     <h3 style="font-size:13px;margin:10px 0 2px;">Coverages in force at the date of issue</h3>${bndCoverageTable(b.coverages)}
-    ${endorse.length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Endorsements referenced</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${endorse.map(e => `<li>${bndEsc(e)}</li>`).join("")}</ul>` : ""}
-    ${c.description ? `<h3 style="font-size:13px;margin:10px 0 2px;">Description of operations / locations</h3><p style="font-size:13px;white-space:pre-line;">${bndEsc(c.description)}</p>` : ""}
-    <h3 style="font-size:13px;margin:10px 0 2px;">${bndEsc(c.holderType)}</h3>
-    <p style="font-size:13px;white-space:pre-line;">${bndEsc(c.holderName)}\n${bndEsc(c.holderAddress)}${c.loanNumber ? "\nLoan / reference: " + bndEsc(c.loanNumber) : ""}</p>
-    <p style="font-size:12px;">${bndEsc(COI_CANCELLATION_NOTE)}</p>
-    <p style="font-size:12px;margin-top:14px;">Issued by ${bndEsc(c.issuedBy)}.</p>`;
+    ${endorse.length ? `<h3 style="font-size:13px;margin:10px 0 2px;">Endorsements referenced</h3><ul style="margin:2px 0 10px 20px;padding:0;font-size:13px;">${endorse.map(e => `<li>${escHtml(e)}</li>`).join("")}</ul>` : ""}
+    ${c.description ? `<h3 style="font-size:13px;margin:10px 0 2px;">Description of operations / locations</h3><p style="font-size:13px;white-space:pre-line;">${escHtml(c.description)}</p>` : ""}
+    <h3 style="font-size:13px;margin:10px 0 2px;">${escHtml(c.holderType)}</h3>
+    <p style="font-size:13px;white-space:pre-line;">${escHtml(c.holderName)}\n${escHtml(c.holderAddress)}${c.loanNumber ? "\nLoan / reference: " + escHtml(c.loanNumber) : ""}</p>
+    <p style="font-size:12px;">${escHtml(COI_CANCELLATION_NOTE)}</p>
+    <p style="font-size:12px;margin-top:14px;">Issued by ${escHtml(c.issuedBy)}.</p>`;
 }
 
 function bndWrapDocument(title, body, status, note) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${bndEsc(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}${status && status !== "active" && status !== "issued" ? `<p style="color:#b91c1c;font-weight:700;margin-top:16px;">${bndEsc(status.toUpperCase())}${note ? " — " + bndEsc(note) : ""}</p>` : ""}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}${status && status !== "active" && status !== "issued" ? `<p style="color:#b91c1c;font-weight:700;margin-top:16px;">${escHtml(status.toUpperCase())}${note ? " — " + escHtml(note) : ""}</p>` : ""}</body></html>`;
 }
 
 // ----------------------------------------------------------------------------
@@ -206,9 +200,9 @@ function bndValidateCertificate(c) {
 function bndIssueBinder() {
   const sub = bndActiveSub(); if (!sub) return;
   if (!hasPermission("binders", "approve")) { denyPermission("binders", "approve"); return; }
-  if (!bndIsBound(sub)) { showToast("⛔ The policy is not bound yet. Bind & Sync to PAS first.", "danger"); return; }
+  if (!policyIsBound(sub)) { showToast("⛔ The policy is not bound yet. Bind & Sync to PAS first.", "danger"); return; }
   const f = bndFacts(sub);
-  const today = bndToday();
+  const today = todayIso();
   const existing = bndActiveBinder(sub, today);
   const problems = [];
   if (!f.effective) problems.push("the effective date is missing");
@@ -220,12 +214,12 @@ function bndIssueBinder() {
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
 
   if (existing) {
-    existing.status = "superseded"; existing.supersededAt = bndNow(); existing.supersededBy = bndActor();
+    existing.status = "superseded"; existing.supersededAt = nowStamp(); existing.supersededBy = bndActor();
     existing.supersededReason = document.getElementById("bnd_reissueReason").value.trim();
   }
   const list = bndBinders(sub);
   const b = {
-    id: `BND-${sub.id}-${list.length + 1}`, status: "active", issuedBy: bndActor(), issuedAt: bndNow(),
+    id: `BND-${sub.id}-${list.length + 1}`, status: "active", issuedBy: bndActor(), issuedAt: nowStamp(),
     effective: f.effective, expires: (() => { const e = bndAddDays(today, BINDER_VALID_DAYS); return f.expiration && f.expiration < e ? f.expiration : e; })(),
     coverages: JSON.parse(JSON.stringify(f.coverages)), premium: f.premium, policyNumber: f.policyNumber,
     pendingCoverages: JSON.parse(JSON.stringify(f.pendingCoverages || [])), ratingBasis: f.ratingBasis ? JSON.parse(JSON.stringify(f.ratingBasis)) : null,
@@ -247,10 +241,10 @@ function bndVoidBinder(id) {
   const el = document.getElementById("bnd_voidReason_" + id);
   const reason = el ? el.value.trim() : "";
   if (reason.length < 10) { showToast("A reason of at least 10 characters is required to void a binder.", "danger"); if (el) el.focus(); return; }
-  b.status = "void"; b.voidedBy = bndActor(); b.voidedAt = bndNow(); b.voidReason = reason;
+  b.status = "void"; b.voidedBy = bndActor(); b.voidedAt = nowStamp(); b.voidReason = reason;
   let revoked = 0;
   bndCerts(sub).forEach(c => {
-    if (c.status === "issued" && c.binderId === id) { c.status = "revoked"; c.revokedBy = bndActor(); c.revokedAt = bndNow(); c.revokeReason = `Binder ${id} voided: ${reason}`; revoked++; }
+    if (c.status === "issued" && c.binderId === id) { c.status = "revoked"; c.revokedBy = bndActor(); c.revokedAt = nowStamp(); c.revokeReason = `Binder ${id} voided: ${reason}`; revoked++; }
   });
   bndLog(sub, "binder_voided", `Binder ${id} voided: ${reason}.${revoked ? ` ${revoked} certificate(s) issued under it were revoked; notify the holders.` : ""}`);
   bndPersist();
@@ -273,7 +267,7 @@ function bndReadCertForm() {
 function bndIssueCertificate() {
   const sub = bndActiveSub(); if (!sub) return;
   if (!hasPermission("binders", "edit")) { denyPermission("binders", "edit"); return; }
-  if (!bndIsBound(sub)) { showToast("⛔ The policy is not bound yet.", "danger"); return; }
+  if (!policyIsBound(sub)) { showToast("⛔ The policy is not bound yet.", "danger"); return; }
   const binder = bndActiveBinder(sub);
   if (!binder) { showToast("⛔ Certificates need an active binder. Issue (or reissue) the binder first.", "danger"); return; }
   const c = bndReadCertForm();
@@ -283,8 +277,8 @@ function bndIssueCertificate() {
   const list = bndCerts(sub);
   const holderKey = c.holderName.toLowerCase().replace(/\s+/g, " ");
   let replaced = null;
-  list.forEach(x => { if (x.status === "issued" && x.holderName.toLowerCase().replace(/\s+/g, " ") === holderKey && x.holderType === c.holderType) { x.status = "superseded"; x.supersededAt = bndNow(); replaced = x; } });
-  Object.assign(c, { id: `COI-${sub.id}-${list.length + 1}`, status: "issued", binderId: binder.id, issuedBy: bndActor(), issuedAt: bndNow(), kind: bndFacts(sub).kind, supersedes: replaced ? replaced.id : null });
+  list.forEach(x => { if (x.status === "issued" && x.holderName.toLowerCase().replace(/\s+/g, " ") === holderKey && x.holderType === c.holderType) { x.status = "superseded"; x.supersededAt = nowStamp(); replaced = x; } });
+  Object.assign(c, { id: `COI-${sub.id}-${list.length + 1}`, status: "issued", binderId: binder.id, issuedBy: bndActor(), issuedAt: nowStamp(), kind: bndFacts(sub).kind, supersedes: replaced ? replaced.id : null });
   c.html = bndCertificateHtml(sub, bndFacts(sub), binder, c);
   list.push(c);
   bndLog(sub, "certificate_issued", `${c.kind === "property" ? "Evidence of property insurance" : "Certificate of liability insurance"} ${c.id} issued to ${c.holderName} (${c.holderType}) under ${binder.id}.${c.additionalInsured ? ` Additional insured per ${c.additionalInsuredForm}.` : ""}${c.waiverOfSubrogation ? ` Waiver of subrogation per ${c.waiverOfSubrogationForm}.` : ""}${c.primaryNonContributory ? ` Primary and non-contributory per ${c.primaryNonContributoryForm}.` : ""}${replaced ? ` Supersedes ${replaced.id}.` : ""}`);
@@ -301,7 +295,7 @@ function bndRevokeCertificate(id) {
   const el = document.getElementById("bnd_revokeReason_" + id);
   const reason = el ? el.value.trim() : "";
   if (reason.length < 5) { showToast("Give a reason for revoking (at least 5 characters).", "danger"); if (el) el.focus(); return; }
-  c.status = "revoked"; c.revokedBy = bndActor(); c.revokedAt = bndNow(); c.revokeReason = reason;
+  c.status = "revoked"; c.revokedBy = bndActor(); c.revokedAt = nowStamp(); c.revokeReason = reason;
   bndLog(sub, "certificate_revoked", `Certificate ${id} (${c.holderName}) revoked: ${reason}. Notify the holder.`);
   bndPersist();
   renderBindersCard(sub);
@@ -311,7 +305,7 @@ function bndDoc(kind, id) {
   const sub = bndActiveSub(); if (!sub) return null;
   const rec = (kind === "binder" ? bndBinders(sub) : bndCerts(sub)).find(x => x.id === id);
   if (!rec) return null;
-  const state = kind === "binder" ? bndBinderState(rec, bndToday()) : rec.status;
+  const state = kind === "binder" ? bndBinderState(rec, todayIso()) : rec.status;
   const note = rec.voidReason || rec.revokeReason || rec.supersededReason || "";
   return { rec, html: bndWrapDocument(id, rec.html, state, note) };
 }
@@ -338,14 +332,14 @@ function renderBindersCard(sub) {
   const box = document.getElementById("binderCertificatesContainer");
   if (!box || !sub) return;
   const canEdit = hasPermission("binders", "edit"), canIssue = hasPermission("binders", "approve"), canVoid = hasPermission("binders", "override");
-  const today = bndToday();
-  const bound = bndIsBound(sub);
+  const today = todayIso();
+  const bound = policyIsBound(sub);
   const active = bound ? bndActiveBinder(sub, today) : null;
   const f = bndFacts(sub);
 
   let head;
   if (!bound) head = `<span class="badge badge-light">Available after bind</span>`;
-  else if (active) head = `<span class="badge badge-success">Binder active to ${bndEsc(active.expires)}</span>`;
+  else if (active) head = `<span class="badge badge-success">Binder active to ${escHtml(active.expires)}</span>`;
   else head = `<span class="badge badge-warning">No active binder</span>`;
 
   let body = "";
@@ -355,10 +349,10 @@ function renderBindersCard(sub) {
     const binderRows = bndBinders(sub).slice().reverse().map(b => {
       const st = bndBinderState(b, today);
       const badge = st === "active" ? "badge-success" : (st === "expired" ? "badge-warning" : "badge-light");
-      return `<tr><td>${bndEsc(b.id)}</td><td><span class="badge ${badge} text-xs">${bndEsc(st)}</span></td><td>${bndEsc(b.effective)} to ${bndEsc(b.expires)}</td><td>${bndEsc(b.issuedAt)}<div class="text-xs text-muted">${bndEsc(b.issuedBy)}</div></td>
-        <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndPrint('binder','${bndEsc(b.id)}')"><i class="ph ph-printer"></i></button>
-        <button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndDownload('binder','${bndEsc(b.id)}')"><i class="ph ph-download-simple"></i></button>
-        ${st === "active" && canVoid ? `<input id="bnd_voidReason_${bndEsc(b.id)}" class="form-control" style="width:170px;display:inline-block;" placeholder="Reason to void"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="bndVoidBinder('${bndEsc(b.id)}')">Void</button>` : ""}</td></tr>`;
+      return `<tr><td>${escHtml(b.id)}</td><td><span class="badge ${badge} text-xs">${escHtml(st)}</span></td><td>${escHtml(b.effective)} to ${escHtml(b.expires)}</td><td>${escHtml(b.issuedAt)}<div class="text-xs text-muted">${escHtml(b.issuedBy)}</div></td>
+        <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndPrint('binder','${escHtml(b.id)}')"><i class="ph ph-printer"></i></button>
+        <button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndDownload('binder','${escHtml(b.id)}')"><i class="ph ph-download-simple"></i></button>
+        ${st === "active" && canVoid ? `<input id="bnd_voidReason_${escHtml(b.id)}" class="form-control" style="width:170px;display:inline-block;" placeholder="Reason to void"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="bndVoidBinder('${escHtml(b.id)}')">Void</button>` : ""}</td></tr>`;
     }).join("");
     const issueControls = canIssue
       ? `${active ? `<input id="bnd_reissueReason" class="form-control" style="width:260px;display:inline-block;" placeholder="Reason to replace the active binder"> ` : ""}<button class="btn btn-sm btn-primary" style="width:auto;" onclick="bndIssueBinder()"><i class="ph ph-file-text"></i> ${active ? "Reissue binder" : "Issue binder"}</button>`
@@ -366,17 +360,17 @@ function renderBindersCard(sub) {
 
     const certRows = bndCerts(sub).slice().reverse().map(c => {
       const badge = c.status === "issued" ? "badge-success" : (c.status === "revoked" ? "badge-danger" : "badge-light");
-      return `<tr><td>${bndEsc(c.id)}</td><td>${bndEsc(c.holderName)}<div class="text-xs text-muted">${bndEsc(c.holderType)}</div></td><td><span class="badge ${badge} text-xs">${bndEsc(c.status)}</span></td><td>${bndEsc(c.issuedAt)}</td>
-        <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndPrint('certificate','${bndEsc(c.id)}')"><i class="ph ph-printer"></i></button>
-        <button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndDownload('certificate','${bndEsc(c.id)}')"><i class="ph ph-download-simple"></i></button>
-        ${c.status === "issued" && canIssue ? `<input id="bnd_revokeReason_${bndEsc(c.id)}" class="form-control" style="width:150px;display:inline-block;" placeholder="Reason to revoke"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="bndRevokeCertificate('${bndEsc(c.id)}')">Revoke</button>` : ""}</td></tr>`;
+      return `<tr><td>${escHtml(c.id)}</td><td>${escHtml(c.holderName)}<div class="text-xs text-muted">${escHtml(c.holderType)}</div></td><td><span class="badge ${badge} text-xs">${escHtml(c.status)}</span></td><td>${escHtml(c.issuedAt)}</td>
+        <td style="white-space:nowrap;"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndPrint('certificate','${escHtml(c.id)}')"><i class="ph ph-printer"></i></button>
+        <button class="btn btn-xs btn-outline" style="width:auto;" onclick="bndDownload('certificate','${escHtml(c.id)}')"><i class="ph ph-download-simple"></i></button>
+        ${c.status === "issued" && canIssue ? `<input id="bnd_revokeReason_${escHtml(c.id)}" class="form-control" style="width:150px;display:inline-block;" placeholder="Reason to revoke"> <button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="bndRevokeCertificate('${escHtml(c.id)}')">Revoke</button>` : ""}</td></tr>`;
     }).join("");
 
     const certForm = (canEdit && active) ? `
       <h4 style="margin:16px 0 6px;">Issue a ${f.kind === "property" ? "evidence of property insurance" : "certificate of liability insurance"}</h4>
       <div style="display:flex;flex-wrap:wrap;gap:8px;">
         <input id="bnd_holderName" class="form-control" style="width:260px;" placeholder="Certificate holder name">
-        <select id="bnd_holderType" class="form-control" style="width:250px;">${COI_HOLDER_TYPES.map(t => `<option>${bndEsc(t)}</option>`).join("")}</select>
+        <select id="bnd_holderType" class="form-control" style="width:250px;">${COI_HOLDER_TYPES.map(t => `<option>${escHtml(t)}</option>`).join("")}</select>
         <input id="bnd_loan" class="form-control" style="width:200px;" placeholder="Loan / reference (optional)">
       </div>
       <textarea id="bnd_holderAddr" class="form-control" rows="2" style="margin-top:8px;width:100%;" placeholder="Certificate holder address"></textarea>
@@ -390,7 +384,7 @@ function renderBindersCard(sub) {
 
     body = `
       <div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">${issueControls}</div>
-      ${binderRows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Binder</th><th>Status</th><th>Period</th><th>Issued</th><th></th></tr></thead><tbody>${binderRows}</tbody></table></div>` : `<p class="text-xs text-muted">No binder has been issued for policy ${bndEsc(f.policyNumber)}.</p>`}
+      ${binderRows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Binder</th><th>Status</th><th>Period</th><th>Issued</th><th></th></tr></thead><tbody>${binderRows}</tbody></table></div>` : `<p class="text-xs text-muted">No binder has been issued for policy ${escHtml(f.policyNumber)}.</p>`}
       <h4 style="margin:16px 0 6px;">Certificates</h4>
       ${certRows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Certificate</th><th>Holder</th><th>Status</th><th>Issued</th><th></th></tr></thead><tbody>${certRows}</tbody></table></div>` : `<p class="text-xs text-muted">No certificates issued.</p>`}
       ${certForm}`;

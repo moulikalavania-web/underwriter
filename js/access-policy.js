@@ -147,8 +147,6 @@ var ACCESS_STATE = { reviews: [], changes: [] };
 function accessLoad() { try { const s = JSON.parse(localStorage.getItem(ACCESS_STORAGE_KEY) || "null"); if (s && s.reviews) ACCESS_STATE = s; } catch (e) { /* storage unavailable */ } }
 function accessSave() { try { localStorage.setItem(ACCESS_STORAGE_KEY, JSON.stringify(ACCESS_STATE)); } catch (e) { /* storage unavailable */ } }
 function accessActor() { const r = USER_ROLES_CONFIG[currentUserRole]; return r ? r.name + " (" + r.title + ")" : "Unknown"; }
-function accessNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function accessEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 function accessRecordReview(roleKey) {
   if (!hasPermission("accessReview", "approve")) { denyPermission("accessReview", "approve"); return false; }
@@ -159,7 +157,7 @@ function accessRecordReview(roleKey) {
   if (reference.length < 3) { showToast("⛔ Enter the review reference (ticket, minutes or report).", "danger"); return false; }
   const violations = validatePermissionMatrix(PERMISSIONS_MATRIX, [roleKey]);
   if (violations.length) { showToast("⛔ This role breaks the access policy (" + violations[0].rule + "); the Head of Underwriting must correct it before a review can confirm it.", "danger"); return false; }
-  ACCESS_STATE.reviews.push({ role: roleKey, at: accessNow(), by: accessActor(), note, reference, digest: accessDigest(roleKey) });
+  ACCESS_STATE.reviews.push({ role: roleKey, at: nowStamp(), by: accessActor(), note, reference, digest: accessDigest(roleKey) });
   accessSave();
   showToast("Access review recorded for " + USER_ROLES_CONFIG[roleKey].title + ".", "success");
   renderAccessReviews();
@@ -173,23 +171,23 @@ function renderRoleDefinitions() {
   const box = document.getElementById("roleDefinitionsContainer");
   if (!box) return;
   const violations = validatePermissionMatrix(PERMISSIONS_MATRIX, Object.keys(USER_ROLES_CONFIG));
-  const list = items => '<ul style="margin:2px 0 8px 18px; padding:0;">' + items.map(i => "<li>" + accessEsc(i) + "</li>").join("") + "</ul>";
+  const list = items => '<ul style="margin:2px 0 8px 18px; padding:0;">' + items.map(i => "<li>" + escHtml(i) + "</li>").join("") + "</ul>";
   const rows = Object.keys(USER_ROLES_CONFIG).map(k => {
     const r = USER_ROLES_CONFIG[k], d = ROLE_DEFINITIONS[k];
     const vs = violations.filter(v => v.role === k);
-    if (!d) return '<tr><td>' + accessEsc(r.icon) + ' <strong>' + accessEsc(r.title) + '</strong><div class="text-xs text-muted">' + accessEsc(r.name) + '</div></td><td colspan="3"><span class="badge badge-warning text-xs">No written definition</span> <span class="text-xs text-muted">Add a definition before granting access (AC-2).</span></td></tr>';
-    return '<tr><td style="min-width:150px;">' + accessEsc(r.icon) + ' <strong>' + accessEsc(r.title) + '</strong><div class="text-xs text-muted">' + accessEsc(r.name) + '</div><div class="text-xs text-muted">' + accessEsc(r.limitText) + '</div>' + (vs.length ? '<div class="badge badge-danger text-xs" style="margin-top:4px;">' + vs.length + ' policy breach(es)</div>' : "") + '</td>' +
-      '<td class="text-xs">' + accessEsc(d.purpose) + '<div style="margin-top:6px;"><strong>Separation of duties:</strong> ' + accessEsc(d.separation) + '</div></td>' +
+    if (!d) return '<tr><td>' + escHtml(r.icon) + ' <strong>' + escHtml(r.title) + '</strong><div class="text-xs text-muted">' + escHtml(r.name) + '</div></td><td colspan="3"><span class="badge badge-warning text-xs">No written definition</span> <span class="text-xs text-muted">Add a definition before granting access (AC-2).</span></td></tr>';
+    return '<tr><td style="min-width:150px;">' + escHtml(r.icon) + ' <strong>' + escHtml(r.title) + '</strong><div class="text-xs text-muted">' + escHtml(r.name) + '</div><div class="text-xs text-muted">' + escHtml(r.limitText) + '</div>' + (vs.length ? '<div class="badge badge-danger text-xs" style="margin-top:4px;">' + vs.length + ' policy breach(es)</div>' : "") + '</td>' +
+      '<td class="text-xs">' + escHtml(d.purpose) + '<div style="margin-top:6px;"><strong>Separation of duties:</strong> ' + escHtml(d.separation) + '</div></td>' +
       '<td class="text-xs"><strong>May</strong>' + list(d.may) + '</td><td class="text-xs"><strong>Must not</strong>' + list(d.mustNot) + '</td></tr>';
   }).join("");
   const banner = violations.length
-    ? '<div class="alert alert-danger text-xs"><i class="ph ph-warning"></i> <strong>' + violations.length + ' permission(s) break the access policy:</strong> ' + violations.slice(0, 4).map(v => accessEsc(v.rule + " " + v.text)).join(" · ") + (violations.length > 4 ? " …" : "") + '</div>'
+    ? '<div class="alert alert-danger text-xs"><i class="ph ph-warning"></i> <strong>' + violations.length + ' permission(s) break the access policy:</strong> ' + violations.slice(0, 4).map(v => escHtml(v.rule + " " + v.text)).join(" · ") + (violations.length > 4 ? " …" : "") + '</div>'
     : '<div class="alert alert-success text-xs"><i class="ph ph-shield-check"></i> The permission table meets all ' + ACCESS_RULES.length + ' access-policy rules.</div>';
   box.innerHTML = '<div style="margin-top:16px;"><h4 style="margin:0 0 6px;">Role definitions and access policy</h4>' + banner +
     '<div class="rules-table-container" style="max-height:340px; overflow:auto;"><table class="data-table"><thead><tr><th>Role</th><th>Purpose</th><th>May</th><th>Must not</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<details style="margin-top:8px;"><summary class="text-xs" style="cursor:pointer;">Rules every permission change is checked against, and their basis</summary>' +
-    '<ul class="text-xs" style="margin:6px 0 6px 18px;">' + ACCESS_RULES.map(r => "<li><strong>" + r.id + "</strong> (" + r.basis + "): " + accessEsc(r.text) + "</li>").join("") + '</ul>' +
-    '<ul class="text-xs text-muted" style="margin:6px 0 6px 18px;">' + ACCESS_POLICY_BASIS.map(b => "<li><strong>" + accessEsc(b.ref) + ":</strong> " + accessEsc(b.text) + "</li>").join("") + '</ul>' +
+    '<ul class="text-xs" style="margin:6px 0 6px 18px;">' + ACCESS_RULES.map(r => "<li><strong>" + r.id + "</strong> (" + r.basis + "): " + escHtml(r.text) + "</li>").join("") + '</ul>' +
+    '<ul class="text-xs text-muted" style="margin:6px 0 6px 18px;">' + ACCESS_POLICY_BASIS.map(b => "<li><strong>" + escHtml(b.ref) + ":</strong> " + escHtml(b.text) + "</li>").join("") + '</ul>' +
     '<p class="text-xs text-muted">No federal body defines underwriting roles; insurance is regulated by the states. These are the federal and industry reference points the policy is built on, to be confirmed by Compliance against the applicable state law. The ' + ACCESS_REVIEW_DAYS + '-day review interval is a placeholder.</p></details></div>';
 }
 
@@ -206,9 +204,9 @@ function renderAccessReviews() {
   const rows = Object.keys(USER_ROLES_CONFIG).map(k => {
     const r = USER_ROLES_CONFIG[k], s = accessReviewStatus(k), ui = label[s.status];
     const form = canRecord ? '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;"><input id="accessNote_' + k + '" class="form-control" style="width:240px;" placeholder="What was reviewed and the outcome"><input id="accessRef_' + k + '" class="form-control" style="width:150px;" placeholder="Reference"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="accessReviewClicked(\'' + k + '\')">Record review</button></div>' : "";
-    return '<tr><td>' + accessEsc(r.icon) + ' <strong>' + accessEsc(r.title) + '</strong><div class="text-xs text-muted">' + accessEsc(r.name) + '</div></td><td><span class="badge ' + ui[0] + ' text-xs">' + ui[1] + '</span>' + (s.last ? '<div class="text-xs text-muted">' + accessEsc(s.last.at) + ' · ' + accessEsc(s.last.by) + '<br>' + accessEsc(s.last.note) + ' (' + accessEsc(s.last.reference) + ')</div>' + (s.dueOn ? '<div class="text-xs text-muted">Next review by ' + accessEsc(s.dueOn) + '</div>' : "") : "") + form + '</td></tr>';
+    return '<tr><td>' + escHtml(r.icon) + ' <strong>' + escHtml(r.title) + '</strong><div class="text-xs text-muted">' + escHtml(r.name) + '</div></td><td><span class="badge ' + ui[0] + ' text-xs">' + ui[1] + '</span>' + (s.last ? '<div class="text-xs text-muted">' + escHtml(s.last.at) + ' · ' + escHtml(s.last.by) + '<br>' + escHtml(s.last.note) + ' (' + escHtml(s.last.reference) + ')</div>' + (s.dueOn ? '<div class="text-xs text-muted">Next review by ' + escHtml(s.dueOn) + '</div>' : "") : "") + form + '</td></tr>';
   }).join("");
-  const changes = (ACCESS_STATE.changes || []).slice(-8).reverse().map(c => '<li class="text-xs">' + accessEsc(c.at) + ' · ' + accessEsc(c.by) + ': ' + accessEsc(c.summary) + '</li>').join("");
+  const changes = (ACCESS_STATE.changes || []).slice(-8).reverse().map(c => '<li class="text-xs">' + escHtml(c.at) + ' · ' + escHtml(c.by) + ': ' + escHtml(c.summary) + '</li>').join("");
   box.innerHTML = '<div class="card mt-3"><div class="card-header"><h3><i class="ph ph-identification-badge"></i> Access reviews</h3><span class="badge badge-info">Every ' + ACCESS_REVIEW_DAYS + ' days</span></div><div class="card-body">' +
     '<p class="text-xs text-muted">The Compliance Officer re-confirms each role\'s access on a fixed cycle, and again whenever its permissions change. The Head of Underwriting, who sets access, cannot record the review.</p>' +
     '<div class="rules-table-container" style="max-height:none; overflow:visible;"><table class="data-table"><thead><tr><th>Role</th><th>Review</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
@@ -273,7 +271,7 @@ window.accessReviewClicked = function (k) { accessRecordReview(k); };
       }
       const r = origSave.apply(this, arguments);
       if (changes.length) {
-        ACCESS_STATE.changes.push({ at: accessNow(), by: accessActor(), summary: changes.join("; ") });
+        ACCESS_STATE.changes.push({ at: nowStamp(), by: accessActor(), summary: changes.join("; ") });
         accessSave();
         if (typeof renderRoleDefinitions === "function") renderRoleDefinitions();
       }

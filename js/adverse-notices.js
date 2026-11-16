@@ -175,23 +175,20 @@ function noticeBuildBlocks(sub, f, ctx) {
   return { title: isDecl ? "NOTICE OF DECLINATION" : "NOTICE OF ADVERSE UNDERWRITING ACTION", blocks: b };
 }
 
-function noticeEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 
 function noticeBlocksToText(doc) {
   return [doc.title, ""].concat(doc.blocks.map(x => x.k === "li" ? "  • " + x.t : (x.k === "h" ? "\n" + x.t.toUpperCase() : x.t))).join("\n");
 }
 
 function noticeBlocksToHtml(doc) {
-  let html = `<h2 style="margin:0 0 14px;font-size:16px;letter-spacing:.5px;">${noticeEsc(doc.title)}</h2>`;
+  let html = `<h2 style="margin:0 0 14px;font-size:16px;letter-spacing:.5px;">${escHtml(doc.title)}</h2>`;
   let inList = false;
   doc.blocks.forEach(x => {
     if (x.k !== "li" && inList) { html += "</ul>"; inList = false; }
-    if (x.k === "li") { if (!inList) { html += '<ul style="margin:4px 0 8px 20px;padding:0;">'; inList = true; } html += `<li>${noticeEsc(x.t)}</li>`; }
-    else if (x.k === "h") html += `<h3 style="margin:14px 0 4px;font-size:13px;">${noticeEsc(x.t)}</h3>`;
-    else if (x.k === "meta") html += `<div style="color:#475569;font-size:12px;margin:2px 0;">${noticeEsc(x.t)}</div>`;
-    else html += `<p style="margin:0 0 8px;white-space:pre-line;">${noticeEsc(x.t)}</p>`;
+    if (x.k === "li") { if (!inList) { html += '<ul style="margin:4px 0 8px 20px;padding:0;">'; inList = true; } html += `<li>${escHtml(x.t)}</li>`; }
+    else if (x.k === "h") html += `<h3 style="margin:14px 0 4px;font-size:13px;">${escHtml(x.t)}</h3>`;
+    else if (x.k === "meta") html += `<div style="color:#475569;font-size:12px;margin:2px 0;">${escHtml(x.t)}</div>`;
+    else html += `<p style="margin:0 0 8px;white-space:pre-line;">${escHtml(x.t)}</p>`;
   });
   if (inList) html += "</ul>";
   return html;
@@ -201,14 +198,13 @@ function noticeBlocksToHtml(doc) {
 // 2. STATE + AUDIT
 // ----------------------------------------------------------------------------
 function noticeSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
-function noticeNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function noticeActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
 function noticeLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: noticeActor(), at: noticeNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: noticeActor(), at: nowStamp(), notes });
 }
 function noticePersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -293,7 +289,7 @@ function noticeRemoveReport(i) { noticeCapture(); noticeStudio.form.reports.spli
 
 function noticeStatusBadge(n) {
   const cls = n.status === "issued" ? "badge-success" : (n.status === "void" ? "badge-light" : "badge-warning");
-  return `<span class="badge ${cls} text-xs">${noticeEsc(n.status)}</span>`;
+  return `<span class="badge ${cls} text-xs">${escHtml(n.status)}</span>`;
 }
 
 function noticeRenderStudio() {
@@ -319,39 +315,39 @@ function noticeRenderStudio() {
 
   const existing = noticeList(sub).map(n => `
     <tr>
-      <td>${noticeEsc(n.id)}</td><td>${noticeEsc(NOTICE_TYPES[n.type] ? NOTICE_TYPES[n.type].label : n.type)}</td><td>${noticeStatusBadge(n)}</td>
-      <td>${noticeEsc(n.status === "issued" ? n.issuedAt : n.createdAt)}</td>
+      <td>${escHtml(n.id)}</td><td>${escHtml(NOTICE_TYPES[n.type] ? NOTICE_TYPES[n.type].label : n.type)}</td><td>${noticeStatusBadge(n)}</td>
+      <td>${escHtml(n.status === "issued" ? n.issuedAt : n.createdAt)}</td>
       <td style="white-space:nowrap;">
-        <button class="btn btn-xs btn-outline" onclick="noticePrint('${noticeEsc(n.id)}')"><i class="ph ph-printer"></i> Print</button>
-        <button class="btn btn-xs btn-outline" onclick="noticeDownload('${noticeEsc(n.id)}')"><i class="ph ph-download-simple"></i> Download</button>
-        ${n.status === "draft" && canEdit ? `<button class="btn btn-xs btn-primary" onclick="noticeEditDraft('${noticeEsc(n.id)}')"><i class="ph ph-pencil-simple"></i> Edit</button>` : ""}
-        ${n.status === "issued" && canIssue ? `<button class="btn btn-xs btn-outline-danger" onclick="noticeVoid('${noticeEsc(n.id)}')"><i class="ph ph-x-circle"></i> Void</button>` : ""}
+        <button class="btn btn-xs btn-outline" onclick="noticePrint('${escHtml(n.id)}')"><i class="ph ph-printer"></i> Print</button>
+        <button class="btn btn-xs btn-outline" onclick="noticeDownload('${escHtml(n.id)}')"><i class="ph ph-download-simple"></i> Download</button>
+        ${n.status === "draft" && canEdit ? `<button class="btn btn-xs btn-primary" onclick="noticeEditDraft('${escHtml(n.id)}')"><i class="ph ph-pencil-simple"></i> Edit</button>` : ""}
+        ${n.status === "issued" && canIssue ? `<button class="btn btn-xs btn-outline-danger" onclick="noticeVoid('${escHtml(n.id)}')"><i class="ph ph-x-circle"></i> Void</button>` : ""}
       </td>
     </tr>`).join("");
 
   const reasons = NOTICE_REASON_CODES.map(r => `
-    <label style="display:block; font-size:12.5px; margin:3px 0;"><input type="checkbox" id="ns_r_${r.code}" ${f.reasons.includes(r.code) ? "checked" : ""} ${dis} onchange="noticeRefresh()"> ${noticeEsc(r.label)}</label>`).join("");
+    <label style="display:block; font-size:12.5px; margin:3px 0;"><input type="checkbox" id="ns_r_${r.code}" ${f.reasons.includes(r.code) ? "checked" : ""} ${dis} onchange="noticeRefresh()"> ${escHtml(r.label)}</label>`).join("");
 
   const reportBlocks = (f.reports || []).map((r, i) => `
     <div style="border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-top:8px; background:#fafcff;">
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
         <strong style="font-size:12px;">Report ${i + 1}</strong>
-        <select id="ns_rk_${i}" class="form-control" style="width:230px;" ${dis}>${NOTICE_REPORT_KINDS.map(k => `<option ${r.kind === k ? "selected" : ""}>${noticeEsc(k)}</option>`).join("")}</select>
-        <input id="ns_rn_${i}" class="form-control" style="width:210px;" placeholder="Reporting agency name" value="${noticeEsc(r.craName)}" ${dis}>
-        <input id="ns_rp_${i}" class="form-control" style="width:150px;" placeholder="Agency telephone" value="${noticeEsc(r.craPhone)}" ${dis}>
+        <select id="ns_rk_${i}" class="form-control" style="width:230px;" ${dis}>${NOTICE_REPORT_KINDS.map(k => `<option ${r.kind === k ? "selected" : ""}>${escHtml(k)}</option>`).join("")}</select>
+        <input id="ns_rn_${i}" class="form-control" style="width:210px;" placeholder="Reporting agency name" value="${escHtml(r.craName)}" ${dis}>
+        <input id="ns_rp_${i}" class="form-control" style="width:150px;" placeholder="Agency telephone" value="${escHtml(r.craPhone)}" ${dis}>
         ${canEdit ? `<button class="btn btn-xs btn-outline-danger" style="width:auto;" onclick="noticeRemoveReport(${i})"><i class="ph ph-trash"></i></button>` : ""}
       </div>
-      <input id="ns_ra_${i}" class="form-control" style="margin-top:8px; width:100%;" placeholder="Reporting agency address" value="${noticeEsc(r.craAddress)}" ${dis}>
+      <input id="ns_ra_${i}" class="form-control" style="margin-top:8px; width:100%;" placeholder="Reporting agency address" value="${escHtml(r.craAddress)}" ${dis}>
       <label style="display:block; font-size:12.5px; margin-top:8px;"><input type="checkbox" id="ns_su_${i}" ${r.scoreUsed ? "checked" : ""} ${dis} onchange="noticeRefresh()"> A credit score was used in the decision</label>
       ${r.scoreUsed ? `
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:6px;">
-        <input id="ns_sv_${i}" type="number" class="form-control" style="width:110px;" placeholder="Score" value="${noticeEsc(r.scoreValue)}" ${dis}>
-        <input id="ns_sl_${i}" type="number" class="form-control" style="width:110px;" placeholder="Range low" value="${noticeEsc(r.scoreLow)}" ${dis}>
-        <input id="ns_sh_${i}" type="number" class="form-control" style="width:110px;" placeholder="Range high" value="${noticeEsc(r.scoreHigh)}" ${dis}>
-        <label class="text-xs text-muted" style="font-size:12px;">Date created <input id="ns_sd_${i}" type="date" class="form-control" style="width:150px;" value="${noticeEsc(r.scoreDate)}" ${dis}></label>
-        <input id="ns_sc_${i}" class="form-control" style="width:200px;" placeholder="Who created the score" value="${noticeEsc(r.scoreCreator)}" ${dis}>
+        <input id="ns_sv_${i}" type="number" class="form-control" style="width:110px;" placeholder="Score" value="${escHtml(r.scoreValue)}" ${dis}>
+        <input id="ns_sl_${i}" type="number" class="form-control" style="width:110px;" placeholder="Range low" value="${escHtml(r.scoreLow)}" ${dis}>
+        <input id="ns_sh_${i}" type="number" class="form-control" style="width:110px;" placeholder="Range high" value="${escHtml(r.scoreHigh)}" ${dis}>
+        <label class="text-xs text-muted" style="font-size:12px;">Date created <input id="ns_sd_${i}" type="date" class="form-control" style="width:150px;" value="${escHtml(r.scoreDate)}" ${dis}></label>
+        <input id="ns_sc_${i}" class="form-control" style="width:200px;" placeholder="Who created the score" value="${escHtml(r.scoreCreator)}" ${dis}>
       </div>
-      <textarea id="ns_sf_${i}" class="form-control" rows="3" style="margin-top:6px; width:100%;" placeholder="Key factors that adversely affected the score — one per line, up to four" ${dis}>${noticeEsc(r.factors)}</textarea>` : ""}
+      <textarea id="ns_sf_${i}" class="form-control" rows="3" style="margin-top:6px; width:100%;" placeholder="Key factors that adversely affected the score — one per line, up to four" ${dis}>${escHtml(r.factors)}</textarea>` : ""}
     </div>`).join("");
 
   // The Quote Condition card (js/quote-conditions.js) lives inside this popup. Keep its DOM across redraws so a half-filled condition form survives a notice toggle.
@@ -364,36 +360,36 @@ function noticeRenderStudio() {
           <i class="ph ph-envelope-simple-open text-primary u-fs-22"></i>
           <div>
             <h3 class="u-title-16">Notice Studio</h3>
-            <p class="text-xs text-muted u-m0">${noticeEsc(sub.id)} — ${noticeEsc(sub.insured || "N/A")} · ${noticeEsc(sub.lobName || "")}</p>
+            <p class="text-xs text-muted u-m0">${escHtml(sub.id)} — ${escHtml(sub.insured || "N/A")} · ${escHtml(sub.lobName || "")}</p>
           </div>
         </div>
         <button class="btn-close" aria-label="Close" onclick="noticeCloseStudio()"><i class="ph ph-x"></i></button>
       </div>
       <div class="modal-body" style="overflow-y:auto;">
         ${hold ? `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>Notices are on hold.</strong> A sanctions match is unresolved or confirmed on this submission. Do not issue a notice, and never cite sanctions as a reason; escalate to Compliance.</div>` : ""}
-        ${!NOTICE_TEMPLATE_META.approved ? `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> Template ${noticeEsc(NOTICE_TEMPLATE_META.version)} has not been approved by Compliance. Notices carry that warning and must not be sent outside a test environment.</div>` : ""}
+        ${!NOTICE_TEMPLATE_META.approved ? `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> Template ${escHtml(NOTICE_TEMPLATE_META.version)} has not been approved by Compliance. Notices carry that warning and must not be sent outside a test environment.</div>` : ""}
         ${existing ? `<h4 style="margin:6px 0;">Notices on this submission</h4>
           <div class="rules-table-container"><table class="data-table"><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>${existing}</tbody></table></div>` : ""}
-        <h4 style="margin:14px 0 6px;">${noticeStudio.editingId ? "Edit draft " + noticeEsc(noticeStudio.editingId) : "New notice"}</h4>
+        <h4 style="margin:14px 0 6px;">${noticeStudio.editingId ? "Edit draft " + escHtml(noticeStudio.editingId) : "New notice"}</h4>
         <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-          <select id="ns_type" class="form-control" style="width:420px;" ${dis} onchange="noticeRefresh()">${Object.keys(NOTICE_TYPES).map(k => `<option value="${k}" ${f.type === k ? "selected" : ""}>${noticeEsc(NOTICE_TYPES[k].label)}</option>`).join("")}</select>
-          <span class="text-xs text-muted">Risk state: ${noticeEsc(st || "unknown")}</span>
+          <select id="ns_type" class="form-control" style="width:420px;" ${dis} onchange="noticeRefresh()">${Object.keys(NOTICE_TYPES).map(k => `<option value="${k}" ${f.type === k ? "selected" : ""}>${escHtml(NOTICE_TYPES[k].label)}</option>`).join("")}</select>
+          <span class="text-xs text-muted">Risk state: ${escHtml(st || "unknown")}</span>
         </div>
-        ${f.type === "adverse_terms" ? `<textarea id="ns_terms" class="form-control" rows="3" style="margin-top:8px; width:100%;" placeholder="The terms offered, for example: premium increased by 12% over standard; driver J. Smith excluded; physical damage cover declined" ${dis}>${noticeEsc(f.adverseTermsText)}</textarea>` : `<input type="hidden" id="ns_terms" value="">`}
+        ${f.type === "adverse_terms" ? `<textarea id="ns_terms" class="form-control" rows="3" style="margin-top:8px; width:100%;" placeholder="The terms offered, for example: premium increased by 12% over standard; driver J. Smith excluded; physical damage cover declined" ${dis}>${escHtml(f.adverseTermsText)}</textarea>` : `<input type="hidden" id="ns_terms" value="">`}
         <h4 style="margin:12px 0 4px;">Reasons</h4>
         ${reasons}
-        <textarea id="ns_reasonDetail" class="form-control" rows="2" style="margin-top:6px; width:100%;" placeholder="Explain the reason(s) in plain language (required if Another reason is ticked)" ${dis}>${noticeEsc(f.reasonDetail)}</textarea>
+        <textarea id="ns_reasonDetail" class="form-control" rows="2" style="margin-top:6px; width:100%;" placeholder="Explain the reason(s) in plain language (required if Another reason is ticked)" ${dis}>${escHtml(f.reasonDetail)}</textarea>
         <h4 style="margin:12px 0 4px;">Consumer report (Fair Credit Reporting Act)</h4>
         <label style="display:block; font-size:12.5px;"><input type="checkbox" id="ns_consumerUsed" ${consumer ? "checked" : ""} ${dis} onchange="noticeRefresh()"> A consumer report about an individual (for example a driver's MVR or an owner's credit-based score) was a factor in this decision. <span class="text-muted">I have confirmed with Compliance that the FCRA applies.</span></label>
         ${consumer ? reportBlocks + (canEdit && (f.reports || []).length < 3 ? `<button class="btn btn-xs btn-outline" style="width:auto; margin-top:8px;" onclick="noticeAddReport()"><i class="ph ph-plus"></i> Add another report</button>` : "") : ""}
         <h4 style="margin:12px 0 4px;">Recipients and delivery</h4>
         <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
           <label style="font-size:12.5px;"><input type="checkbox" id="ns_rcpt_insured" ${f.recipients.insured ? "checked" : ""} ${dis}> Insured</label>
-          <label style="font-size:12.5px;"><input type="checkbox" id="ns_rcpt_producer" ${f.recipients.producer ? "checked" : ""} ${dis} ${sub.broker && sub.channelType !== "direct" ? "" : "disabled"}> Producer (${noticeEsc(sub.broker && sub.channelType !== "direct" ? sub.broker : "none — direct")})</label>
-          <select id="ns_delivery" class="form-control" style="width:260px;" ${dis}><option value="">Delivery method…</option>${NOTICE_DELIVERY.map(d => `<option ${f.deliveryMethod === d ? "selected" : ""}>${noticeEsc(d)}</option>`).join("")}</select>
-          <input id="ns_deliveryRef" class="form-control" style="width:220px;" placeholder="Delivery reference (needed to issue)" value="${noticeEsc(f.deliveryRef)}" ${dis}>
+          <label style="font-size:12.5px;"><input type="checkbox" id="ns_rcpt_producer" ${f.recipients.producer ? "checked" : ""} ${dis} ${sub.broker && sub.channelType !== "direct" ? "" : "disabled"}> Producer (${escHtml(sub.broker && sub.channelType !== "direct" ? sub.broker : "none — direct")})</label>
+          <select id="ns_delivery" class="form-control" style="width:260px;" ${dis}><option value="">Delivery method…</option>${NOTICE_DELIVERY.map(d => `<option ${f.deliveryMethod === d ? "selected" : ""}>${escHtml(d)}</option>`).join("")}</select>
+          <input id="ns_deliveryRef" class="form-control" style="width:220px;" placeholder="Delivery reference (needed to issue)" value="${escHtml(f.deliveryRef)}" ${dis}>
         </div>
-        ${needsStateAck ? `<label style="display:block; font-size:12.5px; margin-top:8px;"><input type="checkbox" id="ns_stateAck" ${f.stateAck ? "checked" : ""} ${dis}> No state-specific wording is configured for ${noticeEsc(st || "this state")}. Compliance has reviewed that state's notice requirements.</label>` : `<input type="hidden" id="ns_stateAck">`}
+        ${needsStateAck ? `<label style="display:block; font-size:12.5px; margin-top:8px;"><input type="checkbox" id="ns_stateAck" ${f.stateAck ? "checked" : ""} ${dis}> No state-specific wording is configured for ${escHtml(st || "this state")}. Compliance has reviewed that state's notice requirements.</label>` : `<input type="hidden" id="ns_stateAck">`}
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:14px;">
           <button class="btn btn-sm btn-outline" style="width:auto;" onclick="noticePreview()"><i class="ph ph-eye"></i> Preview</button>
           ${canEdit ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="noticeSaveDraft()"><i class="ph ph-floppy-disk"></i> Save draft</button>` : ""}
@@ -419,7 +415,7 @@ function noticePreview() {
   noticeCapture();
   const problems = noticeValidate(sub, noticeStudio.form, false);
   const doc = noticeBuildBlocks(sub, noticeStudio.form, {});
-  noticeStudio.previewHtml = (problems.length ? `<div class="alert alert-warning text-xs" style="margin-bottom:10px;"><i class="ph ph-warning"></i> Not ready: ${noticeEsc(problems.join("; "))}.</div>` : "") + noticeBlocksToHtml(doc);
+  noticeStudio.previewHtml = (problems.length ? `<div class="alert alert-warning text-xs" style="margin-bottom:10px;"><i class="ph ph-warning"></i> Not ready: ${escHtml(problems.join("; "))}.</div>` : "") + noticeBlocksToHtml(doc);
   noticeRenderStudio();
 }
 
@@ -435,11 +431,11 @@ function noticeSaveDraft() {
   let n = noticeStudio.editingId ? list.find(x => x.id === noticeStudio.editingId) : null;
   const isNew = !n;
   if (isNew) {
-    n = { id: `NTC-${sub.id}-${list.length + 1}`, status: "draft", createdBy: noticeActor(), createdAt: noticeNow() };
+    n = { id: `NTC-${sub.id}-${list.length + 1}`, status: "draft", createdBy: noticeActor(), createdAt: nowStamp() };
     list.push(n);
   }
   if (n.status !== "draft") { showToast("Only drafts can be edited.", "info"); return; }
-  Object.assign(n, JSON.parse(JSON.stringify(f)), { riskState: typeof deriveRiskState === "function" ? deriveRiskState(sub) : null, templateVersion: NOTICE_TEMPLATE_META.version, templateApproved: NOTICE_TEMPLATE_META.approved, updatedBy: noticeActor(), updatedAt: noticeNow() });
+  Object.assign(n, JSON.parse(JSON.stringify(f)), { riskState: typeof deriveRiskState === "function" ? deriveRiskState(sub) : null, templateVersion: NOTICE_TEMPLATE_META.version, templateApproved: NOTICE_TEMPLATE_META.approved, updatedBy: noticeActor(), updatedAt: nowStamp() });
   if (isNew) noticeLog(sub, "notice_drafted", `${NOTICE_TYPES[n.type].label} drafted (${n.id}); reasons: ${n.reasons.join(", ")}${noticeNeedsConsumerSection(n) ? "; consumer report disclosure included" : ""}.`);
   noticePersist();
   noticeStudio.editingId = n.id;
@@ -474,12 +470,12 @@ function noticeIssue() {
   const list = noticeList(sub);
   let n = noticeStudio.editingId ? list.find(x => x.id === noticeStudio.editingId) : null;
   const isNew = !n;
-  if (isNew) { n = { id: `NTC-${sub.id}-${list.length + 1}`, createdBy: noticeActor(), createdAt: noticeNow() }; list.push(n); }
+  if (isNew) { n = { id: `NTC-${sub.id}-${list.length + 1}`, createdBy: noticeActor(), createdAt: nowStamp() }; list.push(n); }
   if (n.status === "issued" || n.status === "void") { showToast("This notice is already closed.", "info"); return; }
   Object.assign(n, JSON.parse(JSON.stringify(f)));
   n.status = "issued";
   n.issuedBy = noticeActor();
-  n.issuedAt = noticeNow();
+  n.issuedAt = nowStamp();
   n.riskState = typeof deriveRiskState === "function" ? deriveRiskState(sub) : null;
   n.templateVersion = NOTICE_TEMPLATE_META.version;
   n.templateApproved = NOTICE_TEMPLATE_META.approved;
@@ -504,7 +500,7 @@ function noticeVoid(id) {
   if (!hasPermission("notices", "approve")) { denyPermission("notices", "approve"); return; }
   const reason = (window.prompt("Reason for voiding notice " + id + " (it stays in the record):") || "").trim();
   if (reason.length < 5) { showToast("A reason of at least 5 characters is required to void a notice.", "danger"); return; }
-  n.status = "void"; n.voidedBy = noticeActor(); n.voidedAt = noticeNow(); n.voidReason = reason;
+  n.status = "void"; n.voidedBy = noticeActor(); n.voidedAt = nowStamp(); n.voidReason = reason;
   noticeLog(sub, "notice_voided", `Notice ${id} voided: ${reason}`);
   noticePersist();
   noticeRenderStudio();
@@ -513,7 +509,7 @@ function noticeVoid(id) {
 
 function noticeBuildHtmlDocument(sub, n) {
   const body = n.html || noticeBlocksToHtml(noticeBuildBlocks(sub, n, {}));
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${noticeEsc(n.id)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:720px;margin:32px auto;font-size:14px;line-height:1.5;color:#111;">${body}${n.status === "void" ? `<p style="color:#b91c1c;"><strong>VOID</strong> — ${noticeEsc(n.voidReason || "")}</p>` : ""}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(n.id)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:720px;margin:32px auto;font-size:14px;line-height:1.5;color:#111;">${body}${n.status === "void" ? `<p style="color:#b91c1c;"><strong>VOID</strong> — ${escHtml(n.voidReason || "")}</p>` : ""}</body></html>`;
 }
 
 function noticePrint(id) {
@@ -551,11 +547,11 @@ function noticeDeclineCell(entry) {
   const sub = noticeSub(entry.subId);
   if (!sub) return "";
   const issued = noticeIssuedOfType(sub, "declination");
-  if (issued.length) return `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="noticeOpenStudio('${noticeEsc(sub.id)}','declination')"><i class="ph ph-check-circle text-success"></i> Notice issued</button>`;
+  if (issued.length) return `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="noticeOpenStudio('${escHtml(sub.id)}','declination')"><i class="ph ph-check-circle text-success"></i> Notice issued</button>`;
   const drafts = noticeList(sub).filter(n => n.status === "draft").length;
   const ageDays = (() => { const t = Date.parse(String(entry.at || "").replace(" ", "T")); return isNaN(t) ? 0 : Math.floor((Date.now() - t) / 86400000); })();
   const overdue = ageDays > NOTICE_TARGET_DAYS;
-  return `<button class="btn btn-xs ${overdue ? "btn-outline-danger" : "btn-primary"}" style="width:auto;" onclick="noticeOpenStudio('${noticeEsc(sub.id)}','declination')"><i class="ph ph-envelope-simple"></i> ${drafts ? "Draft saved" : "Notice due"}${overdue ? " (overdue)" : ""}</button>`;
+  return `<button class="btn btn-xs ${overdue ? "btn-outline-danger" : "btn-primary"}" style="width:auto;" onclick="noticeOpenStudio('${escHtml(sub.id)}','declination')"><i class="ph ph-envelope-simple"></i> ${drafts ? "Draft saved" : "Notice due"}${overdue ? " (overdue)" : ""}</button>`;
 }
 
 function noticeDecorateDeclineCenter() {
@@ -595,7 +591,7 @@ function renderNoticesCard(sub) {
   const canEdit = hasPermission("notices", "edit");
   const gate = noticeAdverseGate(sub);
   const list = noticeList(sub).filter(n => n.type === "adverse_terms");
-  const rows = list.map(n => `<tr><td>${noticeEsc(n.id)}</td><td>${noticeStatusBadge(n)}</td><td>${noticeEsc(n.status === "issued" ? n.issuedAt : n.createdAt)}</td></tr>`).join("");
+  const rows = list.map(n => `<tr><td>${escHtml(n.id)}</td><td>${noticeStatusBadge(n)}</td><td>${escHtml(n.status === "issued" ? n.issuedAt : n.createdAt)}</td></tr>`).join("");
   box.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
       <div class="card-header">
@@ -606,7 +602,7 @@ function renderNoticesCard(sub) {
         <label style="display:block; font-size:12.5px;"><input type="checkbox" id="noticeAdverseFlag" ${sub.adverseTermsRequiresNotice ? "checked" : ""} ${canEdit ? "" : "disabled"} onchange="noticeToggleAdverseFlag()"> The terms on this quote are adverse (higher premium, exclusion or restricted cover) <strong>and</strong> a consumer report about an individual was a factor.</label>
         ${gate.blocked ? `<div class="alert alert-danger text-xs" style="margin-top:8px;"><i class="ph ph-prohibit"></i> <strong>Quote cannot be issued</strong> until an adverse-terms notice has been issued.</div>` : ""}
         ${rows ? `<div class="rules-table-container" style="margin-top:8px;"><table class="data-table"><thead><tr><th>Notice</th><th>Status</th><th>Date</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-        <div style="margin-top:10px;"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="noticeOpenStudio('${noticeEsc(sub.id)}','adverse_terms')"><i class="ph ph-envelope-simple-open"></i> Open Notice Studio</button></div>
+        <div style="margin-top:10px;"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="noticeOpenStudio('${escHtml(sub.id)}','adverse_terms')"><i class="ph ph-envelope-simple-open"></i> Open Notice Studio</button></div>
       </div>
     </div>`;
 }

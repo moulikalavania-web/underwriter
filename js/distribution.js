@@ -45,15 +45,12 @@ var DD_META = { source: "none", contractRef: null, approvedBy: null, approvedAt:
 var DD_PENDING = null;
 var DD_HISTORY = [];
 
-function ddEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-function ddNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function ddToday() { return new Date().toISOString().slice(0, 10); }
 function ddActor() { return typeof authActor === "function" ? authActor() : String(currentUserRole); }
 function ddActorKey() { return typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole] ? USER_ROLES_CONFIG[currentUserRole].name : String(currentUserRole); }
 function ddClone(o) { return JSON.parse(JSON.stringify(o)); }
 function ddMoney(n) { return "$" + Math.round(Number(n) || 0).toLocaleString("en-US"); }
 function ddActiveSub() { return SUBMISSIONS_DATASET.find(s => s.id === activeSubmissionId) || null; }
-function ddLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 7, decision: decision, by: ddActor(), at: ddNow(), notes: notes }); }
+function ddLog(sub, decision, notes) { if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 7, decision: decision, by: ddActor(), at: nowStamp(), notes: notes }); }
 
 // ----------------------------------------------------------------------------
 // 1. STORE AND PROPOSALS
@@ -65,7 +62,7 @@ function ddSaveStore() { try { localStorage.setItem(DD_KEY, JSON.stringify({ cfg
 /** Forgets everything loaded and stored. */
 function ddReset() { DD_CFG = ddEmpty(); DD_META = { source: "none", contractRef: null, approvedBy: null, approvedAt: null }; DD_PENDING = null; DD_HISTORY = []; try { localStorage.removeItem(DD_KEY); } catch (e) { /* nothing stored */ } }
 function ddLoaded() { return DD_CFG.agreements.length > 0; }
-function ddHistoryAdd(action, text) { DD_HISTORY.push({ at: ddNow(), by: ddActor(), action: action, text: text }); if (DD_HISTORY.length > 50) DD_HISTORY = DD_HISTORY.slice(-50); }
+function ddHistoryAdd(action, text) { DD_HISTORY.push({ at: nowStamp(), by: ddActor(), action: action, text: text }); if (DD_HISTORY.length > 50) DD_HISTORY = DD_HISTORY.slice(-50); }
 
 const dd = { tenant: id => DD_CFG.tenants.find(t => t.id === id) || null, agreement: id => DD_CFG.agreements.find(a => a.id === id) || null, baa: id => DD_CFG.baas.find(b => b.id === id) || null };
 function ddInForce(o, d) { return (!o.from || o.from <= d) && (!o.to || d <= o.to) && (o.status === undefined || o.status === "active"); }
@@ -143,7 +140,7 @@ function ddPropose(cfg, contractRef, note) {
   if (contractRef.length < 3) return { ok: false, error: "contract" };
   const c = Object.assign(ddEmpty(), ddClone(cfg || {})), errs = ddValidate(c);
   if (errs.length) return { ok: false, error: "invalid", errors: errs };
-  DD_PENDING = { cfg: c, contractRef: contractRef, note: String(note || "").trim(), proposedBy: ddActor(), proposedByKey: ddActorKey(), proposedAt: ddNow() };
+  DD_PENDING = { cfg: c, contractRef: contractRef, note: String(note || "").trim(), proposedBy: ddActor(), proposedByKey: ddActorKey(), proposedAt: nowStamp() };
   ddHistoryAdd("proposed", "Proposed " + c.agreements.length + " agreement(s), " + c.baas.length + " binding authority(ies) and " + c.limits.length + " limit(s) citing " + contractRef + ".");
   ddSaveStore();
   return { ok: true };
@@ -153,7 +150,7 @@ function ddApprove() {
   if (!hasPermission("rateConfig", "approve")) { denyPermission("rateConfig", "approve"); return { ok: false, error: "permission" }; }
   if (p.proposedByKey === ddActorKey()) return { ok: false, error: "self" };
   const errs = ddValidate(p.cfg); if (errs.length) return { ok: false, error: "invalid", errors: errs };
-  DD_CFG = p.cfg; DD_META = { source: "contract", contractRef: p.contractRef, approvedBy: ddActor(), approvedAt: ddNow() };
+  DD_CFG = p.cfg; DD_META = { source: "contract", contractRef: p.contractRef, approvedBy: ddActor(), approvedAt: nowStamp() };
   ddHistoryAdd("approved", "Approved the proposal by " + p.proposedBy + " citing " + p.contractRef + ".");
   DD_PENDING = null; ddSaveStore();
   return { ok: true };
@@ -179,7 +176,7 @@ function ddTenantOfProducer(name) { return DD_CFG.tenants.find(t => (t.producerN
  * that applies. { applies:false } when no agreement is loaded for the case's producer, so existing cases are not touched.
  */
 function ddResolve(sub, date) {
-  const d = date || ddToday();
+  const d = date || todayIso();
   if (!sub || !ddLoaded()) return { applies: false };
   let start = sub.agreementId ? dd.agreement(sub.agreementId) : null;
   if (!start) {
@@ -202,7 +199,7 @@ function ddResolve(sub, date) {
 const ddIssued = sub => !!(sub.quoteIssued || (sub.pasSync && sub.pasSync.status === "success"));
 /** Tenants other than the owner that may see a case: the producers below it in the chain, the carrier above once it is quoted or bound, and explicit shares. */
 function ddSharedTenants(sub, date) {
-  const d = date || ddToday(), out = {};
+  const d = date || todayIso(), out = {};
   const r = ddResolve(sub, d);
   if (r.applies) {
     r.chain.forEach(a => { out[a.distributor] = "agreement " + a.id; });
@@ -247,7 +244,7 @@ function ddLimitFor(baaId, limitType, m, d, coverageKey) {
  * out of force, and for each limit type the value tested, the limit row and the result. Pure: it reads the case and writes nothing.
  */
 function ddAuthorityCheck(sub, action, date) {
-  const d = date || ddToday(), r = ddResolve(sub, d);
+  const d = date || todayIso(), r = ddResolve(sub, d);
   if (!r.applies) return { applies: false };
   const m = ddMeasures(sub), reasons = [], checks = [];
   const flag = DD_ACTIONS[action];
@@ -282,7 +279,7 @@ function ddAuthorityCheck(sub, action, date) {
 function ddRecordChecks(sub, ck, subjectType) {
   if (!ck.applies) return;
   if (!sub.authorityChecks) sub.authorityChecks = [];
-  const mk = (c, res, measure, cv, lv) => sub.authorityChecks.push({ id: "BAC-" + (sub.authorityChecks.length + 1), subjectType: subjectType, action: ck.action, authoritySourceType: "authority_limit", baaId: ck.resolved.baa ? ck.resolved.baa.id : null, limitId: c ? c.limitId : null, measure: measure, checkedValue: cv, limitValue: lv, currency: c ? c.currency : "USD", result: res, checkedBy: ddActor(), checkedAt: ddNow() });
+  const mk = (c, res, measure, cv, lv) => sub.authorityChecks.push({ id: "BAC-" + (sub.authorityChecks.length + 1), subjectType: subjectType, action: ck.action, authoritySourceType: "authority_limit", baaId: ck.resolved.baa ? ck.resolved.baa.id : null, limitId: c ? c.limitId : null, measure: measure, checkedValue: cv, limitValue: lv, currency: c ? c.currency : "USD", result: res, checkedBy: ddActor(), checkedAt: nowStamp() });
   if (!ck.allowed && ck.resolved.baa) mk(null, "exceeded", "permission: " + ck.action, null, null);
   ck.checks.forEach(c => mk(c, c.result, c.limitType, c.checkedValue, c.limitValue));
   if (sub.authorityChecks.length > 100) sub.authorityChecks = sub.authorityChecks.slice(-100);
@@ -366,32 +363,32 @@ function ddTenantLabel(id) { const t = dd.tenant(id); return t ? t.name + " (" +
 function ddCaseHtml(sub) {
   const r = ddResolve(sub);
   if (!ddLoaded()) return '<div class="alert alert-warning ws-small"><i class="ph ph-plug"></i> <strong>No agreements are loaded.</strong> Binding authority is not checked against an agreement. Load the carrier, MGA and producer agreements below, citing the contract.</div>';
-  if (!r.applies) return '<p class="ws-small text-muted">No agreement is loaded for this case\'s producer (' + ddEsc(sub.broker || "none") + '), so binding authority is not checked against one.</p>';
-  const chain = r.chain.slice().reverse().map(a => `<span class="badge badge-light">${ddEsc(ddTenantLabel(a.principal))}</span> &rarr; <span class="badge badge-light">${ddEsc(ddTenantLabel(a.distributor))}</span> <span class="text-xs text-muted">${ddEsc(a.id)}, ${ddEsc(a.type)}, ${ddEsc(a.from)} to ${ddEsc(a.to || "open")}</span>`).join("<br>");
+  if (!r.applies) return '<p class="ws-small text-muted">No agreement is loaded for this case\'s producer (' + escHtml(sub.broker || "none") + '), so binding authority is not checked against one.</p>';
+  const chain = r.chain.slice().reverse().map(a => `<span class="badge badge-light">${escHtml(ddTenantLabel(a.principal))}</span> &rarr; <span class="badge badge-light">${escHtml(ddTenantLabel(a.distributor))}</span> <span class="text-xs text-muted">${escHtml(a.id)}, ${escHtml(a.type)}, ${escHtml(a.from)} to ${escHtml(a.to || "open")}</span>`).join("<br>");
   const acts = r.baa ? Object.keys(DD_ACTIONS).map(k => `<span class="badge ${r.baa[DD_ACTIONS[k][0]] ? "badge-success" : "badge-danger"}">${r.baa[DD_ACTIONS[k][0]] ? "May" : "May not"} ${DD_ACTIONS[k][1]}</span>`).join(" ") : "";
   const ck = ddAuthorityCheck(sub, "bind");
-  const rows = ck.checks.map(c => `<tr><td>${ddEsc(c.measure)}</td><td>${ddMoney(c.checkedValue)}</td><td>${ddMoney(c.limitValue)} <span class="text-xs text-muted">${ddEsc(c.limitId)}</span></td><td>${c.result === "within_authority" ? '<span class="badge badge-success">Within authority</span>' : '<span class="badge ' + (c.breachAction === "decline" ? "badge-danger" : "badge-warning") + '">Exceeded: ' + (c.breachAction === "decline" ? "decline" : "refer to the carrier") + "</span>"}</td></tr>`).join("");
+  const rows = ck.checks.map(c => `<tr><td>${escHtml(c.measure)}</td><td>${ddMoney(c.checkedValue)}</td><td>${ddMoney(c.limitValue)} <span class="text-xs text-muted">${escHtml(c.limitId)}</span></td><td>${c.result === "within_authority" ? '<span class="badge badge-success">Within authority</span>' : '<span class="badge ' + (c.breachAction === "decline" ? "badge-danger" : "badge-warning") + '">Exceeded: ' + (c.breachAction === "decline" ? "decline" : "refer to the carrier") + "</span>"}</td></tr>`).join("");
   const ps = ddProgramShares(sub);
   return `<div class="ws-small"><strong>Chain</strong><div style="margin:4px 0 8px;">${chain}</div>
-    ${r.baa ? `<strong>Binding authority ${ddEsc(r.baa.number)}</strong> (year of account ${ddEsc(r.baa.yearOfAccount)}): ${acts} <span class="text-xs text-muted">claims: ${ddEsc(r.baa.claimsAuthority)}</span>` : ""}
-    ${r.problems.length ? `<div class="alert alert-danger ws-small" style="margin:6px 0;">${r.problems.map(ddEsc).join("<br>")}</div>` : ""}
+    ${r.baa ? `<strong>Binding authority ${escHtml(r.baa.number)}</strong> (year of account ${escHtml(r.baa.yearOfAccount)}): ${acts} <span class="text-xs text-muted">claims: ${escHtml(r.baa.claimsAuthority)}</span>` : ""}
+    ${r.problems.length ? `<div class="alert alert-danger ws-small" style="margin:6px 0;">${r.problems.map(escHtml).join("<br>")}</div>` : ""}
     ${rows ? `<table class="data-table" style="margin-top:6px;"><thead><tr><th>Limit tested</th><th>This case</th><th>Limit</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>` : '<p class="text-muted" style="margin:6px 0;">No limit row applies to this case\'s line and state.</p>'}
-    ${ps ? `<div style="margin-top:6px;"><strong>Program ${ddEsc(ps.program.name)}</strong>: ${ps.shares.map(s => ddEsc(s.carrier) + " " + s.pct + "%" + (s.lead ? " (lead)" : "") + (s.fronting ? " (fronting)" : "") + " " + ddMoney(s.limit)).join("; ")}</div>` : ""}
-    <div class="text-xs text-muted" style="margin-top:6px;">Owned by ${ddEsc(ddTenantLabel(ddOwner(sub)))}. Visible also to: ${ddEsc(Object.keys(ddSharedTenants(sub)).map(ddTenantLabel).join("; ") || "no one else")}.</div></div>`;
+    ${ps ? `<div style="margin-top:6px;"><strong>Program ${escHtml(ps.program.name)}</strong>: ${ps.shares.map(s => escHtml(s.carrier) + " " + s.pct + "%" + (s.lead ? " (lead)" : "") + (s.fronting ? " (fronting)" : "") + " " + ddMoney(s.limit)).join("; ")}</div>` : ""}
+    <div class="text-xs text-muted" style="margin-top:6px;">Owned by ${escHtml(ddTenantLabel(ddOwner(sub)))}. Visible also to: ${escHtml(Object.keys(ddSharedTenants(sub)).map(ddTenantLabel).join("; ") || "no one else")}.</div></div>`;
 }
 function ddEditorHtml() {
   const canEdit = hasPermission("rateConfig", "edit"), canApprove = hasPermission("rateConfig", "approve"), p = DD_PENDING;
   let h = "";
-  if (DD_META.source === "contract") h += `<div class="text-xs text-muted">In force from ${ddEsc(DD_META.contractRef)}, approved by ${ddEsc(DD_META.approvedBy)} on ${ddEsc(DD_META.approvedAt)}: ${DD_CFG.tenants.length} tenant(s), ${DD_CFG.agreements.length} agreement(s), ${DD_CFG.baas.length} binding authority(ies), ${DD_CFG.limits.length} limit(s), ${DD_CFG.programs.length} program(s).</div>`;
+  if (DD_META.source === "contract") h += `<div class="text-xs text-muted">In force from ${escHtml(DD_META.contractRef)}, approved by ${escHtml(DD_META.approvedBy)} on ${escHtml(DD_META.approvedAt)}: ${DD_CFG.tenants.length} tenant(s), ${DD_CFG.agreements.length} agreement(s), ${DD_CFG.baas.length} binding authority(ies), ${DD_CFG.limits.length} limit(s), ${DD_CFG.programs.length} program(s).</div>`;
   if (p) {
     const mine = p.proposedByKey === ddActorKey();
-    h += `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>Proposal waiting</strong> by ${ddEsc(p.proposedBy)} on ${ddEsc(p.proposedAt)}, citing <strong>${ddEsc(p.contractRef)}</strong>: ${p.cfg.tenants.length} tenant(s), ${p.cfg.agreements.length} agreement(s), ${p.cfg.baas.length} binding authority(ies), ${p.cfg.limits.length} limit(s). The agreements in force stay as they are until it is approved.
+    h += `<div class="alert alert-warning ws-small" style="margin:8px 0;"><strong>Proposal waiting</strong> by ${escHtml(p.proposedBy)} on ${escHtml(p.proposedAt)}, citing <strong>${escHtml(p.contractRef)}</strong>: ${p.cfg.tenants.length} tenant(s), ${p.cfg.agreements.length} agreement(s), ${p.cfg.baas.length} binding authority(ies), ${p.cfg.limits.length} limit(s). The agreements in force stay as they are until it is approved.
       <div style="margin-top:6px;">${mine ? '<span class="text-muted">You proposed this; a different approver must decide it.</span> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="ddUiReject()">Withdraw</button>' : (canApprove ? '<button class="btn btn-xs btn-primary" style="width:auto;" onclick="ddUiApprove()">Approve</button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="ddUiReject()">Reject</button>' : '<span class="text-muted">You cannot approve this.</span>')}</div></div>`;
   }
   if (canEdit) h += `<details style="margin-top:6px;"><summary class="ws-small">Load agreements and binding authority from the contracts (JSON)</summary>
     <textarea id="dd_json" class="form-control" rows="5" placeholder='{"tenants":[...],"agreements":[...],"baas":[...],"limits":[...],"programs":[...]}'></textarea>
-    <div style="display:flex;gap:6px;margin-top:4px;"><input id="dd_ref" class="form-control form-control-sm" style="width:300px;" placeholder="Contract reference (required)" value="${p ? ddEsc(p.contractRef) : ""}"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="ddUiPropose()">Propose</button></div></details>`;
-  if (DD_HISTORY.length) h += `<div class="text-xs text-muted" style="margin-top:6px;">History: ${DD_HISTORY.slice(-3).reverse().map(x => ddEsc(x.at + " " + x.text)).join("; ")}</div>`;
+    <div style="display:flex;gap:6px;margin-top:4px;"><input id="dd_ref" class="form-control form-control-sm" style="width:300px;" placeholder="Contract reference (required)" value="${p ? escHtml(p.contractRef) : ""}"><button class="btn btn-sm btn-warning" style="width:auto;" onclick="ddUiPropose()">Propose</button></div></details>`;
+  if (DD_HISTORY.length) h += `<div class="text-xs text-muted" style="margin-top:6px;">History: ${DD_HISTORY.slice(-3).reverse().map(x => escHtml(x.at + " " + x.text)).join("; ")}</div>`;
   return h;
 }
 function ddUiToast(r, ok) {

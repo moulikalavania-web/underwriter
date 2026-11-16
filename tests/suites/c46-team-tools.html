@@ -1,0 +1,208 @@
+<!-- Suite C46: team tools. Mailman (kind guessed from the words, likely cases, link / task / done), print queue (policy and E&O queues from a case's own
+     documents, printed together, kept as Printed), tickets, notice board, chat with @mentions, audit and loss control, calculator (every figure typed),
+     profile and password (set, check, lock out, reset; sign-in unchanged until a password is set). -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function day(n){ return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); }
+  function mk(id, o){ var s = { id: id, insured: 'Insured ' + id, fein: '', broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], drivers: [], losses: [], receivedTimestamp: Date.now(), receivedAt: 'Today 09:00 AM', priority: 'P3', assignedTo: 'junior' }; for (var k in (o || {})) s[k] = o[k]; return s; }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    ['mail', 'print', 'tickets', 'board', 'chat'].forEach(function(k){ TW[k].length = 0; }); TASKS.length = 0;
+    var A = mk('SUB-A', { insured: 'Lone Star Haulers LLC', fein: '74-1111111', pasSync: { status: 'success', policyNumber: 'POL-AAA1' }, vehicles: [{}, {}, {}] });
+    var B = mk('SUB-B', { insured: 'Metro Freight Inc', fein: '55-2222222', assignedTo: 'senior_uw' });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(A, B); activeSubmissionId = A.id;
+    currentUserRole = 'junior';
+
+    // ---------- mailman
+    t('My Work gains Mailman, Print queue, Tickets, Notice board and Team chat tabs', twTabs().map(function(x){ return x[0]; }).join() === 'mail,print,tickets,board,chat');
+    t('an email needs a sender and a subject', !twMailAdd({ from: '', subject: 'Bind please' }).ok && !twMailAdd({ from: 'a@b.co', subject: 'x' }).ok && TW.mail.length === 0);
+    t('the kind is guessed from the words', twMailKind('Please bind coverage effective Monday') === 'Binder request' && twMailKind('Add a vehicle to the schedule') === 'Endorsement' && twMailKind('Renewal info attached') === 'Renewal' && twMailKind('Thanks for the call') === 'Other' && twMailKind('please BIND this') === 'Binder request');
+    var m1 = twMailAdd({ from: 'asha@arora.example', subject: 'Bind request for Lone Star Haulers', body: 'Please bind policy POL-AAA1 as quoted. FEIN 74-1111111.' }).mail;
+    var m2 = twMailAdd({ from: 'x@y.example', subject: 'Question about SUB-B', body: 'When will we hear back?' }).mail;
+    var m3 = twMailAdd({ from: 'z@z.example', subject: 'Hello there', body: 'Nothing about any case.' }).mail;
+    t('an email is added as New with a kind', m1.status === 'New' && m1.kind === 'Binder request' && m2.kind === 'Other' && TW.mail.length === 3 && JSON.parse(localStorage.getItem(TW_KEYS.mail)).length === 3);
+    var mt = twMailMatches(m1);
+    t('likely cases are found from the policy number, the FEIN and the insured name, once each', mt.length === 1 && mt[0].sub.id === 'SUB-A' && /policy number|FEIN|insured/.test(mt[0].why));
+    t('a case id in the text is found', twMailMatches(m2)[0].sub.id === 'SUB-B' && /case id/.test(twMailMatches(m2)[0].why));
+    t('an email about no known case matches nothing', twMailMatches(m3).length === 0);
+    t('linking puts the email in the case\'s email history and marks it Linked', twMailLink(m1, 'SUB-A').ok && m1.status === 'Linked' && m1.caseId === 'SUB-A' && cfEmails(A).some(function(e){ return e.direction === 'in' && e.subject === m1.subject && e.party === 'asha@arora.example'; }));
+    t('linking to a case that does not exist is refused', !twMailLink(m3, 'SUB-NOPE').ok);
+    var tk = twMailTask(m1, null);
+    t('a binder request becomes a High task due today, tied to the case, and the email says so', tk.ok && tk.task.priority === 'High' && tk.task.due === day(0) && tk.task.type === 'New Business' && tk.task.subId === 'SUB-A' && m1.status === 'Task created' && m1.taskId === tk.task.id && /mailman/.test(tk.task.source));
+    var tk2 = twMailTask(m2, 'SUB-B');
+    t('making a task can link the case in the same step', tk2.ok && m2.caseId === 'SUB-B' && cfEmails(B).length === 1 && tk2.task.assignee === 'senior_uw');
+    t('done closes it', twMailDone(m3) && m3.status === 'Done');
+    TW.mailFilter = 'open'; MW.tab = 'mail'; showMyWorkPage(); mwSwitchTab('mail');
+    t('the tab lists what is not done, with suggested cases and actions', /Bind request for Lone Star/.test(el('myWorkRoot').innerHTML) && !/Hello there/.test(el('myWorkRoot').innerHTML) && /Make a task|Done/.test(el('myWorkRoot').innerHTML));
+    TW.mailFilter = 'all'; mwRender();
+    t('All shows the done ones too', /Hello there/.test(el('myWorkRoot').innerHTML));
+
+    // ---------- print queue
+    A.issuedQuoteEmail = { html: '<h1>QUOTE</h1>', payload: {}, lines: [] }; A.quoteNo = 'QT-1';
+    A.binders = [{ id: 'BND-1', html: '<h1>BINDER</h1>' }]; A.certificates = [{ id: 'CRT-1', holderName: 'First Bank', html: '<h1>CERT</h1>' }];
+    A.policyChanges = [{ id: 'END-1', type: 'endorsement', html: '<h1>ENDORSEMENT</h1>' }, { id: 'CAN-1', type: 'cancellation', html: '<h1>CANCEL NOTICE</h1>' }, { id: 'RIN-1', type: 'reinstatement', html: '<h1>REINSTATE</h1>' }];
+    A.renewal = { notice: { kind: 'non_renewal', html: '<h1>NON-RENEWAL</h1>' } }; A.notices = [{ id: 'NTC-1', text: 'We decline this risk.' }];
+    var docs = twDocs(A);
+    t('a case lists what it can print, from its own record', docs.length === 8 && docs.map(function(d){ return d.kind; }).indexOf('Binder') > -1 && docs.some(function(d){ return d.kind === 'Certificate' && /First Bank/.test(d.title); }));
+    t('E&O is the notices: declination, non-renewal, cancellation; Policy is the rest', docs.filter(function(d){ return d.eo; }).map(function(d){ return d.id; }).sort().join() === 'CAN-1,NTC-1,RENEWAL-NOTICE' && docs.filter(function(d){ return !d.eo; }).length === 5);
+    t('a case with nothing to print lists nothing', twDocs(B).length === 0);
+    t('an unknown document is refused', !twPrintAdd(A, 'NOPE').ok);
+    var p1 = twPrintAdd(A, 'BND-1'), p2 = twPrintAdd(A, 'CAN-1');
+    t('a document goes to the Policy or the E&O queue by its kind', p1.ok && p1.item.queue === 'Policy' && p2.ok && p2.item.queue === 'E&O');
+    t('the same document is not queued twice while it is waiting', !twPrintAdd(A, 'BND-1').ok);
+    var all = twPrintAddAll(A);
+    t('Add all queues the rest and skips what is already there', all.added === 6 && all.skipped.length === 2 && TW.print.length === 8);
+    var pr = twPrintItems([p1.item.id, p2.item.id]);
+    t('printing builds one document with a page break between items', pr.ok && pr.count === 2 && /BINDER/.test(pr.html) && /CANCEL NOTICE/.test(pr.html) && (pr.html.match(/page-break-before/g) || []).length === 1);
+    t('printed items are marked Printed with who and when, and logged on the case', p1.item.status === 'Printed' && !!p1.item.printedAt && /Sarah/.test(p1.item.printedBy) && A.decisionLog.some(function(d){ return d.decision === 'case_printed' && /Binder BND-1/.test(d.notes); }));
+    t('a printed document can be queued again', twPrintAdd(A, 'BND-1').ok);
+    t('nothing selected is refused', !twPrintItems([]).ok);
+    TW.printQueue = 'Policy'; TW.printView = 'Queued'; mwSwitchTab('print');
+    t('the tab shows the Policy and E&O queues with counts', /Policy documents/.test(el('myWorkRoot').innerHTML) && /E&amp;O/.test(el('myWorkRoot').innerHTML) && /Print selected/.test(el('myWorkRoot').innerHTML));
+    TW.printView = 'Printed'; mwRender();
+    t('Printed shows what was printed, and who printed it', /Binder BND-1/.test(el('myWorkRoot').innerHTML) && /Sarah/.test(el('myWorkRoot').innerHTML));
+    showCaseFilePage(); cfTab('print');
+    t('the case has a Print tab listing its documents', /Quotation QT-1/.test(el('caseFileRoot').innerHTML) && /Add all to the print queues/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- tickets
+    var base = { title: 'Rate import fails on a large file', category: 'Bug', priority: 'High', description: 'The rating JSON import stops at 5MB with no message.' };
+    t('a ticket needs a title, a category, a priority and a description', !twTicketAdd(Object.assign({}, base, { title: 'ab' })).ok && !twTicketAdd(Object.assign({}, base, { category: 'Gripe' })).ok && !twTicketAdd(Object.assign({}, base, { priority: 'Urgent' })).ok && !twTicketAdd(Object.assign({}, base, { description: 'short' })).ok && TW.tickets.length === 0);
+    var tkt = twTicketAdd(base).ticket;
+    t('a ticket is raised Open, with who raised it and a history', tkt.status === 'Open' && tkt.id === 'TKT-1' && tkt.createdBy === 'junior' && tkt.history.length === 1 && !tkt.assignee);
+    t('only the Head of Underwriting assigns tickets', !twTicketAssign(tkt.id, 'senior_uw').ok && tkt.assignee === null);
+    t('a comment needs words', !twTicketComment(tkt.id, ' ').ok && twTicketComment(tkt.id, 'Seen it on my laptop too.').ok && tkt.comments.length === 1);
+    t('Resolved needs a note on how, even from Open', !twTicketMove(tkt.id, 'Resolved', '').ok && tkt.status === 'Open');
+    currentUserRole = 'admin';
+    var nn = NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length;
+    t('the Head of Underwriting assigns it and the person is told', twTicketAssign(tkt.id, 'senior_uw').ok && tkt.assignee === 'senior_uw' && NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length === nn + 1);
+    currentUserRole = 'assistant';
+    t('someone with no part in it cannot move it', !twTicketMove(tkt.id, 'In progress', '').ok);
+    currentUserRole = 'senior_uw';
+    t('the assignee moves it to In progress', twTicketMove(tkt.id, 'In progress', '').ok && tkt.status === 'In progress');
+    t('Resolved needs a note on how', !twTicketMove(tkt.id, 'Resolved', '').ok && twTicketMove(tkt.id, 'Resolved', 'Raised the limit to 25MB').ok && tkt.status === 'Resolved');
+    t('a resolved ticket can be reopened or closed; a closed one is final', twTicketMove(tkt.id, 'Open', '').ok && twTicketMove(tkt.id, 'In progress', '').ok && twTicketMove(tkt.id, 'Resolved', 'Fixed in build 2').ok && twTicketMove(tkt.id, 'Closed', '').ok && !twTicketMove(tkt.id, 'Open', '').ok);
+    currentUserRole = 'junior'; TW.ticketFilter = 'all'; mwSwitchTab('tickets');
+    t('the tab shows the ticket, its comments and its state', /Rate import fails/.test(el('myWorkRoot').innerHTML) && /Seen it on my laptop/.test(el('myWorkRoot').innerHTML) && /Closed/.test(el('myWorkRoot').innerHTML));
+
+    // ---------- notice board
+    t('only the Head of Underwriting posts notices', !twNoticePost({ title: 'Holiday hours', text: 'Closed Friday', from: day(0), to: day(7) }).ok);
+    currentUserRole = 'admin';
+    t('a notice needs a title, text, dates in order and not already over', !twNoticePost({ title: 'x', text: 'Closed Friday', from: day(0), to: day(7) }).ok && !twNoticePost({ title: 'Holiday', text: 'abc', from: day(0), to: day(7) }).ok && !twNoticePost({ title: 'Holiday', text: 'Closed Friday', from: day(7), to: day(0) }).ok && !twNoticePost({ title: 'Holiday', text: 'Closed Friday', from: day(-9), to: day(-2) }).ok);
+    var before = NOTIFICATIONS.length;
+    var n1 = twNoticePost({ title: 'Holiday hours', text: 'The office is closed on Friday.', from: day(-1), to: day(7), pinned: false }).notice;
+    var n2 = twNoticePost({ title: 'Authority change', text: 'New senior limit from Monday.', from: day(0), to: day(30), pinned: true }).notice;
+    twNoticePost({ title: 'Future notice', text: 'Shows next month.', from: day(20), to: day(40) });
+    t('a posted notice tells everyone else', NOTIFICATIONS.length >= before + 3 * 4 && NOTIFICATIONS.some(function(n){ return n.to === 'junior' && /Notice: Holiday hours/.test(n.title); }) && !NOTIFICATIONS.some(function(n){ return n.to === 'admin' && /Notice: Holiday hours/.test(n.title); }));
+    t('only notices in their date range show, pinned first', twNoticesActive().map(function(n){ return n.id; }).join() === n2.id + ',' + n1.id && twNoticesActive(day(25)).length === 2);
+    currentUserRole = 'junior';
+    t('each person sees how many they have not read', twNoticeUnread() === 2 && /2 notices to read/.test(twBanner()));
+    t('reading one confirms it for that person only', twNoticeAck(n1.id) && twNoticeUnread() === 1 && n1.ack.join() === 'junior' && (currentUserRole = 'senior_uw', twNoticeUnread() === 2) && (currentUserRole = 'junior', true));
+    t('the banner appears on My Work until everything is read, then goes', (showMyWorkPage(), mwSwitchTab('tasks'), /notice/.test(el('myWorkRoot').innerHTML)) && (twNoticeAck(n2.id), mwRender(), !/to read/.test(el('myWorkRoot').innerHTML)));
+    mwSwitchTab('board');
+    t('the notice board lists the notices and who has read them', /Authority change/.test(el('myWorkRoot').innerHTML) && /Holiday hours/.test(el('myWorkRoot').innerHTML) && /read by/.test(el('myWorkRoot').innerHTML));
+
+    // ---------- chat
+    t('an empty or over-long message is refused', !twChatPost('team', '  ').ok && !twChatPost('team', new Array(1002).join('x')).ok && !twChatPost('SUB-NOPE', 'hi').ok);
+    t('mentions are found by role or first name, not for yourself', twMentions('ping @senior_uw and @david and @sarah').join() === 'senior_uw,junior' && twMentions('no mention here').length === 0 && twMentions('email me@example.com').length === 0);
+    var nm = NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length;
+    var c1 = twChatPost('team', 'Can you look at the Lone Star file, @david?');
+    t('a message is kept, and the person mentioned is told', c1.ok && c1.message.mentions.join() === 'senior_uw' && NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length === nm + 1 && twChatMessages('team').length === 1);
+    t('a case has its own thread, separate from the team chat', twChatPost('SUB-A', 'Waiting on the loss runs').ok && twChatMessages('SUB-A').length === 1 && twChatMessages('team').length === 1);
+    mwSwitchTab('chat');
+    t('the team chat tab shows the message with the mention highlighted', /Lone Star file/.test(el('myWorkRoot').innerHTML) && /tw-at/.test(el('myWorkRoot').innerHTML));
+    cfTab('discuss');
+    t('the case has a Discussion tab with its own thread', /Waiting on the loss runs/.test(el('caseFileRoot').innerHTML) && !/Lone Star file/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- audit and loss control
+    var ar = function(o){ return twAuditSchedule(A, Object.assign({ kind: 'Premium audit', date: day(14), assignee: 'junior', method: 'Physical' }, o)); };
+    t('an unbound policy cannot be audited', !twAuditSchedule(B, { kind: 'Premium audit', date: day(14), assignee: 'junior', method: 'Physical' }).ok);
+    t('scheduling needs a kind, a date that is not past, a person and, for an audit, a method', !ar({ kind: 'Chat' }).ok && !ar({ date: 'soon' }).ok && !ar({ date: day(-1) }).ok && !ar({ assignee: 'nobody' }).ok && !ar({ method: 'Telepathy' }).ok);
+    var a1 = ar({});
+    t('a premium audit is scheduled with the units on the policy, and makes a task', a1.ok && a1.audit.status === 'Scheduled' && a1.audit.estimatedUnits === 3 && /^AUD-A-1$/.test(a1.audit.id) && !!a1.audit.taskId && mwTask(a1.audit.taskId).type === 'Premium Audit' && mwTask(a1.audit.taskId).due === day(14) && A.decisionLog.some(function(d){ return d.decision === 'audit_scheduled'; }));
+    t('a second open audit of the same kind is refused', !ar({}).ok);
+    t('completing needs audited units, an adjustment, and a reason when it is not zero', !twAuditComplete(A, a1.audit.id, { auditedUnits: '', adjustment: '0' }).ok && !twAuditComplete(A, a1.audit.id, { auditedUnits: '3.5', adjustment: '0' }).ok && !twAuditComplete(A, a1.audit.id, { auditedUnits: '4', adjustment: '' }).ok && !twAuditComplete(A, a1.audit.id, { auditedUnits: '4', adjustment: '900', reason: 'short' }).ok);
+    t('Start marks it In progress', twAuditStart(A, a1.audit.id) && a1.audit.status === 'In progress');
+    var done = twAuditComplete(A, a1.audit.id, { auditedUnits: '4', adjustment: '1200.456', reason: 'One unit added mid-term and not endorsed.' });
+    t('a completed audit records the variance and the adjustment the auditor typed, and closes its task', done.ok && a1.audit.status === 'Completed' && a1.audit.variancePct === 33.3 && a1.audit.adjustment === 1200.46 && mwTask(a1.audit.taskId).status === 'done' && A.decisionLog.some(function(d){ return d.decision === 'audit_completed'; }));
+    t('a completed audit cannot be completed again', !twAuditComplete(A, a1.audit.id, { auditedUnits: '4', adjustment: '0' }).ok);
+    var a2 = ar({}).audit;
+    t('after completion a new audit can be scheduled; a return is a negative adjustment', !!a2 && twAuditComplete(A, a2.id, { auditedUnits: '2', adjustment: '-500', reason: 'Two units sold during the term.' }).ok && a2.adjustment === -500 && a2.variancePct === -33.3);
+    var a3 = ar({}).audit;
+    t('cancelling needs a reason and closes the task', !twAuditCancel(A, a3.id, 'no').ok && twAuditCancel(A, a3.id, 'The insured sold the business.').ok && a3.status === 'Cancelled' && mwTask(a3.taskId).status === 'done');
+    var s1 = twAuditSchedule(A, { kind: 'Loss control survey', date: day(7), assignee: 'senior_uw' }).audit;
+    t('a loss control survey needs no audit method and makes a Loss Control task', !!s1 && s1.method === null && mwTask(s1.taskId).type === 'Loss Control');
+    t('a survey needs findings, and each recommendation needs text and a due date that is not past', !twAuditComplete(A, s1.id, { findings: 'short' }).ok && !twAuditComplete(A, s1.id, { findings: 'Drivers do not log hours of service.', recommendations: [{ text: 'abc', due: day(10) }] }).ok && !twAuditComplete(A, s1.id, { findings: 'Drivers do not log hours of service.', recommendations: [{ text: 'Install ELDs on all units', due: day(-1) }] }).ok);
+    var sd = twAuditComplete(A, s1.id, { findings: 'Drivers do not log hours of service.', recommendations: [{ text: 'Install ELDs on all units', due: day(30) }, { text: 'Weekly vehicle inspection log', due: day(10) }, { text: '', due: '' }] });
+    t('each recommendation becomes a dated Loss Control task for the surveyor', sd.ok && s1.recommendations.length === 2 && s1.recommendations.every(function(r){ return !!mwTask(r.taskId) && mwTask(r.taskId).type === 'Loss Control' && mwTask(r.taskId).assignee === 'senior_uw'; }));
+    t('a recommendation can be marked done and closes its task', twRecDone(A, s1.id, 'REC-1') && s1.recommendations[0].status === 'Done' && mwTask(s1.recommendations[0].taskId).status === 'done' && !twRecDone(A, s1.id, 'REC-1'));
+    cfTab('audit');
+    t('the Audit & loss control tab shows both, with the findings and the adjustment', /Premium audit/.test(el('caseFileRoot').innerHTML) && /Loss control survey/.test(el('caseFileRoot').innerHTML) && /Install ELDs/.test(el('caseFileRoot').innerHTML) && /additional \$1,200.46/.test(el('caseFileRoot').innerHTML) && /return \$500/.test(el('caseFileRoot').innerHTML));
+    t('the case file now has twelve tabs', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 12);
+
+    // ---------- calculator
+    var rp = tcReturn({ premium: '12000', start: '2026-01-01', end: '2027-01-01', cancel: '2026-07-02', method: 'prorata' });
+    t('pro-rata return: premium over the term by days used', rp.ok && rp.totalDays === 365 && rp.earnedDays === 182 && rp.earned === 5983.56 && rp.returned === 6016.44);
+    var sr = tcReturn({ premium: '12000', start: '2026-01-01', end: '2027-01-01', cancel: '2026-07-02', method: 'shortrate', penaltyPct: '10' });
+    t('short-rate return takes the typed penalty off the unearned premium', sr.ok && sr.penalty === 601.64 && sr.returned === 5414.8 && sr.earned === 6585.2);
+    t('return needs a premium, a real term, a date inside it and a typed penalty', !tcReturn({ premium: '', start: '2026-01-01', end: '2027-01-01', cancel: '2026-07-02' }).ok && !tcReturn({ premium: '1', start: '2027-01-01', end: '2026-01-01', cancel: '2026-07-02' }).ok && !tcReturn({ premium: '1', start: '2026-01-01', end: '2027-01-01', cancel: '2028-01-01' }).ok && !tcReturn({ premium: '1', start: '2026-01-01', end: '2027-01-01', cancel: '2026-07-02', method: 'shortrate', penaltyPct: '' }).ok);
+    var cm = tcCommission({ gross: '10000', commissionPct: '12.5', fee: '150', taxPct: '3' });
+    t('commission, net, tax and the total due', cm.ok && cm.commission === 1250 && cm.net === 8750 && cm.tax === 300 && cm.totalDue === 10450);
+    t('commission needs a gross premium and percentages that make sense', !tcCommission({ gross: '', commissionPct: '10' }).ok && !tcCommission({ gross: '100', commissionPct: '120' }).ok && !tcCommission({ gross: '100', commissionPct: '10', fee: '-1' }).ok);
+    var ins = tcInstalments({ financed: '8000', charge: '240', n: '4', first: '2026-12-01' });
+    t('instalments reuse the finance schedule: split, last one takes the rounding', ins.ok && ins.total === 8240 && ins.schedule.length === 4 && ins.schedule[0].amount === 2060 && ins.schedule[3].due === '2027-03-01');
+    t('instalments need an amount, 2 to 12 payments and a date', !tcInstalments({ financed: '', n: '4', first: '2026-12-01' }).ok && !tcInstalments({ financed: '100', n: '1', first: '2026-12-01' }).ok && !tcInstalments({ financed: '100', n: '4', first: '' }).ok);
+    t('premium from a rate: per unit, per $100, per $1,000, and the minimum', tcRate({ exposure: '3', rate: '2500', per: '1' }).premium === 7500 && tcRate({ exposure: '1000000', rate: '0.5', per: '100' }).premium === 5000 && tcRate({ exposure: '2400000', rate: '3', per: '1000' }).premium === 7200 && tcRate({ exposure: '1', rate: '100', per: '1', min: '1000' }).premium === 1000 && tcRate({ exposure: '1', rate: '100', per: '1', min: '1000' }).minApplied === true);
+    t('a rate needs an exposure, a rate and a valid unit', !tcRate({ exposure: '', rate: '1', per: '1' }).ok && !tcRate({ exposure: '1', rate: '1', per: '7' }).ok);
+    openCalculator();
+    t('the calculator opens from the header, with no figure pre-filled', el('calcModal').classList.contains('active') && !!el('btnCalculator') && ['tc_prem', 'tc_gross', 'tc_fin', 'tc_exp', 'tc_rate', 'tc_pen'].every(function(id){ return el(id).value === ''; }));
+    el('tc_gross').value = '10000'; el('tc_cpct').value = '10'; tcRunCommission();
+    t('Work out shows the result in the dialog', /Commission/.test(el('tc_out_commission').innerHTML) && /\$1,000\.00/.test(el('tc_out_commission').innerHTML));
+    el('tc_gross').value = ''; tcRunCommission();
+    t('and a clear message when something is missing', /Enter the gross premium/.test(el('tc_out_commission').innerHTML));
+    closeCalculator(); t('Close closes it', !el('calcModal').classList.contains('active'));
+
+    // ---------- profile and password
+    TW.profile = {};
+    t('SHA-256 is correct', twSha256('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' && twSha256('') === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    t('a profile needs a valid email and phone', !tpSaveProfile('junior', { email: 'bad' }).ok && !tpSaveProfile('junior', { phone: 'abc' }).ok && !tpSaveProfile('nobody', {}).ok);
+    t('a profile is saved and appears in the phone book as team contact details', tpSaveProfile('junior', { email: 'sarah@example.test', phone: '555-0142' }).ok && tpProfile('junior').email === 'sarah@example.test' && fdContacts().some(function(c){ return c.kind === 'Team' && c.email === 'sarah@example.test' && c.phone === '555-0142'; }));
+    t('before a password is set, sign-in accepts anything (as before)', !tpHasPassword('junior') && tpCheckLogin('junior', 'whatever').ok);
+    t('a new password must meet the rules', !tpChangePassword('junior', '', 'short1A', 'short1A').ok && !tpChangePassword('junior', '', 'alllowercase123', 'alllowercase123').ok && !tpChangePassword('junior', '', 'NoDigitsHereAtAll', 'NoDigitsHereAtAll').ok && !tpChangePassword('junior', '', 'Sarah-Password-1', 'Sarah-Password-1').ok && !tpChangePassword('junior', '', 'ValidPass12345', 'Different12345').ok);
+    t('the problems are named', /at least 10 characters/.test(tpChangePassword('junior', '', 'Ab1', 'Ab1').message) && /a digit/.test(tpChangePassword('junior', '', 'NoDigitsHereAtAll', 'NoDigitsHereAtAll').message) && /part of the user/.test(tpChangePassword('junior', '', 'Sarah-Password-1', 'Sarah-Password-1').message));
+    t('a password is set, salted and hashed, never kept as typed', tpChangePassword('junior', '', 'Correct-Horse-42', 'Correct-Horse-42').ok && tpHasPassword('junior') && !!tpProfile('junior').salt && tpProfile('junior').hash.length === 64 && JSON.stringify(TW.profile).indexOf('Correct-Horse-42') < 0 && localStorage.getItem(TW_KEYS.profile).indexOf('Correct-Horse-42') < 0);
+    t('once set, sign-in needs it', tpCheckLogin('junior', 'Correct-Horse-42').ok && !tpCheckLogin('junior', 'wrong').ok);
+    t('another user without a password is not affected', tpCheckLogin('senior_uw', 'x').ok);
+    t('changing it needs the current one, and a different new one', !tpChangePassword('junior', 'wrong', 'Another-Pass-77', 'Another-Pass-77').ok && !tpChangePassword('junior', 'Correct-Horse-42', 'Correct-Horse-42', 'Correct-Horse-42').ok && tpChangePassword('junior', 'Correct-Horse-42', 'Another-Pass-77', 'Another-Pass-77').ok && tpCheckLogin('junior', 'Another-Pass-77').ok && !tpCheckLogin('junior', 'Correct-Horse-42').ok);
+    var T0 = 1000000; TP_FAILS = {};
+    for (var i = 0; i < 4; i++) tpCheckLogin('junior', 'bad' + i, T0 + i);
+    t('four wrong tries do not lock', tpCheckLogin('junior', 'Another-Pass-77', T0 + 10).ok);
+    TP_FAILS = {}; for (var j = 0; j < 5; j++) tpCheckLogin('junior', 'bad' + j, T0 + j);
+    var lk = tpCheckLogin('junior', 'Another-Pass-77', T0 + 1000);
+    t('five wrong tries lock the user, even for the right password', !lk.ok && /Too many wrong passwords/.test(lk.message));
+    t('the lock ends after a minute', tpCheckLogin('junior', 'Another-Pass-77', T0 + 61000).ok);
+    TP_FAILS = {};
+    t('only the Head of Underwriting resets a password', !tpResetPassword('junior').ok && (currentUserRole = 'admin', tpResetPassword('junior').ok) && !tpHasPassword('junior') && tpCheckLogin('junior', 'anything').ok && !tpResetPassword('junior').ok);
+    currentUserRole = 'junior';
+    tpChangePassword('junior', '', 'Correct-Horse-42', 'Correct-Horse-42');
+    // the real sign-in screen
+    document.body.classList.add('pre-login'); el('loginUserSelect').value = 'junior'; el('loginPasswordInput').value = 'not-the-password'; toasts.length = 0; submitLogin();
+    t('a wrong password keeps the sign-in screen up and says so', document.body.classList.contains('pre-login') && /not right/.test(toasts[toasts.length - 1] || ''));
+    el('loginPasswordInput').value = 'Correct-Horse-42'; submitLogin();
+    t('the right password signs in', !document.body.classList.contains('pre-login') && currentUserRole === 'junior');
+    document.body.classList.add('pre-login'); el('loginUserSelect').value = 'senior_uw'; el('loginPasswordInput').value = 'x'; submitLogin();
+    t('a user with no password still signs in with anything', !document.body.classList.contains('pre-login') && currentUserRole === 'senior_uw');
+    currentUserRole = 'admin'; tpChangePassword('senior_uw', '', 'Strong-Password-9', 'Strong-Password-9'); openProfile();
+    t('the Head of Underwriting sees a reset control listing users who have a password', /Reset someone/.test(el('profileModal').innerHTML) && !!el('tp_resetwho') && /David/.test(el('tp_resetwho').innerHTML)); el('tp_resetwho').value = 'senior_uw'; tpResetUi();
+    t('and the reset works from the control', !tpHasPassword('senior_uw')); currentUserRole = 'junior'; openProfile();
+    t('other users do not see the reset control', !/Reset someone/.test(el('profileModal').innerHTML));
+    t('the profile opens from the sidebar with the password rules', !!el('btnProfile') && el('profileModal').classList.contains('active') && /not security/.test(el('profileModal').innerHTML) && !!el('tp_cur')); closeProfile();
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

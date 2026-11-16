@@ -1,0 +1,196 @@
+<!-- Suite C44: Policies page. Expiring and expired policies, batch review start and expiration letters, claim renewals (approval before a renewal with
+     enough claims, by someone other than the requester), endorsement requests (status flow, closed as Issued only against a real endorsement,
+     assignee, due date), policy transfer (approval by another person, completion takes it off the renewal pipeline), underwriter change, the
+     cancellation report with CSV, and Reopen quote. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function mdy(iso){ return iso.slice(5, 7) + '/' + iso.slice(8, 10) + '/' + iso.slice(0, 4); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'gl_cpc' && x.broker === 'Gallagher Commercial Brokers'; })[0];
+  function mkPolicy(id, days, o){
+    var s = clone(seedG); s.id = id; s.insured = 'Insured ' + id; s.apiSourced = true; var exp = plus(days), eff = plus(days - 365);
+    s.pasSync = { status: 'success', policyNumber: 'POL-' + id, pasRecordId: 'PAS-' + id, effectiveDate: eff };
+    s.effectiveDate = mdy(eff); s.expirationDate = mdy(exp);
+    s.discretionaryPricing = { finalPremium: 10000 }; s.importedRatingData = { quote: { finalPremium: 10000, fees: [] } };
+    s.subjectivities = []; s.certificates = []; s.losses = [{ year: '2025', status: 'Closed', incurred: 4000 }]; s.decisionLog = []; s.assignedTo = 'junior';
+    for (var k in (o || {})) s[k] = o[k]; return s;
+  }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    var P1 = mkPolicy('SUB-P1', 20), P2 = mkPolicy('SUB-P2', 80), P3 = mkPolicy('SUB-P3', 200), P4 = mkPolicy('SUB-P4', -10), P5 = mkPolicy('SUB-P5', -40, { renewal: { status: 'renewed', renewedPolicyNumber: 'POL-NEW' } });
+    SUBMISSIONS_DATASET.length = 0; [P1, P2, P3, P4, P5].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    currentUserRole = 'junior';
+
+    // ---------- page
+    showPoliciesPage();
+    t('Policies opens as a page with five tabs (renewals are not one of them: there is one renewal list)', el('policiesPageView').style.display === 'block' && el('navItemPolicies').classList.contains('active') && el('policiesRoot').querySelectorAll('.mw-tabs .tab-btn').length === 5 && PO_TABS.every(function(x){ return x[0] !== 'expiring'; }) && typeof poPolicies === 'undefined' && typeof poIssueLetters === 'undefined');
+
+    // ---------- the one renewal list: the Renewal pipeline (expiring, expired, batch, letters)
+    function listed(){ var h = el('renewalPipelineRoot').innerHTML; return ['SUB-P1','SUB-P2','SUB-P3','SUB-P4','SUB-P5'].filter(function(id){ return h.indexOf('>' + id + '<') > -1; }).join(); }
+    rnUI.sel = {}; rnUI.lastBatch = null; rnSetFilter('stage', 'all'); rnSetFilter('bucket', '30');
+    t('the Policies page points to the one renewal list and opens it', /Renewal pipeline/.test(el('policiesRoot').innerHTML) && (poOpenRenewals(), el('qiPanelPipeline').style.display === 'block' && quoteIntelActiveTab === 'pipeline'));
+    rnSetFilter('bucket', '30'); t('the pipeline shows what expires within 30 days', listed() === 'SUB-P1', listed());
+    rnSetFilter('bucket', '90'); t('within 90 days', listed() === 'SUB-P1,SUB-P2');
+    rnSetFilter('bucket', 'all'); t('any time lists every unexpired policy and the expired ones too', listed() === 'SUB-P1,SUB-P2,SUB-P3,SUB-P4,SUB-P5');
+    rnSetFilter('bucket', 'expired'); t('Already expired lists the ones past expiry, with how each ended', listed() === 'SUB-P4,SUB-P5' && /Renewed/.test(el('renewalPipelineRoot').innerHTML) && /Lapsed: no renewal decision/.test(el('renewalPipelineRoot').innerHTML) && /days ago/.test(el('renewalPipelineRoot').innerHTML));
+    t('rnEnded names how an expired policy ended', rnEnded(rnPolicies().filter(function(p){ return p.sub.id === 'SUB-P5'; })[0]) === 'Renewed' && /Lapsed/.test(rnEnded(rnPolicies().filter(function(p){ return p.sub.id === 'SUB-P4'; })[0])));
+    rnSetFilter('bucket', 'all'); rnSetFilter('stage', 'renewed'); t('it can be limited by stage', listed() === 'SUB-P5'); rnSetFilter('stage', 'all');
+
+    // ---------- batch: start review (selected policies)
+    var b = rnStartReviews(['SUB-P1', 'SUB-P2', 'SUB-P4', 'SUB-NOPE']);
+    t('the batch starts review where it can and says why it skipped the rest', b.started === 2 && b.skipped.length === 2 && b.skipped.some(function(s){ return /expired/.test(s.why); }) && b.skipped.some(function(s){ return /pipeline/.test(s.why); }), JSON.stringify(b));
+    currentUserRole = 'assistant';
+    var b2 = rnStartReviews(['SUB-P3']);
+    t('a batch start needs renewal edit rights', (PERMISSIONS_MATRIX.assistant.renewals.edit ? b2.started === 1 : b2.denied === true));
+    currentUserRole = 'junior';
+    var b3 = rnStartReviews(['SUB-P1', 'SUB-P4', 'SUB-NOPE']);
+    t('already started, expired and unknown policies are skipped with a reason', b3.skipped.length === 3 && /already/.test(b3.skipped[0].why) && /expired/.test(b3.skipped[1].why) && /not on the renewal pipeline/.test(b3.skipped[2].why), JSON.stringify(b3));
+    t('started policies are Under review and logged', rnRecord(P1).status === 'under_review' && P1.decisionLog.some(function(d){ return d.decision === 'renewal_review_started' && /batch/.test(d.notes); }));
+    t('a selection starts the review the same way the window batch does: with the risk snapshot', !!P1.renewal.riskRefresh && P1.renewal.riskRefresh.expiringPremium === 10000 && P1.renewal.riskRefresh.toRefresh.length === 4 && P1.renewal.reviewStartedBy !== 'Renewal batch');
+    var Z = mkPolicy('SUB-Z1', 30); SUBMISSIONS_DATASET.push(Z); rnRunBatch();
+    t('and the window batch uses the same single starter', Z.renewal.status === 'under_review' && Z.renewal.reviewStartedBy === 'Renewal batch' && !!Z.renewal.riskRefresh);
+    SUBMISSIONS_DATASET.splice(SUBMISSIONS_DATASET.indexOf(Z), 1);
+    rnSetFilter('bucket', 'all');
+    var P6 = mkPolicy('SUB-P6', 150); SUBMISSIONS_DATASET.push(P6);
+    rnUI.sel = {}; rnToggle('SUB-P6', true);
+    t('selecting a row in the pipeline shows the batch buttons with a count', /Start review \(1\)/.test(el('renewalPipelineRoot').innerHTML) && /Expiration letters \(1\)/.test(el('renewalPipelineRoot').innerHTML));
+    rnBatchStart();
+    t('Start review on the page reports what it did', /Renewal review started for 1 polic/.test(el('renewalPipelineRoot').innerHTML) && rnRecord(P6).status === 'under_review');
+    rnToggleAll(true);
+    t('Select all selects what the filters show', rnSelectedIds().length === rnPolicies().length && rnSelectedIds().length === 6);
+    rnToggleAll(false); t('and clears them', rnSelectedIds().length === 0);
+
+    // ---------- expiration letters
+    var L = rnIssueLetters(['SUB-P1', 'SUB-P3', 'SUB-P4', 'SUB-P5']);
+    t('letters are issued for the selected policies as one printable document', L.ok && L.count === 4 && /<html/.test(L.html) && (L.html.match(/EXPIRATION NOTICE/g) || []).length === 4 && (L.html.match(/page-break-before/g) || []).length === 3);
+    t('each letter says where the policy stands', /reviewing your policy for renewal/.test(L.html) && /No decision on renewal has been made yet/.test(L.html) && /did not receive a renewal decision/.test(L.html) && /renewed as POL-NEW/.test(L.html));
+    t('each letter carries the policy number, the insured and the expiry', /POL-SUB-P1/.test(L.html) && /Insured SUB-P3/.test(L.html) && new RegExp(plus(20)).test(L.html));
+    t('the unapproved-template warning is on the letters', /not approved by Compliance/.test(L.html));
+    t('each letter is recorded on its policy and in the log', rnRecord(P1).letters.length === 1 && P1.decisionLog.some(function(d){ return d.decision === 'expiration_letter_issued'; }));
+    t('the pipeline shows how many letters each policy has had', (renderRenewalPipeline(), /1 sent/.test(el('renewalPipelineRoot').innerHTML)));
+    t('no policy selected is refused', !rnIssueLetters([]).ok);
+    t('an unknown policy id yields no letter', !rnIssueLetters(['SUB-NOPE']).ok);
+
+    // ---------- claim renewals
+    var C = mkPolicy('SUB-C1', 40, { losses: [{ incurred: 1000 }, { incurred: 2500 }, { incurred: 500 }] }); SUBMISSIONS_DATASET.push(C);
+    t('three claims need approval before renewal, and the incurred total is worked out', poClaimRenewalRequired(C) && poClaims(C) === 3 && poClaimIncurred(C) === 4000 && !poClaimRenewalRequired(P1));
+    t('a renewal without approval is refused at the decision', (function(){ toasts.length = 0; rnDecide('SUB-C1', 'renew'); return /3 claims/.test(toasts[toasts.length - 1] || '') && !(C.renewal && C.renewal.renewalSubmissionId); })());
+    t('conditional renewal is refused too', (function(){ toasts.length = 0; rnDecide('SUB-C1', 'conditional'); return /claims/.test(toasts[toasts.length - 1] || '') && !(C.renewal && C.renewal.renewalSubmissionId); })());
+    t('a policy with few claims is not held up by the rule', (function(){ toasts.length = 0; rnDecide('SUB-P3', 'renew'); return !/claims \(/.test(toasts[toasts.length - 1] || ''); })());
+    t('asking needs a real description', !poClaimRequest(C, 'short').ok);
+    t('a request is recorded and logged', poClaimRequest(C, 'Three small closed claims; fleet is clean otherwise.').ok && poClaimStatus(C) === 'pending' && C.decisionLog.some(function(d){ return d.decision === 'claim_renewal_requested'; }));
+    t('it cannot be asked for twice', !poClaimRequest(C, 'Three small closed claims; asking again.').ok);
+    t('the person who asked cannot decide it', (function(){ var keep = currentUserRole; currentUserRole = 'senior_uw'; C.renewal.claimApproval.requestedRole = 'senior_uw'; var r = poClaimDecide(C, true, 'I approve my own request'); C.renewal.claimApproval.requestedRole = 'junior'; currentUserRole = keep; return !r.ok && /different person/.test(r.message); })());
+    t('someone without override rights cannot decide', (function(){ var r = poClaimDecide(C, true, 'Looks fine to me, approving'); return !r.ok; })());
+    currentUserRole = 'senior_uw';
+    t('a decision needs reasoning', !poClaimDecide(C, true, 'ok').ok);
+    t('an authorised person approves, with a note, and it is logged', poClaimDecide(C, true, 'Claims are small and closed; fleet record is clean.').ok && poClaimStatus(C) === 'approved' && C.decisionLog.some(function(d){ return d.decision === 'claim_renewal_approved'; }));
+    currentUserRole = 'junior';
+    t('after approval the renewal is no longer held by the rule', (function(){ toasts.length = 0; rnDecide('SUB-C1', 'renew'); return !/claims \(/.test(toasts[toasts.length - 1] || ''); })());
+    var C2 = mkPolicy('SUB-C2', 50, { losses: [{ incurred: 1 }, { incurred: 1 }, { incurred: 1 }, { incurred: 1 }] }); SUBMISSIONS_DATASET.push(C2);
+    poClaimRequest(C2, 'Four claims; proposing renewal at higher deductible.'); currentUserRole = 'senior_uw';
+    t('a refusal is recorded and keeps the renewal held', poClaimDecide(C2, false, 'Frequency is too high for renewal.').ok && poClaimStatus(C2) === 'rejected' && (currentUserRole = 'junior', (function(){ toasts.length = 0; rnDecide('SUB-C2', 'renew'); return /claims/.test(toasts[toasts.length - 1] || ''); })()));
+    poTab('claims');
+    t('the page lists policies with claims and their approval state', /SUB-C2/.test(el('policiesRoot').innerHTML) && /Not approved/.test(el('policiesRoot').innerHTML) && /Approved/.test(el('policiesRoot').innerHTML));
+
+    // ---------- endorsement requests
+    var base = { type: 'vehicle', description: 'Add 2023 Freightliner VIN 1FUJ...', requestedBy: 'Asha at Arora', channel: 'Email', effective: plus(-2), due: plus(3), assignee: 'junior' };
+    var rq = function(o){ return poAddReq(P1, Object.assign({}, base, o)); };
+    t('a request needs a type, a description, who asked, how, a date and a handler', !rq({ type: 'moon' }).ok && !rq({ description: 'short' }).ok && !rq({ requestedBy: '' }).ok && !rq({ channel: 'Smoke signal' }).ok && !rq({ effective: 'soon' }).ok && !rq({ assignee: 'nobody' }).ok && !rq({ due: 'later' }).ok);
+    t('a change dated after the policy expires is refused', !rq({ effective: plus(400) }).ok);
+    t('an unbound policy cannot be endorsed', !poAddReq(mkPolicy('SUB-U1', 100, { pasSync: null }), base).ok);
+    t('a cancelled or transferred policy cannot be endorsed', !poAddReq(mkPolicy('SUB-U2', 100, { policyState: 'cancelled' }), base).ok);
+    var r1 = rq({});
+    t('a request is recorded as Received, with an id, a history and the handler notified', r1.ok && r1.req.status === 'Received' && /^ENR-P1-1$/.test(r1.req.id) && r1.req.history.length === 1 && P1.decisionLog.some(function(d){ return d.decision === 'endorsement_request'; }));
+    t('the statuses are the six asked for', PO_REQ_STATUS.join() === 'Received,In review,Approved,Issued,Declined,Withdrawn');
+    t('a request cannot skip a step', !poSetReq(P1, r1.req.id, 'Approved', '').ok && !poSetReq(P1, r1.req.id, 'Issued', '', 'X').ok);
+    t('Received goes to In review', poSetReq(P1, r1.req.id, 'In review', '').ok && r1.req.status === 'In review');
+    t('declining needs a reason', !poSetReq(P1, r1.req.id, 'Declined', '').ok);
+    t('approving works for someone who may approve', poSetReq(P1, r1.req.id, 'Approved', 'Within the policy terms').ok && r1.req.status === 'Approved');
+    t('Issued needs an endorsement that was really issued on the policy', !poSetReq(P1, r1.req.id, 'Issued', '', '').ok && !poSetReq(P1, r1.req.id, 'Issued', '', 'END-FAKE').ok);
+    P1.policyChanges = [{ id: 'END-P1-1', type: 'endorsement', status: 'issued', effective: plus(-2) }, { id: 'END-P1-2', type: 'endorsement', status: 'issued', effective: plus(-1) }];
+    t('closing as Issued links the endorsement', poSetReq(P1, r1.req.id, 'Issued', '', 'END-P1-1').ok && r1.req.endorsementId === 'END-P1-1' && r1.req.status === 'Issued');
+    t('a closed request cannot move again', !poSetReq(P1, r1.req.id, 'Declined', 'Changed my mind').ok);
+    var r2 = rq({ description: 'Remove unit 4 from the schedule' }); poSetReq(P1, r2.req.id, 'In review', ''); poSetReq(P1, r2.req.id, 'Approved', '');
+    t('one endorsement cannot close two requests', !poSetReq(P1, r2.req.id, 'Issued', '', 'END-P1-1').ok && poSetReq(P1, r2.req.id, 'Issued', '', 'END-P1-2').ok);
+    var r3 = rq({ description: 'Change of address to Dallas' });
+    t('withdrawing needs a reason', !poSetReq(P1, r3.req.id, 'Withdrawn', '').ok && poSetReq(P1, r3.req.id, 'Withdrawn', 'Broker cancelled the request').ok);
+    var r4 = rq({ description: 'Add a driver to the policy', assignee: 'junior', due: plus(-1) });
+    t('a request can be reassigned while open', poReassignReq(P1, r4.req.id, 'senior_uw') && r4.req.assignee === 'senior_uw' && !poReassignReq(P1, r4.req.id, 'senior_uw') && !poReassignReq(P1, r4.req.id, 'nobody'));
+    t('a closed request cannot be reassigned', !poReassignReq(P1, r1.req.id, 'junior'));
+    poTab('requests');
+    t('the page lists open requests; past-due is flagged', /ENR-P1-4/.test(el('policiesRoot').innerHTML) && /Past due/.test(el('policiesRoot').innerHTML) && !/ENR-P1-1/.test(el('policiesRoot').innerHTML));
+    PO.reqFilter = 'all'; poRender();
+    t('All shows closed ones too', /ENR-P1-1/.test(el('policiesRoot').innerHTML));
+    PO.reqFilter = 'open'; PO.reqAssignee = 'junior'; poRender();
+    t('the list can be limited to one handler', !/ENR-P1-4/.test(el('policiesRoot').innerHTML)); PO.reqAssignee = '';
+    t('an open request is in the My Work "Endorsements left pending" queue', mwQueue('endorsement_pending').some(function(x){ return x.sub.id === 'SUB-P1' && /not yet issued/.test(x.why); }));
+
+    // ---------- transfers
+    var tr = function(s, o){ return poTransferRequest(s, Object.assign({ to: 'Northern Mutual', effective: plus(5), reason: 'Carrier is exiting this line of business.' }, o)); };
+    t('a transfer needs a destination, a date and a reason', !tr(P2, { to: '' }).ok && !tr(P2, { effective: 'x' }).ok && !tr(P2, { reason: 'short' }).ok && !P2.transfer);
+    t('an unbound or cancelled policy cannot be transferred', !tr(mkPolicy('SUB-U3', 10, { pasSync: null })).ok && !tr(mkPolicy('SUB-U4', 10, { policyState: 'cancelled' })).ok && !tr(mkPolicy('SUB-U5', 10, { cancellation: { status: 'pending' } })).ok);
+    t('a transfer is requested', tr(P2).ok && P2.transfer.status === 'Requested' && P2.transfer.to === 'Northern Mutual');
+    t('a second one is refused while it is open', !tr(P2).ok);
+    t('the person who asked cannot approve it', (function(){ currentUserRole = 'junior'; var r = poTransferDecide(P2, 'approve', 'Approving my own'); return !r.ok; })());
+    currentUserRole = 'senior_uw'; P2.transfer.requestedRole = 'junior';
+    t('approval needs reasoning', !poTransferDecide(P2, 'approve', 'no').ok);
+    t('someone else approves it', poTransferDecide(P2, 'approve', 'Agreed with the carrier in writing').ok && P2.transfer.status === 'Approved');
+    t('it must be approved before it can be completed, and completed only once', (function(){ var P6 = mkPolicy('SUB-P6', 90); tr(P6); currentUserRole = 'junior'; var early = poTransferDecide(P6, 'complete', ''); currentUserRole = 'senior_uw'; return !early.ok; })());
+    currentUserRole = 'junior';
+    t('completing marks the policy transferred and logs it', poTransferDecide(P2, 'complete', 'Moved on the effective date').ok && P2.transfer.status === 'Completed' && P2.policyState === 'transferred' && P2.decisionLog.some(function(d){ return d.decision === 'policy_transfer'; }));
+    t('a transferred policy leaves the renewal pipeline', !rnIsRenewable(P2) && rnPolicies().every(function(p){ return p.sub.id !== 'SUB-P2'; }));
+    t('and cannot be endorsed or transferred again', !poAddReq(P2, base).ok && !tr(P2).ok);
+    var P7 = mkPolicy('SUB-P7', 100); SUBMISSIONS_DATASET.push(P7); tr(P7); currentUserRole = 'senior_uw'; P7.transfer.requestedRole = 'junior';
+    t('a transfer can be rejected with reasoning and stays on the pipeline', poTransferDecide(P7, 'reject', 'Not in the insured\'s interest').ok && P7.transfer.status === 'Rejected' && rnIsRenewable(P7));
+    currentUserRole = 'junior'; poTab('transfers');
+    t('the page lists transfers with their status', /Northern Mutual/.test(el('policiesRoot').innerHTML) && /Completed/.test(el('policiesRoot').innerHTML) && /Rejected/.test(el('policiesRoot').innerHTML));
+
+    // ---------- underwriter change
+    t('only the Head of Underwriting can change the underwriter', !poChangeUnderwriter(P3, 'senior_uw', 'Workload balance').ok);
+    currentUserRole = 'admin';
+    t('an unbound policy, a non-underwriter, no change and no reason are refused', !poChangeUnderwriter(mkPolicy('SUB-U6', 10, { pasSync: null }), 'senior_uw', 'Reason here').ok && !poChangeUnderwriter(P3, 'admin', 'Reason here').ok && !poChangeUnderwriter(P3, 'junior', 'Reason here').ok && !poChangeUnderwriter(P3, 'senior_uw', 'no').ok);
+    var nn = NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length;
+    t('the change is recorded with who, when and why, and the new underwriter is told', poChangeUnderwriter(P3, 'senior_uw', 'Larger account; moving to a senior').ok && P3.assignedTo === 'senior_uw' && P3.uwHistory.length === 1 && P3.uwHistory[0].from === 'junior' && /senior/.test(P3.uwHistory[0].reason) && NOTIFICATIONS.filter(function(n){ return n.to === 'senior_uw'; }).length === nn + 1 && P3.decisionLog.some(function(d){ return d.decision === 'underwriter_changed'; }));
+    poTab('uw');
+    t('the page shows the underwriter and the last change', /Larger account/.test(el('policiesRoot').innerHTML));
+
+    // ---------- cancellation report
+    var K1 = mkPolicy('SUB-K1', 100, { policyChanges: [{ id: 'CAN-1', type: 'cancellation', status: 'effective', initiator: 'insured', reasonLabel: 'Insured request', effective: plus(-5), mailedOn: null, refund: { refund: 1234.5 }, by: 'X', at: plus(-6) + ' 10:00' }, { id: 'RIN-1', type: 'reinstatement', status: 'issued', reinstateType: 'without lapse', effective: plus(-3), by: 'X', at: plus(-3) + ' 10:00' }] });
+    var K2 = mkPolicy('SUB-K2', 100, { policyChanges: [{ id: 'CAN-2', type: 'cancellation', status: 'pending', initiator: 'insurer', reasonLabel: 'Non-payment', effective: plus(10), mailedOn: plus(-1), refund: { refund: 800 }, by: 'Y', at: plus(-1) + ' 09:00' }] });
+    var K3 = mkPolicy('SUB-K3', 100, { policyChanges: [{ id: 'CAN-3', type: 'cancellation', status: 'rescinded', initiator: 'insurer', reasonLabel: 'Other', effective: plus(20), mailedOn: plus(-2), by: 'Z', at: plus(-2) + ' 09:00' }] });
+    [K1, K2, K3].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    var cr = poCancelRows({});
+    t('the report lists cancellations, reinstatements and rescinded cancellations across the book, newest first', cr.length === 4 && cr[0].ev.id === 'CAN-3' && cr.map(function(r){ return r.type; }).sort().join() === 'Cancellation,Cancellation,Reinstatement,Rescinded cancellation');
+    t('it narrows by effective date, notice date, recorded date and status', poCancelRows({ field: 'effective', from: plus(0), to: plus(15) }).length === 1 && poCancelRows({ field: 'mailedOn', from: plus(-2), to: plus(-1) }).length === 2 && poCancelRows({ field: 'at', from: plus(-3), to: plus(0) }).length === 3 && poCancelRows({ status: 'pending' }).length === 1 && poCancelRows({ status: 'rescinded' })[0].ev.id === 'CAN-3');
+    t('a row with no date in the chosen field is left out of a dated list', poCancelRows({ field: 'mailedOn', from: plus(-30), to: plus(30) }).every(function(r){ return !!r.ev.mailedOn; }));
+    var csv = poCancelCsv(cr);
+    t('the CSV has a header and a line per transaction with the policy, reason and return premium', csv.split('\n').length === 5 && /^Policy,Case,Insured,Transaction/.test(csv) && /"POL-SUB-K1"/.test(csv) && /"Non-payment"/.test(csv) && /"1234.5"/.test(csv));
+    poTab('cancellations');
+    t('the page shows the report and an export button', /Non-payment/.test(el('policiesRoot').innerHTML) && /Export CSV/.test(el('policiesRoot').innerHTML));
+
+    // ---------- reopen quote
+    var Q = mkPolicy('SUB-Q1', 100, { pasSync: null, quoteIssued: true });
+    SUBMISSIONS_DATASET.push(Q); QUOTE_VERSIONS_DATASET.length = 0; QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-Q1', insured: 'x', quotes: [{ versionId: 'Q1-v1.0', isLatest: true, status: 'Official Bindable Quote', finalPremium: 5000 }] });
+    t('a quote with no closing outcome has nothing to reopen', cmQuoteReopenable(Q) === null && !cmReopenQuote(Q, 'The broker called back').ok);
+    Q.outcomes = [{ id: 'OUT-1', type: 'not_taken_by_insured', status: 'current', reasonLabel: 'Price', reasonText: 'Went elsewhere' }]; Q.lifecycleStatus = 'closed';
+    t('a quote the insured did not take can be reopened', !!cmQuoteReopenable(Q));
+    t('a short reason is refused', !cmReopenQuote(Q, 'no').ok);
+    var ro = cmReopenQuote(Q, 'Broker came back with a lower fleet size and wants a new price.');
+    t('reopening needs a reason, returns the case to work, keeps the quote versions and logs it', ro.ok && !Q.lifecycleStatus && Q.outcomes[0].status === 'reopened' && QUOTE_VERSIONS_DATASET[0].quotes.length === 1 && Q.decisionLog.some(function(d){ return d.decision === 'quote_reopened'; }));
+    t('once reopened there is nothing more to reopen', cmQuoteReopenable(Q) === null);
+    var Q2 = mkPolicy('SUB-Q2', 100, { pasSync: null }); Q2.outcomes = [{ id: 'OUT-2', type: 'declined_by_underwriter', status: 'current', reasonLabel: 'x' }]; QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-Q2', quotes: [{ versionId: 'Q2-v1.0' }] });
+    t('a declined case is not a quote to reopen here', cmQuoteReopenable(Q2) === null);
+    t('a bound policy cannot be reopened', cmQuoteReopenable(mkPolicy('SUB-Q3', 100)) === null);
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

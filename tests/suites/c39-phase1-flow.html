@@ -9,6 +9,7 @@
   function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
   function el(id){ return document.getElementById(id); }
   function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function day(n){ return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); }
   function lastToast(){ return toasts.length ? toasts[toasts.length - 1] : ''; }
   window.showToast = function(m){ toasts.push(String(m)); };
   window.confirm = function(){ return true; };
@@ -94,8 +95,11 @@
     t('and the correction is in the audit trail', e.decisionLog.some(function(x){ return x.decision === 'phase1_edited'; }));
 
     // ---------- appetite
+    var s0 = await mk({ insured: 'Unrestricted Haulers', fein: '74-3333330', state: 'AK' });
+    t('with no state guideline recorded, no state is restricted (there is no built-in list of states)', st(s0, 'appetite') === 'pass' && /no state guideline is recorded/.test(s0.phase1.checks.appetite.lines[1].text));
+    SG_ENTRIES.length = 0; sgAdd({ state: 'AK', lob: 'all', position: 'Do not write', effective: day(-1), source: 'Underwriting guideline UG-1', note: 'The carrier does not write Alaska' });
     var s1 = await mk({ insured: 'Alaska Haulers', fein: '74-3333333', state: 'AK' });
-    t('a state we do not write fails appetite', st(s1, 'appetite') === 'fail' && /AK/.test(s1.phase1.checks.appetite.summary));
+    t('a state the register says Do not write fails appetite', st(s1, 'appetite') === 'fail' && /AK/.test(s1.phase1.checks.appetite.summary) && /UG-1/.test(s1.phase1.checks.appetite.summary));
     var s2 = await mk({ insured: 'Brand New Freight', fein: '74-4444444', years: '1' });
     t('too few years in business fails appetite', st(s2, 'appetite') === 'fail' && /Years in business/.test(s2.phase1.checks.appetite.summary));
     el('p1_comment').value = 'Below the minimum years in business; declining on appetite.'; p1ConfirmDecline();

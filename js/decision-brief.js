@@ -118,7 +118,7 @@ function renderDecisionBrief(sub) {
   box.innerHTML = `<div class="card">
     <div class="card-header"><h3><i class="ph ph-clipboard-text"></i> Decision Brief</h3><span><button class="btn btn-outline btn-sm" onclick="openAcordPrefill()"><i class="ph ph-file-text"></i> ACORD forms</button> <span class="badge ${k.badge}"><i class="ph ${k.icon}"></i> Suggested: ${k.label}</span></span></div>
     <div class="card-body">
-      <p class="text-sm" style="margin:0 0 10px;"><strong>${wsEsc(sub.insured)}</strong> <span class="text-muted">${wsEsc(sub.id)} · ${wsEsc(sub.lobName || "")}</span><br>${wsEsc(b.reasons.join(" "))}</p>
+      <p class="text-sm" style="margin:0 0 10px;"><strong>${escHtml(sub.insured)}</strong> <span class="text-muted">${escHtml(sub.id)} · ${escHtml(sub.lobName || "")}</span><br>${escHtml(b.reasons.join(" "))}</p>
       <div style="display:flex; gap:28px; flex-wrap:wrap; margin-bottom:12px;">
         ${tile("Appetite fit", ap.percent === null ? "—" : ap.percent + "%", ap.label)}
         ${tile("Completeness", b.completeness ? b.completeness.percent + "%" : "—", b.completeness ? (b.completeness.status === "complete" ? "complete" : b.completeness.missingRequired.length + " missing") : "")}
@@ -126,7 +126,7 @@ function renderDecisionBrief(sub) {
         ${tile("Claims (3 yrs)", b.loss.noRows ? "—" : b.loss.claims, b.loss.noRows ? "no loss data" : anUsd(b.loss.incurred) + " incurred")}
       </div>
       <table class="data-table"><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead><tbody>
-        ${b.checks.map(c => `<tr><td>${wsEsc(c.label)}</td><td>${dbStatusBadge(c.status)}</td><td class="ws-small">${wsEsc(c.detail)}</td></tr>`).join("")}
+        ${b.checks.map(c => `<tr><td>${escHtml(c.label)}</td><td>${dbStatusBadge(c.status)}</td><td class="ws-small">${escHtml(c.detail)}</td></tr>`).join("")}
       </tbody></table>
     </div>
   </div>`;
@@ -135,14 +135,14 @@ function renderDecisionBrief(sub) {
   resp.innerHTML = `<div class="card">
     <div class="card-header"><h3><i class="ph ph-envelope-simple"></i> Reply to the broker</h3><span class="ws-small text-muted">Nothing is sent from the prototype; recording a reply writes it to the case log.</span></div>
     <div class="card-body">
-      ${sent ? `<div class="alert alert-info ws-small" style="margin-bottom:10px;"><i class="ph ph-check"></i> Last recorded: <strong>${wsEsc(DB_KINDS[sent.kind].label)}</strong> by ${wsEsc(sent.by)} on ${wsEsc(sent.at)}.</div>` : ""}
+      ${sent ? `<div class="alert alert-info ws-small" style="margin-bottom:10px;"><i class="ph ph-check"></i> Last recorded: <strong>${escHtml(DB_KINDS[sent.kind].label)}</strong> by ${escHtml(sent.by)} on ${escHtml(sent.at)}.</div>` : ""}
       <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:14px;">
         ${Object.keys(DB_KINDS).map(kind => {
           const text = sub.brokerDrafts[kind] !== undefined ? sub.brokerDrafts[kind] : brokerResponseDraft(sub, kind, b);
           const rec = kind === b.recommendation;
           return `<div style="border:1px solid ${rec ? "var(--primary,#2563eb)" : "var(--border-color,#e2e8f0)"}; border-radius:8px; padding:12px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><strong><i class="ph ${DB_KINDS[kind].icon}"></i> ${DB_KINDS[kind].label}</strong>${rec ? '<span class="badge badge-info">Suggested</span>' : ""}</div>
-            <textarea id="brokerDraft_${kind}" class="form-control" rows="9" style="font-size:12px; width:100%;" oninput="brokerDraftEdited('${kind}', this.value)">${wsEsc(text)}</textarea>
+            <textarea id="brokerDraft_${kind}" class="form-control" rows="9" style="font-size:12px; width:100%;" oninput="brokerDraftEdited('${kind}', this.value)">${escHtml(text)}</textarea>
             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
               <button class="btn btn-primary btn-sm" onclick="recordBrokerResponse('${kind}')"><i class="ph ph-paper-plane-tilt"></i> Record this reply</button>
               ${kind === "decline" ? `<button class="btn btn-outline btn-sm" onclick="openDeclineSubmissionModal('${sub.id}')"><i class="ph ph-prohibit"></i> Decline with notice</button>` : ""}
@@ -169,7 +169,7 @@ function recordBrokerResponse(kind) {
   const text = (el ? el.value : (sub.brokerDrafts || {})[kind] || "").trim();
   if (text.length < 20) { showToast("⛔ The reply is empty. Write it, or keep the draft, before recording.", "danger"); return; }
   if (!sub.brokerResponses) sub.brokerResponses = [];
-  sub.brokerResponses.push({ kind: kind, text: text, by: wsActor(), at: wsNow() });
+  sub.brokerResponses.push({ kind: kind, text: text, by: actorLabel(), at: nowStamp() });
   wsLog(sub, "broker_response_" + kind, DB_KINDS[kind].label + ": reply to " + (sub.broker || "the broker") + " recorded (" + text.length + " characters).");
   wsPersist();
   if (typeof refreshAuditLogIfVisible === "function") refreshAuditLogIfVisible();

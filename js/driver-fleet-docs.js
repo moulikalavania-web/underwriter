@@ -150,9 +150,9 @@ function renderMvrAnalysis(sub) {
   const cls = { Low: "badge-success", Medium: "badge-warning", High: "badge-danger" };
   box.innerHTML = `<div class="card"><div class="card-header"><h3><i class="ph ph-identification-card"></i> Driver records (MVR), violations in the last ${MVR_MONTHS} months</h3><span class="badge ${a.high ? "badge-danger" : (a.flags.some(f => f.level === "warn") ? "badge-warning" : "badge-success")}">${a.high ? a.high + " high-risk driver(s)" : (a.flags.some(f => f.level === "warn") ? "Check" : "Clean")}</span></div><div class="card-body">
     <table class="data-table"><thead><tr><th>Driver</th><th>Licence</th><th>Status</th><th>Major</th><th>Minor</th><th>Points</th><th>Risk</th><th>Source</th></tr></thead><tbody>
-    ${sub.mvrData.drivers.map(d => `<tr><td>${wsEsc(d.name)}</td><td class="font-mono ws-small">${wsEsc((d.state ? d.state + " " : "") + (d.license || "—"))}</td><td>${wsEsc(d.status || "not stated")}</td><td>${d.major}</td><td>${d.minor}</td><td>${d.score}</td><td><span class="badge ${cls[d.band]}">${d.band}</span></td><td class="ws-small">${wsEsc(d.sourceDocument || "")}</td></tr>`).join("")}
+    ${sub.mvrData.drivers.map(d => `<tr><td>${escHtml(d.name)}</td><td class="font-mono ws-small">${escHtml((d.state ? d.state + " " : "") + (d.license || "—"))}</td><td>${escHtml(d.status || "not stated")}</td><td>${d.major}</td><td>${d.minor}</td><td>${d.score}</td><td><span class="badge ${cls[d.band]}">${d.band}</span></td><td class="ws-small">${escHtml(d.sourceDocument || "")}</td></tr>`).join("")}
     </tbody></table>
-    ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${wsEsc(f.text)}</li>`).join("")}</ul>` : ""}
+    ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${escHtml(f.text)}</li>`).join("")}</ul>` : ""}
     <p class="ws-small text-muted" style="margin:8px 0 0;">Points: ${MVR_POINTS.major} for a recent major violation, ${MVR_POINTS.minor} for a minor, ${MVR_POINTS.accident} for an at-fault accident, ${MVR_POINTS.licence} for a licence that is not valid. Low up to 15, Medium up to 40, High above that.</p>
   </div></div>`;
 }
@@ -241,7 +241,7 @@ function renderIftaAnalysis(sub) {
       <div><div class="ws-small text-muted">Jurisdictions</div><div style="font-size:22px; font-weight:700;">${a.jurisdictions}</div><div class="ws-small text-muted">${a.home ? Math.round((a.homeShare || 0) * 100) + "% of miles in " + a.home : ""}</div></div>
     </div>
     <table class="data-table"><thead><tr><th>State</th><th>Miles</th><th>Share</th></tr></thead><tbody>${a.states.slice(0, 12).map(s => `<tr><td>${s.state}</td><td>${n(s.miles)}</td><td>${Math.round(s.share * 100)}%</td></tr>`).join("")}</tbody></table>
-    ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${wsEsc(f.text)}</li>`).join("")}</ul>` : ""}
+    ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${escHtml(f.text)}</li>`).join("")}</ul>` : ""}
   </div></div>`;
 }
 

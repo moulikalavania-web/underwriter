@@ -41,9 +41,6 @@ const PS_MIN_REASON = 10;
 
 function psEmpty() { return { products: {}, releases: [], runs: [], simulations: [], history: [] }; }
 var PS = psEmpty();
-function psEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
-function psNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function psToday() { return new Date().toISOString().slice(0, 10); }
 function psActor() { return typeof authActor === "function" ? authActor() : String(currentUserRole); }
 function psActorKey() { return typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole] ? USER_ROLES_CONFIG[currentUserRole].name : String(currentUserRole); }
 function psClone(o) { return JSON.parse(JSON.stringify(o === undefined ? null : o)); }
@@ -59,7 +56,7 @@ function psNextId(list, prefix) { let n = 0; (list || []).forEach(x => { const m
 function psSave() { try { localStorage.setItem(PS_KEY, JSON.stringify(PS)); } catch (e) { /* storage unavailable: kept for this session */ } }
 (function psLoadStore() { try { const raw = localStorage.getItem(PS_KEY); if (raw) { const st = JSON.parse(raw); if (st && st.products) PS = Object.assign(psEmpty(), st); } } catch (e) { /* damaged store ignored */ } })();
 function psReset() { PS = psEmpty(); try { localStorage.removeItem(PS_KEY); } catch (e) { /* nothing stored */ } }
-function psHist(action, text) { PS.history.push({ at: psNow(), by: psActor(), action: action, text: text }); if (PS.history.length > 100) PS.history = PS.history.slice(-100); }
+function psHist(action, text) { PS.history.push({ at: nowStamp(), by: psActor(), action: action, text: text }); if (PS.history.length > 100) PS.history = PS.history.slice(-100); }
 function psProduct(id) { return PS.products[id] || null; }
 function psVersion(prod, vid) { return prod ? (prod.versions || []).find(v => v.id === vid) || null : null; }
 function psCanEdit() { if (!hasPermission("rateConfig", "edit")) { denyPermission("rateConfig", "edit"); return false; } return true; }
@@ -289,7 +286,7 @@ function psAddOverride(productId, versionId, ov) {
   const o = psClone(ov), errs = psCheckOverride(prod, o, v.baseVersionId);
   if (errs.length) return { ok: false, error: "invalid", errors: errs };
   if (!v.overrides) v.overrides = [];
-  o.id = psNextId(v.overrides, "OVR"); o.addedBy = psActor(); o.addedAt = psNow(); o.approvalStatus = psNeedsApproval(prod, o, v.baseVersionId) ? "pending" : "approved"; delete o._permissionId;
+  o.id = psNextId(v.overrides, "OVR"); o.addedBy = psActor(); o.addedAt = nowStamp(); o.approvalStatus = psNeedsApproval(prod, o, v.baseVersionId) ? "pending" : "approved"; delete o._permissionId;
   v.overrides.push(o); psHist("override_added", productId + " " + o.id + ": " + o.action + " on " + o.targetRef + (o.approvalStatus === "pending" ? ", awaiting the carrier" : "") + "."); psSave();
   return { ok: true, override: o };
 }
@@ -303,7 +300,7 @@ function psDecideOverride(productId, versionId, ovId, decision, reason) {
   if (decision === "rejected" && String(reason || "").trim().length < PS_MIN_REASON) return { ok: false, error: "reason" };
   const live = PS.releases.find(r => r.productId === productId && r.versionId === versionId && ["approved", "published", "testing"].indexOf(r.status) > -1);
   if (live) return { ok: false, error: "released", release: live.id };
-  o.approvalStatus = decision === "approved" ? "approved" : "rejected"; o.decidedBy = psActor(); o.decidedAt = psNow(); o.decisionNote = String(reason || "").trim();
+  o.approvalStatus = decision === "approved" ? "approved" : "rejected"; o.decidedBy = psActor(); o.decidedAt = nowStamp(); o.decisionNote = String(reason || "").trim();
   psHist("override_" + o.approvalStatus, productId + " " + o.id + " " + o.approvalStatus + " by " + psActor() + "."); psSave();
   return { ok: true };
 }
@@ -313,7 +310,7 @@ function psDecideOverride(productId, versionId, ovId, decision, reason) {
 // ----------------------------------------------------------------------------
 /** The availability of a coverage in a state on a date: the state row if there is one, else the all-states row. */
 function psAvailability(cfg, code, state, date) {
-  const d = date || psToday(), rows = cfg.coverageStates.filter(s => s.coverageCode === code && psIn(s, d));
+  const d = date || todayIso(), rows = cfg.coverageStates.filter(s => s.coverageCode === code && psIn(s, d));
   return (state && rows.find(s => s.jurisdiction === state)) || rows.find(s => !s.jurisdiction) || null;
 }
 /** The limit options in force for a coverage in a state: the state's own set replaces the all-states set. */
@@ -323,7 +320,7 @@ function psOptionsFor(cfg, code, state) {
 }
 /** What a configuration decides for a state and a set of selected coverages. Pure. */
 function psEvaluate(cfg, input) {
-  const state = input.state || null, d = input.date || psToday(), issues = [], sel = (input.coverages || []).slice(), rej = input.rejections || {};
+  const state = input.state || null, d = input.date || todayIso(), issues = [], sel = (input.coverages || []).slice(), rej = input.rejections || {};
   const out = { offered: true, required: [], notAvailable: [], missingRequired: [], rejected: [], defaults: {}, optionAmounts: {}, issues: issues };
   if (state && cfg.jurisdictions.length && cfg.jurisdictions.indexOf(state) === -1) { out.offered = false; issues.push("The product is not offered in " + state + "."); return out; }
   cfg.coverages.forEach(c => {
@@ -347,7 +344,7 @@ function psEvaluate(cfg, input) {
 // ----------------------------------------------------------------------------
 /** The groups that apply in a state: a state group replaces the all-states group of the same code. */
 function psGroupsFor(cfg, state, date) {
-  const d = date || psToday(), live = cfg.limitGroups.filter(g => psIn(g, d) && (!g.jurisdiction || g.jurisdiction === state));
+  const d = date || todayIso(), live = cfg.limitGroups.filter(g => psIn(g, d) && (!g.jurisdiction || g.jurisdiction === state));
   return live.filter(g => g.jurisdiction || !live.some(x => x.jurisdiction === state && x.code === g.code));
 }
 /** The option set a case runs on for a group hierarchy: the one chosen, else the default. */
@@ -402,7 +399,7 @@ function psErode(sub, l) {
   const txns = [];
   chain.forEach(b => {
     const n = (sub.limitTxns || []).filter(t => t.bucketId === b.id).length + 1;
-    const before = psAvailable(sub, b, occ), t = { id: "LT-" + ((sub.limitTxns || []).length + 1), bucketId: b.id, sequenceNo: n, kind: l.kind || "payment", coverageCode: l.coverageCode, erosionCategory: l.erosionCategory || null, occurrenceKey: occ, claimId: l.claimId || null, requested: amount, consumed: payable, excess: Math.max(0, amount - payable), availableAfter: before - payable, reversesId: null, at: psNow(), by: psActor() };
+    const before = psAvailable(sub, b, occ), t = { id: "LT-" + ((sub.limitTxns || []).length + 1), bucketId: b.id, sequenceNo: n, kind: l.kind || "payment", coverageCode: l.coverageCode, erosionCategory: l.erosionCategory || null, occurrenceKey: occ, claimId: l.claimId || null, requested: amount, consumed: payable, excess: Math.max(0, amount - payable), availableAfter: before - payable, reversesId: null, at: nowStamp(), by: psActor() };
     sub.limitTxns.push(t); txns.push(t);
   });
   if (typeof persistAppState === "function") persistAppState();
@@ -414,7 +411,7 @@ function psReverseErosion(sub, txnId) {
   if (t.reversesId) return { ok: false, error: "is_reversal" };
   if ((sub.limitTxns || []).some(x => x.reversesId === txnId)) return { ok: false, error: "already" };
   const b = (sub.limitBuckets || []).find(x => x.id === t.bucketId), n = (sub.limitTxns || []).filter(x => x.bucketId === t.bucketId).length + 1;
-  const r = { id: "LT-" + ((sub.limitTxns || []).length + 1), bucketId: t.bucketId, sequenceNo: n, kind: "reversal", coverageCode: t.coverageCode, erosionCategory: t.erosionCategory, occurrenceKey: t.occurrenceKey, claimId: t.claimId, requested: -t.consumed, consumed: -t.consumed, excess: 0, availableAfter: 0, reversesId: t.id, at: psNow(), by: psActor() };
+  const r = { id: "LT-" + ((sub.limitTxns || []).length + 1), bucketId: t.bucketId, sequenceNo: n, kind: "reversal", coverageCode: t.coverageCode, erosionCategory: t.erosionCategory, occurrenceKey: t.occurrenceKey, claimId: t.claimId, requested: -t.consumed, consumed: -t.consumed, excess: 0, availableAfter: 0, reversesId: t.id, at: nowStamp(), by: psActor() };
   sub.limitTxns.push(r); r.availableAfter = psAvailable(sub, b, t.occurrenceKey);
   if (typeof persistAppState === "function") persistAppState();
   return { ok: true, reversal: r };
@@ -432,7 +429,7 @@ function psScopeSame(a, b) {
   const eq = (x, y) => (x || null) === (y || null);
   return eq(a.jurisdiction, b.jurisdiction) && eq(a.program, b.program) && eq(a.channel, b.channel) && eq(a.distributionAgreementId, b.distributionAgreementId) && (a.businessType || "both") === (b.businessType || "both") && psOverlap(a, b);
 }
-function psSetStatus(r, status, note) { r.status = status; r.statusHistory.push({ status: status, at: psNow(), by: psActor(), note: note || "" }); }
+function psSetStatus(r, status, note) { r.status = status; r.statusHistory.push({ status: status, at: nowStamp(), by: psActor(), note: note || "" }); }
 function psScopeErrors(s, prod) {
   const e = [], ymd = /^\d{4}-\d{2}-\d{2}$/;
   if (!s.from || !ymd.test(s.from)) e.push("The scope starts on a date (yyyy-mm-dd).");
@@ -446,11 +443,11 @@ function psScopeErrors(s, prod) {
 function psCreateRelease(productId, versionId, scope, notes) {
   if (!psCanEdit()) return { ok: false, error: "permission" };
   const prod = psProduct(productId), v = psVersion(prod, versionId); if (!v) return { ok: false, error: "version" };
-  const sc = Object.assign({ jurisdiction: null, program: null, channel: null, distributionAgreementId: null, businessType: "both", from: v.from || psToday(), to: v.to || null }, psClone(scope || {}));
+  const sc = Object.assign({ jurisdiction: null, program: null, channel: null, distributionAgreementId: null, businessType: "both", from: v.from || todayIso(), to: v.to || null }, psClone(scope || {}));
   const se = psScopeErrors(sc, prod); if (se.length) return { ok: false, error: "scope", errors: se };
   const cfg = psEffective(prod, versionId), issues = psValidateVersion(prod, versionId);
   const prev = PS.releases.filter(r => r.productId === productId && r.status === "published" && psScopeSame(r.scope, sc));
-  const rec = { id: psNextId(PS.releases, "REL"), productId: productId, versionId: versionId, baseVersionId: cfg.baseVersionId, releaseNo: PS.releases.filter(r => r.productId === productId).length + 1, scope: sc, status: "draft", statusHistory: [], notes: String(notes || "").trim(), sourceHash: psSourceHash(prod, versionId), manifestHash: psHash(cfg), config: psFreeze(cfg), issues: issues, createdBy: psActor(), createdByKey: psActorKey(), createdAt: psNow(), supersedesId: prev.length ? prev[prev.length - 1].id : null, testRunIds: [], simulationIds: [], approval: null, publishedBy: null, publishedAt: null, retiredAt: null };
+  const rec = { id: psNextId(PS.releases, "REL"), productId: productId, versionId: versionId, baseVersionId: cfg.baseVersionId, releaseNo: PS.releases.filter(r => r.productId === productId).length + 1, scope: sc, status: "draft", statusHistory: [], notes: String(notes || "").trim(), sourceHash: psSourceHash(prod, versionId), manifestHash: psHash(cfg), config: psFreeze(cfg), issues: issues, createdBy: psActor(), createdByKey: psActorKey(), createdAt: nowStamp(), supersedesId: prev.length ? prev[prev.length - 1].id : null, testRunIds: [], simulationIds: [], approval: null, publishedBy: null, publishedAt: null, retiredAt: null };
   psSetStatus(rec, "draft", "compiled");
   PS.releases.push(rec); psHist("release_created", rec.id + " compiled from " + productId + " " + versionId + " with " + issues.filter(i => i.blocking).length + " blocking issue(s)."); psSave();
   return { ok: true, release: rec };
@@ -475,7 +472,7 @@ function psRunTests(releaseId, suiteId) {
     (ex.issuesContain || []).forEach(s => { if (!got.issues.some(i => i.indexOf(s) > -1)) fails.push("no issue mentions \"" + s + "\""); });
     return { name: c.name, outcome: fails.length ? "fail" : "pass", diff: fails };
   });
-  const run = { id: psNextId(PS.runs, "RUN"), releaseId: releaseId, suiteId: suiteId, manifestHash: r.manifestHash, passed: results.filter(x => x.outcome === "pass").length, failed: results.filter(x => x.outcome === "fail").length, results: results, by: psActor(), at: psNow() };
+  const run = { id: psNextId(PS.runs, "RUN"), releaseId: releaseId, suiteId: suiteId, manifestHash: r.manifestHash, passed: results.filter(x => x.outcome === "pass").length, failed: results.filter(x => x.outcome === "fail").length, results: results, by: psActor(), at: nowStamp() };
   PS.runs.push(run); r.testRunIds.push(run.id); if (r.status === "draft") psSetStatus(r, "testing", "tests run");
   psHist("tests_run", r.id + " " + suite.name + ": " + run.passed + " passed, " + run.failed + " failed."); psSave();
   return { ok: true, run: run };
@@ -503,7 +500,7 @@ function psSimulate(candidateId, baselineId, dataset) {
       fresh.forEach(i => { items[i] = (items[i] || 0) + 1; });
     }
   });
-  const sim = { id: psNextId(PS.simulations, "SIM"), candidateReleaseId: c.id, baselineReleaseId: b ? b.id : null, policyCount: inScope.length, impactedQuotes: counts.quotes, impactedPolicies: counts.policies, impactedRenewals: counts.renewals, impactedItems: items, impacted: impacted, baselinePremium: Math.round(basePrem), candidatePremium: Math.round(candPrem), changePct: basePrem ? Math.round((candPrem - basePrem) / basePrem * 10000) / 100 : 0, factorRatio: Math.round(ratio * 10000) / 10000, note: "Premium is scaled by the ratio of the rating factor multipliers; the rating engine is external.", runBy: psActor(), at: psNow() };
+  const sim = { id: psNextId(PS.simulations, "SIM"), candidateReleaseId: c.id, baselineReleaseId: b ? b.id : null, policyCount: inScope.length, impactedQuotes: counts.quotes, impactedPolicies: counts.policies, impactedRenewals: counts.renewals, impactedItems: items, impacted: impacted, baselinePremium: Math.round(basePrem), candidatePremium: Math.round(candPrem), changePct: basePrem ? Math.round((candPrem - basePrem) / basePrem * 10000) / 100 : 0, factorRatio: Math.round(ratio * 10000) / 10000, note: "Premium is scaled by the ratio of the rating factor multipliers; the rating engine is external.", runBy: psActor(), at: nowStamp() };
   PS.simulations.push(sim); c.simulationIds.push(sim.id); psHist("simulated", c.id + " against " + (b ? b.id : "no baseline") + ": " + impacted.length + " case(s) affected, premium " + sim.changePct + "%."); psSave();
   return { ok: true, simulation: sim };
 }
@@ -521,7 +518,7 @@ function psApproveRelease(releaseId, note) {
   if (!r.simulationIds.length) problems.push("no simulation has been run");
   if (!psVerifyRelease(r)) problems.push("the release no longer matches its fingerprint");
   if (problems.length) return { ok: false, error: "not_ready", problems: problems };
-  r.approval = { by: psActor(), at: psNow(), note: String(note || "").trim() }; psSetStatus(r, "approved", note); psHist("release_approved", r.id + " approved by " + psActor() + "."); psSave();
+  r.approval = { by: psActor(), at: nowStamp(), note: String(note || "").trim() }; psSetStatus(r, "approved", note); psHist("release_approved", r.id + " approved by " + psActor() + "."); psSave();
   return { ok: true };
 }
 /** Publishing puts it in force for its scope and supersedes the release it replaces. */
@@ -532,7 +529,7 @@ function psPublish(releaseId) {
   if (!psVerifyRelease(r)) return { ok: false, error: "tampered" };
   const clash = PS.releases.filter(x => x.id !== r.id && x.productId === r.productId && x.status === "published" && psScopeSame(x.scope, r.scope));
   clash.forEach(x => { psSetStatus(x, "superseded", "replaced by " + r.id); });
-  r.supersedesId = clash.length ? clash[clash.length - 1].id : r.supersedesId; r.publishedBy = psActor(); r.publishedAt = psNow(); psSetStatus(r, "published", "published");
+  r.supersedesId = clash.length ? clash[clash.length - 1].id : r.supersedesId; r.publishedBy = psActor(); r.publishedAt = nowStamp(); psSetStatus(r, "published", "published");
   psHist("release_published", r.id + " published" + (clash.length ? "; " + clash.map(x => x.id).join(", ") + " superseded" : "") + "."); psSave();
   return { ok: true, superseded: clash.map(x => x.id) };
 }
@@ -545,7 +542,7 @@ function psRollback(releaseId, reason) {
   if (!psVerifyRelease(r)) return { ok: false, error: "tampered" };
   const cur = PS.releases.filter(x => x.productId === r.productId && x.status === "published" && psScopeSame(x.scope, r.scope));
   cur.forEach(x => psSetStatus(x, "rolled_back", "rolled back to " + r.id + ": " + reason));
-  psSetStatus(r, "published", "rolled back to: " + reason); r.publishedBy = psActor(); r.publishedAt = psNow();
+  psSetStatus(r, "published", "rolled back to: " + reason); r.publishedBy = psActor(); r.publishedAt = nowStamp();
   psHist("release_rolled_back", "Rolled back to " + r.id + (cur.length ? " from " + cur.map(x => x.id).join(", ") : "") + ": " + reason); psSave();
   return { ok: true, rolledBack: cur.map(x => x.id) };
 }
@@ -554,7 +551,7 @@ function psRetire(releaseId, reason) {
   const r = psRelease(releaseId); if (!r) return { ok: false, error: "release" };
   if (["published", "superseded", "rolled_back", "approved"].indexOf(r.status) === -1) return { ok: false, error: "status" };
   if (String(reason || "").trim().length < PS_MIN_REASON) return { ok: false, error: "reason" };
-  r.retiredAt = psNow(); psSetStatus(r, "retired", reason); psHist("release_retired", r.id + " retired: " + reason); psSave();
+  r.retiredAt = nowStamp(); psSetStatus(r, "retired", reason); psHist("release_retired", r.id + " retired: " + reason); psSave();
   return { ok: true };
 }
 
@@ -574,7 +571,7 @@ function psSubMatchesScope(sub, sc, productId) {
 }
 /** The published release a case runs on: the most specific scope that matches it on the date. Null when none is published. */
 function psReleaseFor(sub, date) {
-  const d = date || psToday(), pid = psSubProductId(sub);
+  const d = date || todayIso(), pid = psSubProductId(sub);
   const c = PS.releases.filter(r => r.status === "published" && (!pid || r.productId === pid) && psIn(r.scope, d) && psSubMatchesScope(sub, r.scope, r.productId));
   const score = s => (s.program ? 16 : 0) + (s.distributionAgreementId ? 8 : 0) + (s.channel ? 4 : 0) + (s.jurisdiction ? 2 : 0) + (s.businessType && s.businessType !== "both" ? 1 : 0);
   return c.sort((a, b) => score(a.scope) - score(b.scope) || (a.id < b.id ? -1 : 1)).pop() || null;
@@ -607,8 +604,8 @@ function psRecordRejection(sub, code, o) {
   if (!by) return { ok: false, error: "signer" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(at)) return { ok: false, error: "date" };
   if (!sub.coverageRejections) sub.coverageRejections = {};
-  sub.coverageRejections[code] = { formRef: form, signedBy: by, signedAt: at, recordedBy: psActor(), recordedAt: psNow(), state: st, note: String((o && o.note) || "").trim() };
-  if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 9, decision: "coverage_rejected", by: psActor(), at: psNow(), notes: code + " rejected in writing by " + by + " on " + form + " (" + at + ")." });
+  sub.coverageRejections[code] = { formRef: form, signedBy: by, signedAt: at, recordedBy: psActor(), recordedAt: nowStamp(), state: st, note: String((o && o.note) || "").trim() };
+  if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 9, decision: "coverage_rejected", by: psActor(), at: nowStamp(), notes: code + " rejected in writing by " + by + " on " + form + " (" + at + ")." });
   if (typeof persistAppState === "function") persistAppState();
   return { ok: true };
 }
@@ -623,7 +620,7 @@ if (typeof _psOrigRecord === "function") window.recordQuoteVersion = function (s
 const psQuoteGuard = () => {
   const sub = SUBMISSIONS_DATASET.find(x => x.id === activeSubmissionId); if (!sub) return true;
   const ck = psCaseCheck(sub); if (!ck.applies || !ck.issues.length) return true;
-  if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 12, decision: "product_rules_blocked", by: psActor(), at: psNow(), notes: "Quote refused by release " + ck.release.id + ": " + ck.issues.join(" ") });
+  if (!sub.decisionLog) sub.decisionLog = []; sub.decisionLog.push({ step: sub.currentStep || 12, decision: "product_rules_blocked", by: psActor(), at: nowStamp(), notes: "Quote refused by release " + ck.release.id + ": " + ck.issues.join(" ") });
   showToast("⛔ The product's rules (" + ck.release.id + ") stop this quote: " + ck.issues[0], "danger");
   return false;
 };
@@ -670,25 +667,25 @@ function renderProductStudio() {
   const ids = Object.keys(PS.products), canEdit = hasPermission("rateConfig", "edit"), canApprove = hasPermission("rateConfig", "approve");
   if (!PS_UI.productId || !PS.products[PS_UI.productId]) PS_UI.productId = ids[0] || null;
   const prod = psProduct(PS_UI.productId);
-  let h = `<div class="card"><div class="card-header"><h3><i class="ph ph-package"></i> Product Studio: versions, limits, availability and releases</h3>${ids.length ? `<select id="ps_product" class="form-control form-control-sm" style="width:auto;" onchange="psUiProduct()">${ids.map(i => `<option value="${psEsc(i)}" ${i === PS_UI.productId ? "selected" : ""}>${psEsc(i + " " + PS.products[i].name)}</option>`).join("")}</select>` : ""}</div><div class="card-body">
+  let h = `<div class="card"><div class="card-header"><h3><i class="ph ph-package"></i> Product Studio: versions, limits, availability and releases</h3>${ids.length ? `<select id="ps_product" class="form-control form-control-sm" style="width:auto;" onchange="psUiProduct()">${ids.map(i => `<option value="${escHtml(i)}" ${i === PS_UI.productId ? "selected" : ""}>${escHtml(i + " " + PS.products[i].name)}</option>`).join("")}</select>` : ""}</div><div class="card-body">
     <p class="ws-small text-muted" style="margin:0 0 8px;">The carrier owns the base version; an MGU's override version stores only the changes the carrier allowed. Nothing is live until a release is tested, simulated, approved by someone else and published. With no release published for a case, none of this applies to it.</p>`;
   if (canEdit) h += `<details><summary class="ws-small">Load a product configuration (JSON)</summary><textarea id="ps_json" class="form-control" rows="5" placeholder='{"productId":"PRD-TRK","name":"...","jurisdictions":["TX"],"versions":[...],"permissions":[...],"limitGroups":[...],"groupCoverages":[...],"limitOptions":[...],"coverageStates":[...],"testSuites":[...]}'></textarea><button class="btn btn-sm btn-warning" style="width:auto;margin-top:4px;" onclick="psUiLoad()">Load as a draft</button></details>`;
   if (!prod) { box.innerHTML = h + '<p class="ws-small text-muted" style="margin-top:10px;">No product configuration is loaded.</p></div></div>'; return; }
-  h += `<div class="uwp-subsection-title" style="margin-top:12px;">Versions</div><table class="data-table"><thead><tr><th>Version</th><th>Kind</th><th>Based on</th><th>Owner</th><th>Period</th><th>Changes</th></tr></thead><tbody>${prod.versions.map(v => `<tr><td>${psEsc(v.id)}</td><td>${psEsc(v.kind)}</td><td>${psEsc(v.baseVersionId || "-")}</td><td>${psEsc(v.ownerTenantId || prod.ownerTenantId || "")}</td><td>${psEsc(v.from || "")} to ${psEsc(v.to || "open")}</td><td>${v.kind === "override" ? (v.overrides || []).length + " override(s)" : v.coverages.length + " coverage(s)"}</td></tr>`).join("")}</tbody></table>`;
+  h += `<div class="uwp-subsection-title" style="margin-top:12px;">Versions</div><table class="data-table"><thead><tr><th>Version</th><th>Kind</th><th>Based on</th><th>Owner</th><th>Period</th><th>Changes</th></tr></thead><tbody>${prod.versions.map(v => `<tr><td>${escHtml(v.id)}</td><td>${escHtml(v.kind)}</td><td>${escHtml(v.baseVersionId || "-")}</td><td>${escHtml(v.ownerTenantId || prod.ownerTenantId || "")}</td><td>${escHtml(v.from || "")} to ${escHtml(v.to || "open")}</td><td>${v.kind === "override" ? (v.overrides || []).length + " override(s)" : v.coverages.length + " coverage(s)"}</td></tr>`).join("")}</tbody></table>`;
   const ovs = []; prod.versions.filter(v => v.kind === "override").forEach(v => (v.overrides || []).forEach(o => ovs.push({ v: v, o: o })));
-  if (ovs.length) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Overrides and what the carrier allowed</div>${canApprove ? '<input id="ps_ovr_reason" class="form-control form-control-sm" style="width:300px;margin-bottom:4px;" placeholder="Reason (needed to reject)">' : ""}<table class="data-table"><thead><tr><th>Override</th><th>Change</th><th>Status</th><th></th></tr></thead><tbody>${ovs.map(x => `<tr><td>${psEsc(x.v.id + " " + x.o.id)}</td><td>${psEsc(x.o.action + " " + x.o.targetType + " " + x.o.targetRef + (x.o.value !== undefined && x.o.value !== null ? " (" + x.o.value + ")" : ""))}${x.o.filingRef ? `<div class="text-xs text-muted">filing ${psEsc(x.o.filingRef)}</div>` : ""}</td><td><span class="badge ${x.o.approvalStatus === "approved" ? "badge-success" : x.o.approvalStatus === "rejected" ? "badge-danger" : "badge-warning"}">${psEsc(x.o.approvalStatus)}</span></td><td>${x.o.approvalStatus === "pending" && canApprove ? `<button class="btn btn-xs btn-primary" style="width:auto;" onclick="psUiOverride('${x.v.id}','${x.o.id}','approved')">Approve</button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiOverride('${x.v.id}','${x.o.id}','rejected')">Reject</button>` : ""}</td></tr>`).join("")}</tbody></table>`;
+  if (ovs.length) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Overrides and what the carrier allowed</div>${canApprove ? '<input id="ps_ovr_reason" class="form-control form-control-sm" style="width:300px;margin-bottom:4px;" placeholder="Reason (needed to reject)">' : ""}<table class="data-table"><thead><tr><th>Override</th><th>Change</th><th>Status</th><th></th></tr></thead><tbody>${ovs.map(x => `<tr><td>${escHtml(x.v.id + " " + x.o.id)}</td><td>${escHtml(x.o.action + " " + x.o.targetType + " " + x.o.targetRef + (x.o.value !== undefined && x.o.value !== null ? " (" + x.o.value + ")" : ""))}${x.o.filingRef ? `<div class="text-xs text-muted">filing ${escHtml(x.o.filingRef)}</div>` : ""}</td><td><span class="badge ${x.o.approvalStatus === "approved" ? "badge-success" : x.o.approvalStatus === "rejected" ? "badge-danger" : "badge-warning"}">${escHtml(x.o.approvalStatus)}</span></td><td>${x.o.approvalStatus === "pending" && canApprove ? `<button class="btn btn-xs btn-primary" style="width:auto;" onclick="psUiOverride('${x.v.id}','${x.o.id}','approved')">Approve</button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiOverride('${x.v.id}','${x.o.id}','rejected')">Reject</button>` : ""}</td></tr>`).join("")}</tbody></table>`;
   const base = prod.versions.find(v => v.kind === "base");
-  if ((prod.limitGroups || []).length) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Shared limit groups</div><table class="data-table"><thead><tr><th>Group</th><th>Type</th><th>Parent</th><th>State</th><th>Coverages (erosion category)</th><th>Options</th></tr></thead><tbody>${prod.limitGroups.map(g => `<tr><td><strong>${psEsc(g.code)}</strong></td><td>${psEsc(g.limitType)}${g.limitBasis ? '<div class="text-xs text-muted">' + psEsc(g.limitBasis) + "</div>" : ""}</td><td>${psEsc((prod.limitGroups.find(x => x.id === g.parentGroupId) || {}).code || "-")}</td><td>${psEsc(g.jurisdiction || "all")}</td><td class="ws-small">${(prod.groupCoverages || []).filter(m => m.groupId === g.id).map(m => psEsc(m.coverageCode + (m.erosionCategory ? " (" + m.erosionCategory + ")" : ""))).join(", ")}</td><td class="ws-small">${(prod.limitOptions || []).filter(o => o.groupId === g.id).map(o => psEsc((o.optionSetCode || "") + " " + psMoney(o.amount) + (o.jurisdiction ? " " + o.jurisdiction : "") + (o.isDefault ? " default" : ""))).join("; ")}</td></tr>`).join("")}</tbody></table>`;
-  if (base) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Availability by state</div><table class="data-table"><thead><tr><th>Coverage</th><th>All states</th><th>State rows</th></tr></thead><tbody>${base.coverages.map(c => { const rows = (prod.coverageStates || []).filter(s => s.coverageCode === c.code); const all = rows.find(s => !s.jurisdiction); return `<tr><td>${psEsc(c.name)} <span class="text-xs text-muted">${psEsc(c.code)}</span></td><td>${all ? psEsc(all.availability) : '<span class="text-danger">none</span>'}</td><td class="ws-small">${rows.filter(s => s.jurisdiction).map(s => psEsc(s.jurisdiction + ": " + s.availability + (s.rejectionAllowed ? " (can be rejected in writing, " + s.rejectionFormRef + ")" : ""))).join("; ") || "-"}</td></tr>`; }).join("")}</tbody></table>`;
+  if ((prod.limitGroups || []).length) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Shared limit groups</div><table class="data-table"><thead><tr><th>Group</th><th>Type</th><th>Parent</th><th>State</th><th>Coverages (erosion category)</th><th>Options</th></tr></thead><tbody>${prod.limitGroups.map(g => `<tr><td><strong>${escHtml(g.code)}</strong></td><td>${escHtml(g.limitType)}${g.limitBasis ? '<div class="text-xs text-muted">' + escHtml(g.limitBasis) + "</div>" : ""}</td><td>${escHtml((prod.limitGroups.find(x => x.id === g.parentGroupId) || {}).code || "-")}</td><td>${escHtml(g.jurisdiction || "all")}</td><td class="ws-small">${(prod.groupCoverages || []).filter(m => m.groupId === g.id).map(m => escHtml(m.coverageCode + (m.erosionCategory ? " (" + m.erosionCategory + ")" : ""))).join(", ")}</td><td class="ws-small">${(prod.limitOptions || []).filter(o => o.groupId === g.id).map(o => escHtml((o.optionSetCode || "") + " " + psMoney(o.amount) + (o.jurisdiction ? " " + o.jurisdiction : "") + (o.isDefault ? " default" : ""))).join("; ")}</td></tr>`).join("")}</tbody></table>`;
+  if (base) h += `<div class="uwp-subsection-title" style="margin-top:12px;">Availability by state</div><table class="data-table"><thead><tr><th>Coverage</th><th>All states</th><th>State rows</th></tr></thead><tbody>${base.coverages.map(c => { const rows = (prod.coverageStates || []).filter(s => s.coverageCode === c.code); const all = rows.find(s => !s.jurisdiction); return `<tr><td>${escHtml(c.name)} <span class="text-xs text-muted">${escHtml(c.code)}</span></td><td>${all ? escHtml(all.availability) : '<span class="text-danger">none</span>'}</td><td class="ws-small">${rows.filter(s => s.jurisdiction).map(s => escHtml(s.jurisdiction + ": " + s.availability + (s.rejectionAllowed ? " (can be rejected in writing, " + s.rejectionFormRef + ")" : ""))).join("; ") || "-"}</td></tr>`; }).join("")}</tbody></table>`;
   const rels = PS.releases.filter(r => r.productId === prod.productId);
   h += `<div class="uwp-subsection-title" style="margin-top:12px;">Releases</div>`;
-  if (canEdit) h += `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;" class="ws-small"><select id="ps_sc_version" class="form-control form-control-sm" style="width:auto;">${prod.versions.map(v => `<option value="${v.id}">${psEsc(v.id + " (" + v.kind + ")")}</option>`).join("")}</select>
+  if (canEdit) h += `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:6px;" class="ws-small"><select id="ps_sc_version" class="form-control form-control-sm" style="width:auto;">${prod.versions.map(v => `<option value="${v.id}">${escHtml(v.id + " (" + v.kind + ")")}</option>`).join("")}</select>
     <input id="ps_sc_state" class="form-control form-control-sm" style="width:80px;" placeholder="State"><input id="ps_sc_program" class="form-control form-control-sm" style="width:120px;" placeholder="Program"><input id="ps_sc_channel" class="form-control form-control-sm" style="width:100px;" placeholder="Channel"><input id="ps_sc_agr" class="form-control form-control-sm" style="width:140px;" placeholder="Agreement id">
     <select id="ps_sc_bt" class="form-control form-control-sm" style="width:auto;"><option value="both">New and renewal</option><option value="new">New business</option><option value="renewal">Renewal</option></select><input id="ps_sc_from" class="form-control form-control-sm" style="width:120px;" placeholder="From yyyy-mm-dd"><input id="ps_sc_to" class="form-control form-control-sm" style="width:120px;" placeholder="To"><input id="ps_sc_notes" class="form-control form-control-sm" style="width:160px;" placeholder="Notes"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="psUiCreate()">Compile a release</button></div>`;
   h += rels.length ? `<table class="data-table"><thead><tr><th>Release</th><th>Version</th><th>Scope</th><th>Status</th><th>Checks</th><th>Actions</th></tr></thead><tbody>${rels.slice().reverse().map(r => {
     const runs = r.testRunIds.map(id => PS.runs.find(x => x.id === id)).filter(Boolean), last = runs[runs.length - 1], sim = PS.simulations.find(s => s.id === r.simulationIds[r.simulationIds.length - 1]);
     const scope = [r.scope.jurisdiction, r.scope.program, r.scope.channel, r.scope.distributionAgreementId, r.scope.businessType !== "both" ? r.scope.businessType : null].filter(Boolean).join(", ") || "everything";
-    const suites = (prod.testSuites || []).map(s => `<option value="${s.id}">${psEsc(s.name)}</option>`).join("");
+    const suites = (prod.testSuites || []).map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join("");
     const acts = [];
     if (canEdit && ["draft", "testing"].indexOf(r.status) > -1) acts.push(`<select id="ps_suite_${r.id}" class="form-control form-control-sm" style="width:auto;display:inline-block;">${suites}</select> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiTests('${r.id}')">Run tests</button> <button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiSim('${r.id}')">Simulate</button>`);
     if (canApprove && r.status === "testing") acts.push(`<button class="btn btn-xs btn-primary" style="width:auto;" onclick="psUiApprove('${r.id}')">Approve</button>`);
@@ -696,11 +693,11 @@ function renderProductStudio() {
     if (canApprove && r.status === "superseded") acts.push(`<button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiRollback('${r.id}')">Roll back to this</button>`);
     if (canApprove && ["published", "superseded", "rolled_back", "approved"].indexOf(r.status) > -1) acts.push(`<button class="btn btn-xs btn-outline" style="width:auto;" onclick="psUiRetire('${r.id}')">Retire</button>`);
     if (canApprove && acts.length) acts.push(`<input id="ps_reason_${r.id}" class="form-control form-control-sm" style="width:180px;display:inline-block;" placeholder="Note or reason">`);
-    return `<tr><td><strong>${psEsc(r.id)}</strong><div class="text-xs text-muted">no. ${r.releaseNo}, ${psEsc(r.createdBy)}</div><div class="text-xs font-mono text-muted">${psEsc(r.manifestHash.split(":")[0])} ${psVerifyRelease(r) ? "intact" : '<span class="text-danger">ALTERED</span>'}</div></td><td>${psEsc(r.versionId)}</td><td class="ws-small">${psEsc(scope)}<div class="text-xs text-muted">${psEsc(r.scope.from)} to ${psEsc(r.scope.to || "open")}</div></td><td><span class="badge ${PS_STATUS_BADGE[r.status] || "badge-light"}">${psEsc(r.status.replace("_", " "))}</span></td>
+    return `<tr><td><strong>${escHtml(r.id)}</strong><div class="text-xs text-muted">no. ${r.releaseNo}, ${escHtml(r.createdBy)}</div><div class="text-xs font-mono text-muted">${escHtml(r.manifestHash.split(":")[0])} ${psVerifyRelease(r) ? "intact" : '<span class="text-danger">ALTERED</span>'}</div></td><td>${escHtml(r.versionId)}</td><td class="ws-small">${escHtml(scope)}<div class="text-xs text-muted">${escHtml(r.scope.from)} to ${escHtml(r.scope.to || "open")}</div></td><td><span class="badge ${PS_STATUS_BADGE[r.status] || "badge-light"}">${escHtml(r.status.replace("_", " "))}</span></td>
       <td class="ws-small"><a href="#" onclick="psUiToggle('${r.id}');return false;">${psBlocking(r).length} blocking, ${r.issues.length - psBlocking(r).length} other issue(s)</a><br>${last ? "Tests: " + last.passed + " passed, " + last.failed + " failed" : "No tests run"}<br>${sim ? "Simulated: " + sim.impacted.length + " case(s) affected, premium " + sim.changePct + "%" : "Not simulated"}</td><td>${acts.join(" ") || ""}</td></tr>
-      ${PS_UI.open === r.id ? `<tr><td colspan="6" class="ws-small">${r.issues.length ? "<ul style='margin:0 0 0 16px;'>" + r.issues.map(i => `<li><span class="badge ${i.blocking ? "badge-danger" : "badge-light"}">${psEsc(i.check)}</span> ${psEsc(i.message)}</li>`).join("") + "</ul>" : "No issues."}${runs.length ? "<div style='margin-top:4px;'>" + runs.slice(-2).map(x => psEsc(x.id + ": " + x.passed + " passed, " + x.failed + " failed" + x.results.filter(y => y.outcome === "fail").map(y => "; FAIL " + y.name + " (" + y.diff.join(", ") + ")").join(""))).join("<br>") + "</div>" : ""}${sim ? `<div style="margin-top:4px;">${psEsc(sim.id)}: ${sim.policyCount} case(s) in scope; ${sim.impactedQuotes} quote(s), ${sim.impactedPolicies} polic${sim.impactedPolicies === 1 ? "y" : "ies"}, ${sim.impactedRenewals} renewal(s) affected; premium ${psMoney(sim.baselinePremium)} to ${psMoney(sim.candidatePremium)}. <span class="text-muted">${psEsc(sim.note)}</span></div>` : ""}</td></tr>` : ""}`;
+      ${PS_UI.open === r.id ? `<tr><td colspan="6" class="ws-small">${r.issues.length ? "<ul style='margin:0 0 0 16px;'>" + r.issues.map(i => `<li><span class="badge ${i.blocking ? "badge-danger" : "badge-light"}">${escHtml(i.check)}</span> ${escHtml(i.message)}</li>`).join("") + "</ul>" : "No issues."}${runs.length ? "<div style='margin-top:4px;'>" + runs.slice(-2).map(x => escHtml(x.id + ": " + x.passed + " passed, " + x.failed + " failed" + x.results.filter(y => y.outcome === "fail").map(y => "; FAIL " + y.name + " (" + y.diff.join(", ") + ")").join(""))).join("<br>") + "</div>" : ""}${sim ? `<div style="margin-top:4px;">${escHtml(sim.id)}: ${sim.policyCount} case(s) in scope; ${sim.impactedQuotes} quote(s), ${sim.impactedPolicies} polic${sim.impactedPolicies === 1 ? "y" : "ies"}, ${sim.impactedRenewals} renewal(s) affected; premium ${psMoney(sim.baselinePremium)} to ${psMoney(sim.candidatePremium)}. <span class="text-muted">${escHtml(sim.note)}</span></div>` : ""}</td></tr>` : ""}`;
   }).join("")}</tbody></table>` : '<p class="ws-small text-muted">No release has been compiled.</p>';
-  if (PS.history.length) h += `<div class="text-xs text-muted" style="margin-top:8px;">History: ${PS.history.slice(-3).reverse().map(x => psEsc(x.at + " " + x.text)).join("; ")}</div>`;
+  if (PS.history.length) h += `<div class="text-xs text-muted" style="margin-top:8px;">History: ${PS.history.slice(-3).reverse().map(x => escHtml(x.at + " " + x.text)).join("; ")}</div>`;
   box.innerHTML = h + "</div></div>";
 }
 

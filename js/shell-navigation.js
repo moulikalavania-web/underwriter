@@ -260,15 +260,6 @@ function changeUserRole(role) {
     showIntakePage();
   }
 
-  // Toggle "Unified Account View" nav item visibility (hidden for roles
-  // without unifiedAccount.view permission, e.g. Junior Underwriter)
-  const unifiedAccountNav = document.getElementById("navItemUnifiedAccount");
-  const canViewUnifiedAccount = PERMISSIONS_MATRIX[role] && PERMISSIONS_MATRIX[role].unifiedAccount && PERMISSIONS_MATRIX[role].unifiedAccount.view;
-  if (unifiedAccountNav) unifiedAccountNav.style.display = canViewUnifiedAccount ? "flex" : "none";
-  if (!canViewUnifiedAccount && currentPage === "unified-account") {
-    showIntakePage();
-  }
-
   if (role === "senior") {
     filterSubmissionsTable("referral");
   } else {

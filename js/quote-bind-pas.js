@@ -240,7 +240,7 @@ function readAndProcessJsonFile(file) {
 
 /** The three stages after a quote exists: issue it, the customer accepts it, bind it. */
 function renderIssueAndBindCard(sub) {
-  const bound = !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber);
+  const bound = policyIsBound(sub);
   const issued = !!sub.quoteIssued, approved = !!sub.customerApproved;
   const failed = sub.pasSync && sub.pasSync.status === "failed" ? sub.pasSync : null;
   const stage = (n, label, done, active) => `<div style="display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12.5px; font-weight:600; background:${done ? "#dcfce7" : (active ? "#fff7ed" : "#f1f5f9")}; color:${done ? "#166534" : (active ? "#c2410c" : "#64748b")};"><i class="ph ${done ? "ph-check-circle" : (active ? "ph-arrow-circle-right" : "ph-lock-simple")}"></i> ${n}. ${label}</div>`;

@@ -131,7 +131,7 @@ function extApplyPersonaUi() {
   var id = "extAccessStyle", st = document.getElementById(id);
   if (!st) {
     st = document.createElement("style"); st.id = id;
-    st.textContent = "body.role-external #navItemDecline, body.role-external #navItemQuoteIntel, body.role-external #navItemIntegratingApi, body.role-external #navItemUnifiedAccount { display:none !important; } " +
+    st.textContent = "body.role-external #navItemDecline, body.role-external #navItemQuoteIntel, body.role-external #navItemIntegratingApi { display:none !important; } " +
       EXT_HIDDEN_PANELS.map(function (p) { return "body.role-external #" + p; }).join(", ") + " { display:none !important; }";
     document.head.appendChild(st);
   }
@@ -182,7 +182,7 @@ function extReconcileActive() {
   }
 
   // List screens render from the visible set only.
-  ["renderSubmissionsTable", "renderDeclineCenter", "renderAuditLogFeed", "renderUnifiedAccountView", "renderQuoteCompareSelector", "renderRenewalComparison", "renderRenewalPipeline", "renderTeamActivityBoard", "renderBordereaux", "renderPerformance"].forEach(function (name) {
+  ["renderSubmissionsTable", "renderDeclineCenter", "renderAuditLogFeed", "renderQuoteCompareSelector", "renderRenewalComparison", "renderRenewalPipeline", "renderTeamActivityBoard", "renderBordereaux", "renderPerformance"].forEach(function (name) {
     if (typeof window[name] === "function") window[name] = extScoped(window[name]);
   });
 
@@ -202,7 +202,7 @@ function extReconcileActive() {
   });
 
   // Internal pages are not available to external users.
-  ["showDeclinePage", "showQuoteVersionsPage", "showQuoteIntelligencePage", "showIntegratingApiPage", "showUnifiedAccountPage"].forEach(function (name) {
+  ["showDeclinePage", "showQuoteVersionsPage", "showQuoteIntelligencePage", "showIntegratingApiPage"].forEach(function (name) {
     var orig = window[name];
     if (typeof orig !== "function") return;
     window[name] = function () {

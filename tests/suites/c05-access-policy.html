@@ -95,7 +95,7 @@
     t('anyone else is refused', accessRecordReview('junior') === false);
     var entries = collectAuditLogEntries();
     t('reviews and permission changes appear in the Audit Log', entries.some(function(e){ return e.type === 'access_review_recorded' && /ACCESS-2026-Q4-01/.test(e.note); }) && entries.some(function(e){ return e.type === 'permission_changed'; }) && auditActionMeta('permission_changed').label === 'Role Permissions Changed');
-    t('XSS-safe', accessEsc('<b>') === '&lt;b&gt;');
+    t('XSS-safe', escHtml('<b>') === '&lt;b&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   try { localStorage.removeItem(ACCESS_STORAGE_KEY); } catch(e) {}
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));

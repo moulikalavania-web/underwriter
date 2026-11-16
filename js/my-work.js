@@ -26,9 +26,7 @@ try { const raw = localStorage.getItem(TASK_STORE_KEY); if (raw) { const parsed 
 
 var MW = { tab: "tasks", range: "open", showDone: false, queue: "bound_not_finalized", dateField: "", from: "", to: "", draftCase: "" };
 
-function mwEsc(s) { return typeof wsEsc === "function" ? wsEsc(s) : String(s == null ? "" : s); }
 function mwSave() { try { localStorage.setItem(TASK_STORE_KEY, JSON.stringify(TASKS)); } catch (e) { /* keep them for this session */ } }
-function mwToday() { return new Date().toISOString().slice(0, 10); }
 function mwAddDays(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
 function mwRoleName(key) { const r = typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[key]; return r ? r.name + " (" + r.title + ")" : String(key || "Unassigned"); }
 function mwIsManager() { return typeof canManageAssignments === "function" && canManageAssignments(); }
@@ -44,7 +42,7 @@ function mwAddTask(f) {
   if (TASK_TYPES.indexOf(f.type) < 0) return { ok: false, message: "Choose the type of task." };
   if (TASK_PRIORITIES.indexOf(f.priority) < 0) return { ok: false, message: "Choose a priority." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(f.due || ""))) return { ok: false, message: "Choose a due date." };
-  if (f.due < mwToday() && !f.allowPast) return { ok: false, message: "The due date cannot be in the past." };
+  if (f.due < todayIso() && !f.allowPast) return { ok: false, message: "The due date cannot be in the past." };
   if (typeof USER_ROLES_CONFIG === "undefined" || !USER_ROLES_CONFIG[f.assignee]) return { ok: false, message: "Choose who the task is for." };
   if (f.subId && !SUBMISSIONS_DATASET.some(s => s.id === f.subId)) return { ok: false, message: "That case was not found." };
   const t = { id: "TSK-" + (TASKS.reduce((m, x) => Math.max(m, Number(String(x.id).slice(4)) || 0), 0) + 1), title, type: f.type, priority: f.priority, due: f.due, assignee: f.assignee, subId: f.subId || null, notes: String(f.notes || "").trim(),
@@ -74,11 +72,11 @@ function mwSetDue(id, iso) {
   const t = mwTask(id); if (!mwCanEdit(t) || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return false;
   t.due = iso; mwSave(); return true;
 }
-function mwIsPastDue(t) { return t.status === "open" && t.due < mwToday(); }
+function mwIsPastDue(t) { return t.status === "open" && t.due < todayIso(); }
 
 /** The tasks in a range: today, week, month, all or pastdue. Open tasks only unless `done` is true. */
 function mwFilterTasks(list, range, done) {
-  const today = mwToday(), weekEnd = mwAddDays(today, 6), monthEnd = mwAddDays(today, 29);
+  const today = todayIso(), weekEnd = mwAddDays(today, 6), monthEnd = mwAddDays(today, 29);
   return list.filter(t => {
     if (!done && t.status !== "open") return false;
     if (range === "today") return t.due === today && t.status === "open";
@@ -118,8 +116,6 @@ function mwDay(v) {
   const t = Date.parse(s);
   return isNaN(t) ? "" : new Date(t).toISOString().slice(0, 10);
 }
-function mwBound(s) { return !!(s.pasSync && s.pasSync.status === "success" && s.pasSync.policyNumber); }
-function mwOpen(s) { return !s.lifecycleStatus || ["declined", "closed"].indexOf(s.lifecycleStatus) < 0; }
 function mwQuotes(s) { const e = (typeof QUOTE_VERSIONS_DATASET !== "undefined" ? QUOTE_VERSIONS_DATASET : []).find(v => v.subId === s.id); return e ? e.quotes : []; }
 function mwCancellationEvent(s) { return (s.policyChanges || []).find(c => c.type === "cancellation" && c.id === (s.cancellation || {}).eventId) || null; }
 
@@ -145,12 +141,14 @@ function mwQueueRows(key, subs) {
   subs.forEach(s => {
     if (key === "bound_not_finalized") {
       const open = (s.subjectivities || []).filter(x => x.timing === "post_bind" && x.status === "open");
-      if (mwBound(s) && open.length && mwOpen(s)) out.push({ sub: s, why: open.length + " post-bind condition" + (open.length === 1 ? "" : "s") + " open: " + open.slice(0, 2).map(x => x.text).join("; ") });
+      if (policyIsBound(s) && open.length && caseIsOpen(s)) out.push({ sub: s, why: open.length + " post-bind condition" + (open.length === 1 ? "" : "s") + " open: " + open.slice(0, 2).map(x => x.text).join("; ") });
     } else if (key === "accepted_not_finalized") {
-      if (s.customerApproved && !mwBound(s) && mwOpen(s)) out.push({ sub: s, why: "Accepted by the customer; not bound." });
+      if (s.customerApproved && !policyIsBound(s) && caseIsOpen(s)) out.push({ sub: s, why: "Accepted by the customer; not bound." });
     } else if (key === "endorsement_pending") {
       const p = (s.policyReferrals || []).filter(r => r.type === "endorsement" && r.status === "pending");
+      const asked = (s.endorsementRequests || []).filter(r => ["Received", "In review", "Approved"].indexOf(r.status) > -1);
       if (p.length) out.push({ sub: s, why: p.length + " endorsement request" + (p.length === 1 ? "" : "s") + " waiting for " + p[0].requiredRole + "." });
+      else if (asked.length) out.push({ sub: s, why: asked.length + " endorsement request" + (asked.length === 1 ? "" : "s") + " from the broker not yet issued (" + asked[0].status.toLowerCase() + ")." });
     } else if (key === "pending_cancellation") {
       if (s.cancellation && s.cancellation.status === "pending") out.push({ sub: s, why: "Cancellation effective " + s.cancellation.effective + " (" + (s.cancellation.initiator || "") + ")." });
     } else if (key === "notice_to_generate") {
@@ -160,7 +158,7 @@ function mwQueueRows(key, subs) {
       const bad = mwQuotes(s).filter(q => q.isLatest && (!q.liabilityLimit || q.liabilityLimit === "Not stated") && (!q.pdDeductible || q.pdDeductible === "Not stated"));
       if (bad.length) out.push({ sub: s, why: "Quote " + bad[0].versionId + " has no limit and no deductible." });
     } else if (key === "no_quote") {
-      if (mwOpen(s) && !mwQuotes(s).length && !mwBound(s) && !s.quoteIssued) out.push({ sub: s, why: "At step " + (s.currentStep || 1) + "; no quote version yet." });
+      if (caseIsOpen(s) && !mwQuotes(s).length && !policyIsBound(s) && !s.quoteIssued) out.push({ sub: s, why: "At step " + (s.currentStep || 1) + "; no quote version yet." });
     }
   });
   return out;
@@ -217,7 +215,7 @@ function mwTaskFromQueue(subId, qkey) {
   const q = MW_QUEUES.find(x => x.key === qkey), s = SUBMISSIONS_DATASET.find(x => x.id === subId);
   if (!q || !s) return;
   const type = qkey === "no_quote" ? "New Business" : qkey === "endorsement_pending" ? "Referral" : "Follow-up";
-  const r = mwAddTask({ title: q.label + ": " + s.insured, type, priority: "Medium", due: mwAddDays(mwToday(), 2), assignee: s.assignedTo || currentUserRole, subId, source: "queue:" + qkey });
+  const r = mwAddTask({ title: q.label + ": " + s.insured, type, priority: "Medium", due: mwAddDays(todayIso(), 2), assignee: s.assignedTo || currentUserRole, subId, source: "queue:" + qkey });
   showToast(r.ok ? "✅ Task " + r.task.id + " added for " + s.id + "." : "⛔ " + r.message, r.ok ? "success" : "danger");
   mwRender();
 }
@@ -226,11 +224,11 @@ function mwTile(label, n, cls) { return `<div class="mw-tile ${cls || ""}"><div 
 
 function mwTasksHtml() {
   const mine = mwVisibleTasks(), open = mine.filter(t => t.status === "open");
-  const today = mwToday();
+  const today = todayIso();
   const tiles = mwTile("Open", open.length) + mwTile("Due today", open.filter(t => t.due === today).length) + mwTile("Past due", open.filter(mwIsPastDue).length, open.some(mwIsPastDue) ? "bad" : "") + mwTile("Done", mine.length - open.length);
   const roles = Object.keys(USER_ROLES_CONFIG).filter(k => USER_ROLES_CONFIG[k].name);
-  const roleOpts = sel => roles.map(k => `<option value="${k}"${k === sel ? " selected" : ""}>${mwEsc(mwRoleName(k))}</option>`).join("");
-  const caseOpts = `<option value="">No case</option>` + mwSubs().map(s => `<option value="${mwEsc(s.id)}"${s.id === MW.draftCase ? " selected" : ""}>${mwEsc(s.id)} · ${mwEsc(s.insured)}</option>`).join("");
+  const roleOpts = sel => roles.map(k => `<option value="${k}"${k === sel ? " selected" : ""}>${escHtml(mwRoleName(k))}</option>`).join("");
+  const caseOpts = `<option value="">No case</option>` + mwSubs().map(s => `<option value="${escHtml(s.id)}"${s.id === MW.draftCase ? " selected" : ""}>${escHtml(s.id)} · ${escHtml(s.insured)}</option>`).join("");
   const form = `<details class="card mw-form"${mine.length ? "" : " open"}><summary><i class="ph ph-plus-circle"></i> Add a task</summary><div class="card-body">
     <div class="mw-grid">
       <div class="form-group mw-wide"><label for="mw_title">Task</label><input class="form-control" id="mw_title" placeholder="e.g. Chase signed application from broker"></div>
@@ -250,8 +248,8 @@ function mwTasksHtml() {
     const past = mwIsPastDue(t), can = mwCanEdit(t), dis = can ? "" : " disabled";
     return `<tr class="${past ? "mw-past" : ""}${t.status === "done" ? " mw-done" : ""}">
       <td><span class="badge ${t.priority === "High" ? "badge-danger" : t.priority === "Medium" ? "badge-warning" : "badge-light"}">${t.priority}</span></td>
-      <td><strong>${mwEsc(t.title)}</strong><div class="p1-note">${mwEsc(t.type)}${t.notes ? " · " + mwEsc(t.notes) : ""}${t.source && t.source !== "manual" ? " · from a queue" : ""}</div></td>
-      <td>${t.subId ? `<a href="#" onclick="mwOpenCase('${mwEsc(t.subId)}'); return false;">${mwEsc(t.subId)}</a>` : "—"}</td>
+      <td><strong>${escHtml(t.title)}</strong><div class="p1-note">${escHtml(t.type)}${t.notes ? " · " + escHtml(t.notes) : ""}${t.source && t.source !== "manual" ? " · from a queue" : ""}</div></td>
+      <td>${t.subId ? `<a href="#" onclick="mwOpenCase('${escHtml(t.subId)}'); return false;">${escHtml(t.subId)}</a>` : "—"}</td>
       <td><select class="form-control" onchange="mwDoReassign('${t.id}', this.value)" aria-label="Reassign ${t.id}"${dis}>${roleOpts(t.assignee)}</select></td>
       <td><input type="date" class="form-control" value="${t.due}" onchange="mwDoDue('${t.id}', this.value)" aria-label="Due date of ${t.id}"${dis}>${past ? `<div class="mw-late">Past due</div>` : ""}</td>
       <td>${t.status === "done" ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="mwDoReopen('${t.id}')"${dis}>Reopen</button>` : `<button class="btn btn-xs btn-success" style="width:auto;" onclick="mwDoComplete('${t.id}')"${dis}><i class="ph ph-check"></i> Done</button>`}</td></tr>`;
@@ -268,7 +266,7 @@ function mwQueuesHtml() {
   const dateBar = `<div class="mw-dates"><label>Date field <select class="form-control" id="mw_dfield" onchange="mwApplyDates()"><option value="">Any date</option>${MW_DATE_FIELDS.map(f => `<option value="${f.key}"${MW.dateField === f.key ? " selected" : ""}>${f.label}</option>`).join("")}</select></label>
     <label>From <input class="form-control" type="date" id="mw_dfrom" value="${MW.from}" onchange="mwApplyDates()"></label><label>To <input class="form-control" type="date" id="mw_dto" value="${MW.to}" onchange="mwApplyDates()"></label>
     <button class="btn btn-sm btn-outline" style="width:auto;" onclick="mwClearDates()">Clear</button></div>`;
-  const body = rows.length ? `<table class="data-table"><thead><tr><th>Case</th><th>Insured</th><th>Why it is here</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#" onclick="mwOpenCase('${mwEsc(r.sub.id)}'); return false;">${mwEsc(r.sub.id)}</a></td><td>${mwEsc(r.sub.insured)}</td><td>${mwEsc(r.why)}</td><td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="mwTaskFromQueue('${mwEsc(r.sub.id)}', '${q.key}')"><i class="ph ph-list-plus"></i> Make a task</button></td></tr>`).join("")}</tbody></table>`
+  const body = rows.length ? `<table class="data-table"><thead><tr><th>Case</th><th>Insured</th><th>Why it is here</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><a href="#" onclick="mwOpenCase('${escHtml(r.sub.id)}'); return false;">${escHtml(r.sub.id)}</a></td><td>${escHtml(r.sub.insured)}</td><td>${escHtml(r.why)}</td><td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="mwTaskFromQueue('${escHtml(r.sub.id)}', '${q.key}')"><i class="ph ph-list-plus"></i> Make a task</button></td></tr>`).join("")}</tbody></table>`
     : `<div class="mw-empty"><i class="ph ph-check-circle"></i> Nothing in this queue${MW.dateField && (MW.from || MW.to) ? " for that date range" : ""}.</div>`;
   return `<div class="mw-qcards">${cards}</div><div class="card"><div class="card-header"><h3>${q.label}</h3><span class="badge badge-light">${rows.length}</span></div><div class="card-body"><p class="p1-sub" style="margin-bottom:10px;">${q.help} Worked out from the cases each time this page opens.</p>${dateBar}<div class="rules-table-container" style="max-height:none;">${body}</div></div></div>`;
 }
@@ -280,6 +278,7 @@ function mwRender() {
   const openN = mwVisibleTasks().filter(t => t.status === "open").length, qn = MW_QUEUES.reduce((n, q) => n + mwQueue(q.key).length, 0);
   root.innerHTML = `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">My Work</h2><div class="p1-sub" style="margin:0;">Tasks to chase and cases that need attention.</div></div></div>
     <div class="mw-tabs"><button class="tab-btn${MW.tab === "tasks" ? " active" : ""}" onclick="mwSwitchTab('tasks')"><i class="ph ph-check-square"></i> Tasks <span class="badge badge-light">${openN}</span></button>
-      <button class="tab-btn${MW.tab === "queues" ? " active" : ""}" onclick="mwSwitchTab('queues')"><i class="ph ph-funnel"></i> Queues <span class="badge badge-light">${qn}</span></button></div>
-    ${MW.tab === "tasks" ? mwTasksHtml() : mwQueuesHtml()}`;
+      <button class="tab-btn${MW.tab === "queues" ? " active" : ""}" onclick="mwSwitchTab('queues')"><i class="ph ph-funnel"></i> Queues <span class="badge badge-light">${qn}</span></button>
+      ${(typeof twTabs === "function" ? twTabs() : []).map(t => `<button class="tab-btn${MW.tab === t[0] ? " active" : ""}" onclick="mwSwitchTab('${t[0]}')"><i class="ph ${t[2]}"></i> ${t[1]}${t[3] ? ` <span class="badge badge-light">${t[3]}</span>` : ""}</button>`).join("")}</div>
+    ${typeof twBanner === "function" ? twBanner() : ""}${MW.tab === "tasks" ? mwTasksHtml() : MW.tab === "queues" ? mwQueuesHtml() : (typeof twBody === "function" ? twBody(MW.tab) : "")}`;
 }

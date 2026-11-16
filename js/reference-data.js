@@ -27,7 +27,6 @@ var REF_META = { registry: null, watchlist: null };
 // 1. PURE PARSING
 // ----------------------------------------------------------------------------
 function refKey(s) { return String(s === null || s === undefined ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
-function refEsc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function refList(s) { return String(s || "").split(/[;|]/).map(x => x.trim()).filter(Boolean); }
 
 function refCsv(text) {
@@ -169,7 +168,6 @@ function refParseRegistry(text) {
 // 2. STORAGE
 // ----------------------------------------------------------------------------
 function refActor() { const r = USER_ROLES_CONFIG[currentUserRole]; return r ? `${r.name} (${r.title})` : "Unknown user"; }
-function refNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 
 function refPersist(kind) {
   try {
@@ -229,7 +227,7 @@ async function refLoadWatchlist() {
   SANCTIONS_WATCHLIST.length = 0; parsed.entries.forEach(e => SANCTIONS_WATCHLIST.push(e));
   SANCTIONS_LIST_NAME = (nameIn && nameIn.trim()) || parsed.name || file.name;
   SANCTIONS_LIST_VERSION = (verIn && verIn.trim()) || parsed.version || new Date().toISOString().slice(0, 10);
-  REF_META.watchlist = { fileName: file.name, format: parsed.format, loadedAt: refNow(), loadedBy: refActor(), count: parsed.entries.length, skipped: parsed.skipped.slice(0, 20), skippedCount: parsed.skipped.length };
+  REF_META.watchlist = { fileName: file.name, format: parsed.format, loadedAt: nowStamp(), loadedBy: refActor(), count: parsed.entries.length, skipped: parsed.skipped.slice(0, 20), skippedCount: parsed.skipped.length };
   refPersist("watchlist");
   showToast(`✅ Watchlist loaded: ${parsed.entries.length} entries from ${file.name}${parsed.skipped.length ? ` (${parsed.skipped.length} row(s) skipped)` : ""}. The open case was screened again.`, "success");
   refAfterLoad("watchlist");
@@ -245,7 +243,7 @@ async function refLoadRegistry() {
   const box = document.getElementById("ref_rg_carrier");
   const typed = box && box.value.trim() && box.value !== box.getAttribute("data-initial") ? box.value.trim() : "";
   if (typed) PRODUCER_DEFAULT_CARRIER = typed; else if (parsed.carrier) PRODUCER_DEFAULT_CARRIER = parsed.carrier;
-  REF_META.registry = { fileName: file.name, format: parsed.format, loadedAt: refNow(), loadedBy: refActor(), count: parsed.counts.producers, counts: parsed.counts, carriers: parsed.carriers, skipped: parsed.skipped.slice(0, 20), skippedCount: parsed.skipped.length };
+  REF_META.registry = { fileName: file.name, format: parsed.format, loadedAt: nowStamp(), loadedBy: refActor(), count: parsed.counts.producers, counts: parsed.counts, carriers: parsed.carriers, skipped: parsed.skipped.slice(0, 20), skippedCount: parsed.skipped.length };
   refPersist("registry");
   const note = parsed.carriers.length > 1 && !parsed.carriers.some(c => c === PRODUCER_DEFAULT_CARRIER) ? ` Appointments are with ${parsed.carriers.join(", ")}: enter the carrier this program writes for.` : "";
   showToast(`✅ Registry loaded: ${parsed.counts.producers} producer(s), ${parsed.counts.licences} licence(s), ${parsed.counts.appointments} appointment(s) from ${file.name}${parsed.skipped.length ? ` (${parsed.skipped.length} row(s) skipped)` : ""}. Appointments are checked against "${PRODUCER_DEFAULT_CARRIER}".${note}`, note ? "warning" : "success");
@@ -278,7 +276,7 @@ function refSetCarrier() {
 // ----------------------------------------------------------------------------
 function refSkippedHtml(m) {
   if (!m || !m.skippedCount) return "";
-  return `<details style="margin-top:6px;"><summary class="text-xs">${m.skippedCount} row(s) could not be read</summary><ul class="text-xs" style="margin:4px 0 0 18px;">${m.skipped.map(s => `<li>${s.row ? "Row " + s.row + ": " : ""}${refEsc(s.reason)}</li>`).join("")}${m.skippedCount > m.skipped.length ? "<li>…</li>" : ""}</ul></details>`;
+  return `<details style="margin-top:6px;"><summary class="text-xs">${m.skippedCount} row(s) could not be read</summary><ul class="text-xs" style="margin:4px 0 0 18px;">${m.skipped.map(s => `<li>${s.row ? "Row " + s.row + ": " : ""}${escHtml(s.reason)}</li>`).join("")}${m.skippedCount > m.skipped.length ? "<li>…</li>" : ""}</ul></details>`;
 }
 
 function refPanelHtml(kind) {
@@ -287,16 +285,16 @@ function refPanelHtml(kind) {
   const can = isWl ? hasPermission("sanctions", "approve") : hasPermission("producerLicensing", "approve");
   const loaded = isWl ? SANCTIONS_WATCHLIST.length > 0 : PRODUCER_REGISTRY.length > 0;
   const status = loaded
-    ? (isWl ? `<strong>${refEsc(SANCTIONS_LIST_NAME)}</strong>, version ${refEsc(SANCTIONS_LIST_VERSION)}: ${SANCTIONS_WATCHLIST.length.toLocaleString("en-US")} entries.` : `<strong>${PRODUCER_REGISTRY.length.toLocaleString("en-US")}</strong> producer(s); appointments are checked against <strong>${refEsc(PRODUCER_DEFAULT_CARRIER)}</strong>.`)
+    ? (isWl ? `<strong>${escHtml(SANCTIONS_LIST_NAME)}</strong>, version ${escHtml(SANCTIONS_LIST_VERSION)}: ${SANCTIONS_WATCHLIST.length.toLocaleString("en-US")} entries.` : `<strong>${PRODUCER_REGISTRY.length.toLocaleString("en-US")}</strong> producer(s); appointments are checked against <strong>${escHtml(PRODUCER_DEFAULT_CARRIER)}</strong>.`)
     : (isWl ? "No watchlist is loaded." : "No licensing registry is loaded.");
-  const from = m ? ` Loaded from ${refEsc(m.fileName)} by ${refEsc(m.loadedBy)} on ${refEsc(m.loadedAt)}${m.notSaved ? " (this session only)" : ""}.` : "";
+  const from = m ? ` Loaded from ${escHtml(m.fileName)} by ${escHtml(m.loadedBy)} on ${escHtml(m.loadedAt)}${m.notSaved ? " (this session only)" : ""}.` : "";
   const help = isWl
     ? `Accepted: the OFAC SDN.CSV as downloaded from treasury.gov, a CSV with the columns <code>name, aliases, type, program</code> (aliases separated by ; or |), or JSON.`
     : `Accepted: CSV with <code>producer_name, npn, license_state, license_number, license_lines, license_status, license_expires, appointment_carrier, appointment_state, appointment_lobs, appointment_status, appointment_effective</code> (one row per licence or appointment; rows with the same NPN are one producer; a blank status counts as Active; lobs are product keys such as trucking, or * for all), or JSON.`;
   const controls = can ? `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;">
       <input type="file" id="${isWl ? "ref_wl_file" : "ref_rg_file"}" accept=".csv,.json,.txt,text/csv,application/json">
       ${isWl ? `<input id="ref_wl_name" class="form-control" style="width:200px;" placeholder="List name (optional)"><input id="ref_wl_ver" class="form-control" style="width:130px;" placeholder="Version (optional)">`
-             : `<input id="ref_rg_carrier" class="form-control" style="width:230px;" placeholder="Carrier this program writes for" value="${refEsc(PRODUCER_DEFAULT_CARRIER)}" data-initial="${refEsc(PRODUCER_DEFAULT_CARRIER)}">`}
+             : `<input id="ref_rg_carrier" class="form-control" style="width:230px;" placeholder="Carrier this program writes for" value="${escHtml(PRODUCER_DEFAULT_CARRIER)}" data-initial="${escHtml(PRODUCER_DEFAULT_CARRIER)}">`}
       <button class="btn btn-sm btn-primary" style="width:auto;" onclick="${isWl ? "refLoadWatchlist()" : "refLoadRegistry()"}"><i class="ph ph-upload-simple"></i> Load file</button>
       ${isWl ? "" : `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="refSetCarrier()">Set carrier</button>`}
       ${loaded ? `<button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="refClear('${kind}')">Clear</button>` : ""}

@@ -157,7 +157,7 @@
     renderAllDownstreamScreens(sub4);
     t('downstream render draws the card', /Submission Completeness/.test(el('completenessContainer').innerHTML));
     t('goToNextStep is still callable', typeof window.goToNextStep === 'function');
-    t('XSS-safe', completenessEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+    t('XSS-safe', escHtml('<i onclick=1>') === '&lt;i onclick=1&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

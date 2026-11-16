@@ -62,7 +62,7 @@ function confirmApplyView(subId) {
   if (!bar) return;
   bar.className = "alert " + (need ? "alert-warning" : "alert-success");
   bar.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:10px; margin:10px 0;";
-  bar.innerHTML = `<span><i class="ph ph-list-checks"></i> <strong>${need} field${need === 1 ? "" : "s"} need${need === 1 ? "s" : ""} you</strong>${reasons.length ? " (" + reasons.map(wsEsc).join(", ") + ")" : ""}. ${ok} accepted: each has a value, was read without low confidence, and no document disagrees. Accepted fields are applied when you confirm.</span>
+  bar.innerHTML = `<span><i class="ph ph-list-checks"></i> <strong>${need} field${need === 1 ? "" : "s"} need${need === 1 ? "s" : ""} you</strong>${reasons.length ? " (" + reasons.map(escHtml).join(", ") + ")" : ""}. ${ok} accepted: each has a value, was read without low confidence, and no document disagrees. Accepted fields are applied when you confirm.</span>
     <button type="button" class="btn btn-outline btn-sm" onclick="toggleAcceptedFields()">${CONFIRM_SHOW_ALL ? "Show only what needs me" : "Show all " + rows.length + " fields"}</button>`;
 }
 function toggleAcceptedFields() {
@@ -113,7 +113,7 @@ function triageAttachTo(targetId, opts) {
   if (!target.docs) target.docs = [];
   files.forEach(f => { if (!target.docs.some(d => d.name === f.name)) target.docs.push({ name: f.name, type: f.type === "application/pdf" ? "pdf" : "xls", desc: "Raw Upload: attached from " + sub.id + " • Unprocessed" }); });
   if (!target.followUpEmails) target.followUpEmails = [];
-  target.followUpEmails.push({ fromCase: sub.id, at: wsNow(), by: wsActor(), text: sub.rawEmailText || "", files: files.map(f => f.name) });
+  target.followUpEmails.push({ fromCase: sub.id, at: nowStamp(), by: actorLabel(), text: sub.rawEmailText || "", files: files.map(f => f.name) });
   // the documents are read again the next time the case needs them
   if (typeof emailIngestionDraftBySubId !== "undefined") delete emailIngestionDraftBySubId[target.id];
   target.documentExtractions = (target.documentExtractions || []).filter(d => files.every(f => f.name !== d.name));
@@ -148,7 +148,7 @@ function triageOpenRenewals() {
 function triageTreatAsNew() {
   const sub = wsSub(); if (!sub) return;
   if (!triageCanAct()) return;
-  sub.triage = Object.assign({}, sub.triage, { kindOverride: "new_submission", overriddenBy: wsActor(), overriddenAt: wsNow() });
+  sub.triage = Object.assign({}, sub.triage, { kindOverride: "new_submission", overriddenBy: actorLabel(), overriddenAt: nowStamp() });
   wsLog(sub, "triage_override", "Triage kind set to new submission by a person (the message read as " + (TRIAGE_KINDS[triageClassify(Object.assign({}, sub, { triage: {} })).kind] || {}).label + ").");
   wsPersist(); renderTriageCard(sub);
 }
@@ -169,7 +169,7 @@ function triageDiscard() {
 
 /** The buttons for the kind of message the case is. Returns HTML. */
 function triageActionsHtml(sub, cls) {
-  if (["merged", "discarded"].includes(sub.lifecycleStatus)) return `<div class="alert alert-info ws-small"><i class="ph ph-check"></i> ${wsEsc(sub.statusText)}.</div>`;
+  if (["merged", "discarded"].includes(sub.lifecycleStatus)) return `<div class="alert alert-info ws-small"><i class="ph ph-check"></i> ${escHtml(sub.statusText)}.</div>`;
   const btn = (fn, icon, label, primary) => `<button class="btn ${primary ? "btn-primary" : "btn-outline"} btn-sm" onclick="${fn}"><i class="ph ${icon}"></i> ${label}</button>`;
   const dup = typeof findDuplicateSubmission === "function" ? findDuplicateSubmission(sub.insured, sub.fein, sub.id) : null;
   const sameProducer = dup && String(dup.broker || "").toLowerCase() === String(sub.broker || "").toLowerCase();

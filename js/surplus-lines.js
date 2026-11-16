@@ -61,7 +61,6 @@ var SL_STATE_TABLE = {
 // ----------------------------------------------------------------------------
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
-function slToday() { return new Date().toISOString().slice(0, 10); }
 function slDays(a, b) { return Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000); }
 function slAdd(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + Number(n)); return d.toISOString().slice(0, 10); }
 function slRound(n) { return Math.round(n * 100) / 100; }
@@ -135,7 +134,7 @@ function slValidateBasisForm(f) {
 
 /** Diligent search status. entries: [{insurer, contactedOn, response, reference}] */
 function slSearchStatus(sub, state, today) {
-  const t = today || slToday();
+  const t = today || todayIso();
   const ds = sub.diligentSearch || { entries: [], exemption: null };
   const e = slEntry(state);
   const required = e && e.declinations ? e.declinations : SL_DEFAULT_DECLINATIONS;
@@ -171,7 +170,7 @@ function slPlacingBrokerStatus(sub, state) {
   if (typeof lookupProducerRecord !== "function") return { ok: false, broker: name, reason: "Producer licensing data is not available." };
   const rec = lookupProducerRecord(name);
   if (!state) return { ok: false, broker: name, reason: "The home state could not be determined." };
-  const today = slToday();
+  const today = todayIso();
   // No registry record: a verified lookup recorded on the Producer Licence card (for the submitting broker) stands in for it.
   const man = sub.producerCheck && sub.producerCheck.manual;
   if (!rec && man && (!sub.slPlacingBroker || sub.slPlacingBroker === sub.broker)) {
@@ -193,17 +192,13 @@ function slPlacingBrokerStatus(sub, state) {
 // ----------------------------------------------------------------------------
 function slSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function slActiveSub() { return slSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function slNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function slActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function slEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function slLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: slActor(), at: slNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 7, decision, by: slActor(), at: nowStamp(), notes });
 }
 function slPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -213,7 +208,7 @@ function slV(id) { const e = document.getElementById(id); return e ? e.value.tri
 function slC(id) { const e = document.getElementById(id); return !!(e && e.checked); }
 function slHomeState(sub) { return typeof deriveRiskState === "function" ? deriveRiskState(sub) : null; }
 function slIsSurplus(sub) { return (sub.placementType || "surplus") === "surplus"; }
-function slIsBound(sub) { return !!(sub.pasSync && sub.pasSync.status === "success" && sub.pasSync.policyNumber); }
+function slIsBound(sub) { return policyIsBound(sub); }
 
 /** Rates for other modules (the email, the quote builder, discretionary pricing). Null when not a usable surplus basis. */
 function slRatesFor(sub) {
@@ -244,7 +239,7 @@ function slConfirmTableBasis() {
   const ref = slV("sl_confRef"), asOf = slV("sl_confAsOf");
   const problems = slValidateBasisForm({ taxPct: String(e.taxPct), stampingPct: String(e.stampingPct), reference: ref, asOf });
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
-  sub.slTaxBasis = { state, taxPct: e.taxPct, stampingPct: e.stampingPct, basedOn: "table (confirmed)", reference: ref, asOf, confirmedBy: slActor(), confirmedAt: slNow() };
+  sub.slTaxBasis = { state, taxPct: e.taxPct, stampingPct: e.stampingPct, basedOn: "table (confirmed)", reference: ref, asOf, confirmedBy: slActor(), confirmedAt: nowStamp() };
   slLog(sub, "sl_tax_confirmed", `Surplus lines basis for ${state} confirmed against the state schedule: tax ${e.taxPct}%, stamping fee ${e.stampingPct}%. Source cited: ${ref} (schedule dated ${asOf}).`);
   slPersist(); renderSurplusCard(sub);
   if (typeof renderStep7View === "function") { try { renderStep7View(sub); } catch (x) { /* screen not mounted */ } }
@@ -259,7 +254,7 @@ function slSetManualBasis() {
   const f = { taxPct: slV("sl_manTax"), stampingPct: slV("sl_manStamp"), reference: slV("sl_manRef"), asOf: slV("sl_manAsOf") };
   const problems = slValidateBasisForm(f);
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
-  sub.slTaxBasis = { state, taxPct: Number(f.taxPct), stampingPct: Number(f.stampingPct), basedOn: "manual entry", reference: f.reference, asOf: f.asOf, confirmedBy: slActor(), confirmedAt: slNow() };
+  sub.slTaxBasis = { state, taxPct: Number(f.taxPct), stampingPct: Number(f.stampingPct), basedOn: "manual entry", reference: f.reference, asOf: f.asOf, confirmedBy: slActor(), confirmedAt: nowStamp() };
   slLog(sub, "sl_tax_confirmed", `Surplus lines basis for ${state} entered manually (no verified schedule loaded): tax ${f.taxPct}%, stamping fee ${f.stampingPct}%. Source cited: ${f.reference} (schedule dated ${f.asOf}).`);
   slPersist(); renderSurplusCard(sub);
   if (typeof renderStep7View === "function") { try { renderStep7View(sub); } catch (x) { /* screen not mounted */ } }
@@ -280,9 +275,9 @@ function slAddDeclination() {
   if (slIsBound(sub)) { showToast("⛔ The policy is bound; the search record is closed.", "danger"); return; }
   const f = { insurer: slV("sl_dsInsurer"), contactedOn: slV("sl_dsDate"), response: slV("sl_dsResponse"), reference: slV("sl_dsRef") };
   if (!sub.diligentSearch) sub.diligentSearch = { entries: [], exemption: null };
-  const problems = slValidateDeclination({ today: slToday(), existing: sub.diligentSearch.entries }, f);
+  const problems = slValidateDeclination({ today: todayIso(), existing: sub.diligentSearch.entries }, f);
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
-  sub.diligentSearch.entries.push(Object.assign({}, f, { recordedBy: slActor(), recordedAt: slNow() }));
+  sub.diligentSearch.entries.push(Object.assign({}, f, { recordedBy: slActor(), recordedAt: nowStamp() }));
   slLog(sub, "sl_search_entry", `Admitted market contacted: ${f.insurer} on ${f.contactedOn} — ${f.response.replace("_", " ")} (ref ${f.reference}).`);
   slPersist(); renderSurplusCard(sub);
 }
@@ -298,7 +293,7 @@ function slSetExemption() {
   if (ref.length < 5) problems.push("cite the export list entry or the rule relied on (at least 5 characters)");
   if (problems.length) { showToast("⛔ " + problems.join("; ") + ".", "danger"); return; }
   if (!sub.diligentSearch) sub.diligentSearch = { entries: [], exemption: null };
-  sub.diligentSearch.exemption = { kind, reason: why, reference: ref, by: slActor(), at: slNow() };
+  sub.diligentSearch.exemption = { kind, reason: why, reference: ref, by: slActor(), at: nowStamp() };
   slLog(sub, "sl_search_exempt", `Diligent search exemption (${kind.replace("_", " ")}): ${why} (${ref}).`);
   slPersist(); renderSurplusCard(sub);
 }
@@ -326,7 +321,7 @@ function slAckDisclosure() {
   const ref = slV("sl_ackRef");
   if (!slC("sl_ackBox")) { showToast("Tick the box to confirm the insured received the disclosure.", "danger"); return; }
   if (ref.length < 3) { showToast("Enter how and when it was delivered (reference).", "danger"); return; }
-  sub.slDisclosure = { ref, by: slActor(), at: slNow() };
+  sub.slDisclosure = { ref, by: slActor(), at: nowStamp() };
   slLog(sub, "sl_disclosure", `Surplus lines disclosure delivered to the insured and acknowledged (${ref}).`);
   slPersist(); renderSurplusCard(sub);
 }
@@ -334,9 +329,9 @@ function slAckDisclosure() {
 function slMarkFiled() {
   const sub = slActiveSub(); if (!sub || !sub.slFiling) return;
   if (!hasPermission("surplusLines", "edit")) { denyPermission("surplusLines", "edit"); return; }
-  const ref = slV("sl_fileRef"), on = slV("sl_fileOn") || slToday();
+  const ref = slV("sl_fileRef"), on = slV("sl_fileOn") || todayIso();
   if (ref.length < 3) { showToast("Enter the filing confirmation reference.", "danger"); return; }
-  if (on > slToday()) { showToast("The filing date cannot be in the future.", "danger"); return; }
+  if (on > todayIso()) { showToast("The filing date cannot be in the future.", "danger"); return; }
   sub.slFiling.status = "filed"; sub.slFiling.filedOn = on; sub.slFiling.reference = ref; sub.slFiling.filedBy = slActor();
   slLog(sub, "sl_filed", `Surplus lines tax and stamping fee filed on ${on} (ref ${ref}): tax ${slMoney(sub.slFiling.taxDue)}, stamping fee ${slMoney(sub.slFiling.stampingDue)}.`);
   slPersist(); renderSurplusCard(sub);
@@ -348,9 +343,9 @@ function slCreateFiling(sub) {
   const state = slHomeState(sub), b = slBasisFor(sub, state), pb = slPremiumBase(sub);
   const exp = b.usable ? slExpected(pb.base, b) : null;
   const e = slEntry(state);
-  const today = slToday();
+  const today = todayIso();
   sub.slFiling = { status: "pending", state, taxDue: exp ? exp.tax : null, stampingDue: exp ? exp.stamping : null, basis: pb.base, taxPct: b.taxPct, stampingPct: b.stampingPct,
-    dueDate: e && e.filingDays ? slAdd(today, e.filingDays) : null, createdAt: slNow() };
+    dueDate: e && e.filingDays ? slAdd(today, e.filingDays) : null, createdAt: nowStamp() };
   slLog(sub, "sl_filing_created", `Surplus lines filing opened for ${state || "unknown state"}: tax ${exp ? slMoney(exp.tax) : "not calculable"}, stamping fee ${exp ? slMoney(exp.stamping) : "not calculable"}${sub.slFiling.dueDate ? `, due ${sub.slFiling.dueDate}` : "; the filing deadline for this state is not configured"}. Basis ${slMoney(pb.base)}.`);
   slPersist();
 }
@@ -361,16 +356,16 @@ function slCreateFiling(sub) {
 function slAffidavitHtml(sub) {
   const state = slHomeState(sub), b = slBasisFor(sub, state), pb = slPremiumBase(sub), exp = b.usable ? slExpected(pb.base, b) : null;
   const ss = slSearchStatus(sub, state), pl = slPlacingBrokerStatus(sub, state), facts = typeof pcFacts === "function" ? pcFacts(sub) : { policyNumber: sub.pasSync ? sub.pasSync.policyNumber : "" };
-  const row = (a, v) => `<tr><td style="padding:3px 12px 3px 0;color:#475569;vertical-align:top;white-space:nowrap;">${slEsc(a)}</td><td style="padding:3px 0;">${slEsc(v)}</td></tr>`;
-  const list = ss.entries.filter(x => x.qualifying).map(x => `<li>${slEsc(x.insurer)} — ${slEsc(x.response.replace("_", " "))} on ${slEsc(x.contactedOn)} (ref ${slEsc(x.reference)})</li>`).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Surplus lines affidavit ${slEsc(sub.id)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">
+  const row = (a, v) => `<tr><td style="padding:3px 12px 3px 0;color:#475569;vertical-align:top;white-space:nowrap;">${escHtml(a)}</td><td style="padding:3px 0;">${escHtml(v)}</td></tr>`;
+  const list = ss.entries.filter(x => x.qualifying).map(x => `<li>${escHtml(x.insurer)} — ${escHtml(x.response.replace("_", " "))} on ${escHtml(x.contactedOn)} (ref ${escHtml(x.reference)})</li>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Surplus lines affidavit ${escHtml(sub.id)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">
     <h2 style="margin:0 0 4px;">SURPLUS LINES PLACEMENT AFFIDAVIT</h2>
     <div style="color:#64748b;font-size:11.5px;margin-bottom:10px;">Template — not the state's prescribed form. Compliance must replace it with the form or filing the state requires. The table figures used are ${b.entry && b.entry.verified ? "marked verified" : "NOT verified"}.</div>
     <table style="font-size:13px;margin-bottom:10px;">${row("Named insured", sub.insured || "")}${row("Home state", state || "unknown")}${row("Policy number", facts.policyNumber || "")}${row("Placing broker", pl.broker || "")}${row("Surplus lines licence", pl.ok ? pl.license : "not verified")}${row("Premium tax", exp ? `${b.taxPct}% = ${slMoney(exp.tax)}` : "not calculated")}${row("Stamping fee", exp ? `${b.stampingPct}% = ${slMoney(exp.stamping)}` : "not calculated")}${row("Tax basis", b.source + (b.basis ? " — " + b.basis.reference + " (" + b.basis.asOf + ")" : ""))}</table>
     <h3 style="font-size:13px;margin:10px 0 2px;">Diligent search of the admitted market</h3>
-    ${ss.exemption ? `<p style="font-size:13px;">Exempt from the search: ${slEsc(ss.exemption.kind.replace("_", " "))} — ${slEsc(ss.exemption.reason)} (${slEsc(ss.exemption.reference)}).</p>` : `<p style="font-size:13px;">${ss.count} of ${ss.required} required admitted insurers declined or have no appetite:</p><ul style="font-size:13px;margin:2px 0 8px 20px;">${list}</ul>`}
-    <h3 style="font-size:13px;margin:10px 0 2px;">Disclosure</h3><p style="font-size:13px;">${sub.slDisclosure ? `Delivered to the insured and acknowledged (${slEsc(sub.slDisclosure.ref)}) on ${slEsc(sub.slDisclosure.at)}.` : "Not yet acknowledged."}</p>
-    <p style="font-size:13px;margin-top:18px;">I attest that the above is true and that the placement complies with the surplus lines laws of ${slEsc(state || "the state")}.</p>
+    ${ss.exemption ? `<p style="font-size:13px;">Exempt from the search: ${escHtml(ss.exemption.kind.replace("_", " "))} — ${escHtml(ss.exemption.reason)} (${escHtml(ss.exemption.reference)}).</p>` : `<p style="font-size:13px;">${ss.count} of ${ss.required} required admitted insurers declined or have no appetite:</p><ul style="font-size:13px;margin:2px 0 8px 20px;">${list}</ul>`}
+    <h3 style="font-size:13px;margin:10px 0 2px;">Disclosure</h3><p style="font-size:13px;">${sub.slDisclosure ? `Delivered to the insured and acknowledged (${escHtml(sub.slDisclosure.ref)}) on ${escHtml(sub.slDisclosure.at)}.` : "Not yet acknowledged."}</p>
+    <p style="font-size:13px;margin-top:18px;">I attest that the above is true and that the placement complies with the surplus lines laws of ${escHtml(state || "the state")}.</p>
     <p style="font-size:13px;margin-top:24px;">Signed: ______________________  Surplus lines broker licence no. __________  Date: __________</p></body></html>`;
 }
 function slDownloadAffidavit() {
@@ -422,44 +417,44 @@ function renderSurplusCard(sub) {
   let basisHtml;
   if (b.usable) {
     basisHtml = `<div class="clean-meta-list" style="margin-bottom:8px;">
-      <div class="clean-meta-row"><span class="meta-label">Home state</span><span class="meta-value">${slEsc(st.state)}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Premium tax / stamping fee</span><span class="meta-value"><strong>${b.taxPct}%</strong> / <strong>${b.stampingPct}%</strong> <span class="text-muted">(${slEsc(b.source)})</span></span></div>
-      ${b.confirmed ? `<div class="clean-meta-row"><span class="meta-label">Confirmed</span><span class="meta-value">${slEsc(b.basis.confirmedAt)} · ${slEsc(b.basis.confirmedBy)}<div class="text-xs text-muted">${slEsc(b.basis.reference)} (schedule dated ${slEsc(b.basis.asOf)})</div></span></div>` : ""}
+      <div class="clean-meta-row"><span class="meta-label">Home state</span><span class="meta-value">${escHtml(st.state)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Premium tax / stamping fee</span><span class="meta-value"><strong>${b.taxPct}%</strong> / <strong>${b.stampingPct}%</strong> <span class="text-muted">(${escHtml(b.source)})</span></span></div>
+      ${b.confirmed ? `<div class="clean-meta-row"><span class="meta-label">Confirmed</span><span class="meta-value">${escHtml(b.basis.confirmedAt)} · ${escHtml(b.basis.confirmedBy)}<div class="text-xs text-muted">${escHtml(b.basis.reference)} (schedule dated ${escHtml(b.basis.asOf)})</div></span></div>` : ""}
       ${exp ? `<div class="clean-meta-row"><span class="meta-label">On this quote</span><span class="meta-value">tax ${slMoney(exp.tax)} + stamping fee ${slMoney(exp.stamping)} on ${slMoney(pb.base)}</span></div>` : ""}
     </div>${b.confirmed && canApprove && !bound ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="slClearBasis()">Withdraw confirmation</button>` : ""}`;
   } else {
     const e = b.entry;
-    basisHtml = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>The quote cannot be issued.</strong> ${slEsc(b.reason)}</div>
-      ${e ? `<div class="text-xs" style="margin-bottom:6px;">Table entry for ${slEsc(e.name)}: tax ${e.taxPct}%, stamping fee ${e.stampingPct}% (as of ${slEsc(e.asOf)}, <strong>not verified</strong>).<br><span class="text-muted">${slEsc(e.source)} ${slEsc(e.note || "")}</span></div>
+    basisHtml = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> <strong>The quote cannot be issued.</strong> ${escHtml(b.reason)}</div>
+      ${e ? `<div class="text-xs" style="margin-bottom:6px;">Table entry for ${escHtml(e.name)}: tax ${e.taxPct}%, stamping fee ${e.stampingPct}% (as of ${escHtml(e.asOf)}, <strong>not verified</strong>).<br><span class="text-muted">${escHtml(e.source)} ${escHtml(e.note || "")}</span></div>
       ${canApprove ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><input id="sl_confRef" class="form-control" style="width:300px;" placeholder="Schedule or bulletin checked (reference)"><label class="text-xs text-muted" style="font-size:12px;">Schedule dated <input id="sl_confAsOf" type="date" class="form-control" style="width:150px;"></label><button class="btn btn-sm btn-primary" style="width:auto;" onclick="slConfirmTableBasis()">Confirm for this submission</button></div>` : `<p class="text-xs text-muted"><i class="ph ph-lock"></i> An approver must confirm the schedule.</p>`}` : ""}
-      ${!e ? (canOverride ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><input id="sl_manTax" type="number" step="0.01" class="form-control" style="width:130px;" placeholder="Tax %"><input id="sl_manStamp" type="number" step="0.01" class="form-control" style="width:150px;" placeholder="Stamping fee %"><input id="sl_manRef" class="form-control" style="width:280px;" placeholder="Schedule or bulletin (reference)"><label class="text-xs text-muted" style="font-size:12px;">Dated <input id="sl_manAsOf" type="date" class="form-control" style="width:150px;"></label><button class="btn btn-sm btn-primary" style="width:auto;" onclick="slSetManualBasis()">Enter rate</button></div>` : `<p class="text-xs text-muted"><i class="ph ph-lock"></i> A senior user must enter and source the rate for ${slEsc(st.state || "this state")}.</p>`) : ""}`;
+      ${!e ? (canOverride ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"><input id="sl_manTax" type="number" step="0.01" class="form-control" style="width:130px;" placeholder="Tax %"><input id="sl_manStamp" type="number" step="0.01" class="form-control" style="width:150px;" placeholder="Stamping fee %"><input id="sl_manRef" class="form-control" style="width:280px;" placeholder="Schedule or bulletin (reference)"><label class="text-xs text-muted" style="font-size:12px;">Dated <input id="sl_manAsOf" type="date" class="form-control" style="width:150px;"></label><button class="btn btn-sm btn-primary" style="width:auto;" onclick="slSetManualBasis()">Enter rate</button></div>` : `<p class="text-xs text-muted"><i class="ph ph-lock"></i> A senior user must enter and source the rate for ${escHtml(st.state || "this state")}.</p>`) : ""}`;
   }
-  const recon = st.reconcile.map(r => `<div class="alert alert-warning text-xs" style="margin-top:6px;"><i class="ph ph-warning"></i> ${slEsc(r.text)}</div>`).join("");
+  const recon = st.reconcile.map(r => `<div class="alert alert-warning text-xs" style="margin-top:6px;"><i class="ph ph-warning"></i> ${escHtml(r.text)}</div>`).join("");
 
   // diligent search
   const s = st.search;
-  const rows = s.entries.map(x => `<tr><td>${slEsc(x.insurer)}</td><td>${slEsc(x.contactedOn)}</td><td>${slEsc(x.response.replace("_", " "))}</td><td>${slEsc(x.reference)}</td><td>${x.qualifying ? '<span class="badge badge-success text-xs">Counts</span>' : `<span class="badge badge-light text-xs">${x.duplicate ? "duplicate" : (x.stale ? "stale" : "does not count")}</span>`}</td></tr>`).join("");
+  const rows = s.entries.map(x => `<tr><td>${escHtml(x.insurer)}</td><td>${escHtml(x.contactedOn)}</td><td>${escHtml(x.response.replace("_", " "))}</td><td>${escHtml(x.reference)}</td><td>${x.qualifying ? '<span class="badge badge-success text-xs">Counts</span>' : `<span class="badge badge-light text-xs">${x.duplicate ? "duplicate" : (x.stale ? "stale" : "does not count")}</span>`}</td></tr>`).join("");
   const searchHtml = `<h4 style="margin:14px 0 6px;">Diligent search of the admitted market <span class="badge ${s.satisfied ? "badge-success" : "badge-warning"} text-xs">${s.exemption ? "Exempt" : s.count + " of " + s.required}</span></h4>
     ${s.usedDefault ? `<div class="text-xs text-muted">The required number (${s.required}) is the default; this state's own rule is not recorded.</div>` : ""}
     ${rows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Insurer</th><th>Contacted</th><th>Response</th><th>Reference</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-    ${s.exemption ? `<div class="alert alert-info text-xs" style="margin-top:6px;"><i class="ph ph-seal-check"></i> Exempt (${slEsc(s.exemption.kind.replace("_", " "))}): ${slEsc(s.exemption.reason)} — ${slEsc(s.exemption.reference)}, ${slEsc(s.exemption.by)}. ${canOverride && !bound ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="slRemoveExemption()">Remove</button>` : ""}</div>` : ""}
+    ${s.exemption ? `<div class="alert alert-info text-xs" style="margin-top:6px;"><i class="ph ph-seal-check"></i> Exempt (${escHtml(s.exemption.kind.replace("_", " "))}): ${escHtml(s.exemption.reason)} — ${escHtml(s.exemption.reference)}, ${escHtml(s.exemption.by)}. ${canOverride && !bound ? `<button class="btn btn-xs btn-outline" style="width:auto;" onclick="slRemoveExemption()">Remove</button>` : ""}</div>` : ""}
     ${canEdit && !bound ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;"><input id="sl_dsInsurer" class="form-control" style="width:230px;" placeholder="Admitted insurer contacted"><input id="sl_dsDate" type="date" class="form-control" style="width:150px;"><select id="sl_dsResponse" class="form-control" style="width:180px;"><option value="declined">Declined</option><option value="no_appetite">No appetite</option><option value="quoted">Offered cover (does not count)</option></select><input id="sl_dsRef" class="form-control" style="width:220px;" placeholder="Reference (email, case id)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slAddDeclination()">Add</button></div>` : ""}
     ${canOverride && !bound && !s.exemption ? `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;"><select id="sl_exKind" class="form-control" style="width:260px;"><option value="export_list">Class is on the state's export list</option><option value="unavailable">Coverage unavailable in the admitted market</option><option value="other">Other statutory exemption</option></select><input id="sl_exRef" class="form-control" style="width:220px;" placeholder="List entry / rule cited"><input id="sl_exWhy" class="form-control" style="flex:1;min-width:220px;" placeholder="Why the search is not needed (15+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slSetExemption()">Record exemption</button></div>` : ""}`;
 
   // broker, disclosure
   const brokerHtml = `<h4 style="margin:14px 0 6px;">Placing broker <span class="badge ${st.placer.ok ? "badge-success" : "badge-danger"} text-xs">${st.placer.ok ? "Licensed" : "Not verified"}</span></h4>
-    <div class="text-xs ${st.placer.ok ? "" : "text-danger"}">${slEsc(st.placer.reason)}</div>
-    ${canEdit && !bound ? `<div style="display:flex;gap:8px;align-items:center;margin-top:6px;"><input id="sl_placer" class="form-control" style="width:340px;" placeholder="Surplus lines broker placing the risk (blank = submitting broker)" value="${slEsc(sub.slPlacingBroker || "")}"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slSetPlacingBroker()">Set</button></div>` : ""}`;
+    <div class="text-xs ${st.placer.ok ? "" : "text-danger"}">${escHtml(st.placer.reason)}</div>
+    ${canEdit && !bound ? `<div style="display:flex;gap:8px;align-items:center;margin-top:6px;"><input id="sl_placer" class="form-control" style="width:340px;" placeholder="Surplus lines broker placing the risk (blank = submitting broker)" value="${escHtml(sub.slPlacingBroker || "")}"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slSetPlacingBroker()">Set</button></div>` : ""}`;
   const discHtml = `<h4 style="margin:14px 0 6px;">Disclosure to the insured <span class="badge ${st.disclosure ? "badge-success" : "badge-warning"} text-xs">${st.disclosure ? "Acknowledged" : "Pending"}</span></h4>
-    <details style="margin-bottom:6px;"><summary class="text-xs" style="cursor:pointer;">View disclosure wording (template)</summary><p class="text-xs" style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:6px;margin-top:6px;">${slEsc(SL_DISCLOSURE)}</p></details>
-    ${st.disclosure ? `<div class="text-xs text-muted">${slEsc(sub.slDisclosure.at)} · ${slEsc(sub.slDisclosure.by)} · ${slEsc(sub.slDisclosure.ref)}</div>` : (canEdit ? `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"><label style="font-size:12.5px;"><input type="checkbox" id="sl_ackBox"> The insured received this disclosure</label><input id="sl_ackRef" class="form-control" style="width:260px;" placeholder="How and when (reference)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slAckDisclosure()">Record acknowledgement</button></div>` : "")}`;
+    <details style="margin-bottom:6px;"><summary class="text-xs" style="cursor:pointer;">View disclosure wording (template)</summary><p class="text-xs" style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px;border-radius:6px;margin-top:6px;">${escHtml(SL_DISCLOSURE)}</p></details>
+    ${st.disclosure ? `<div class="text-xs text-muted">${escHtml(sub.slDisclosure.at)} · ${escHtml(sub.slDisclosure.by)} · ${escHtml(sub.slDisclosure.ref)}</div>` : (canEdit ? `<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;"><label style="font-size:12.5px;"><input type="checkbox" id="sl_ackBox"> The insured received this disclosure</label><input id="sl_ackRef" class="form-control" style="width:260px;" placeholder="How and when (reference)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="slAckDisclosure()">Record acknowledgement</button></div>` : "")}`;
 
   // filing
   let filingHtml = "";
   if (sub.slFiling) {
-    const f = sub.slFiling, overdue = f.status === "pending" && f.dueDate && f.dueDate < slToday();
+    const f = sub.slFiling, overdue = f.status === "pending" && f.dueDate && f.dueDate < todayIso();
     filingHtml = `<h4 style="margin:14px 0 6px;">Filing and remittance <span class="badge ${f.status === "filed" ? "badge-success" : (overdue ? "badge-danger" : "badge-warning")} text-xs">${f.status === "filed" ? "Filed" : (overdue ? "Overdue" : "Pending")}</span></h4>
-      <div class="text-xs">Tax ${f.taxDue == null ? "not calculable" : slMoney(f.taxDue)} + stamping fee ${f.stampingDue == null ? "not calculable" : slMoney(f.stampingDue)} on ${slMoney(f.basis)} for ${slEsc(f.state || "?")}. ${f.dueDate ? "Due " + slEsc(f.dueDate) + "." : "The filing deadline for this state is not configured."}${f.status === "filed" ? ` Filed ${slEsc(f.filedOn)} (ref ${slEsc(f.reference)}).` : ""}</div>
+      <div class="text-xs">Tax ${f.taxDue == null ? "not calculable" : slMoney(f.taxDue)} + stamping fee ${f.stampingDue == null ? "not calculable" : slMoney(f.stampingDue)} on ${slMoney(f.basis)} for ${escHtml(f.state || "?")}. ${f.dueDate ? "Due " + escHtml(f.dueDate) + "." : "The filing deadline for this state is not configured."}${f.status === "filed" ? ` Filed ${escHtml(f.filedOn)} (ref ${escHtml(f.reference)}).` : ""}</div>
       ${f.status !== "filed" && canEdit ? `<div style="display:flex;gap:8px;align-items:center;margin-top:6px;"><input id="sl_fileRef" class="form-control" style="width:260px;" placeholder="Filing confirmation reference"><input id="sl_fileOn" type="date" class="form-control" style="width:150px;"><button class="btn btn-sm btn-primary" style="width:auto;" onclick="slMarkFiled()">Mark filed</button></div>` : ""}`;
   }
 

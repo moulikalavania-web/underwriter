@@ -27,7 +27,7 @@
     QUOTE_VERSIONS_DATASET.length = 0; QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-F3', quotes: [{ versionId: 'QT-F3-v2.0', quoteNo: 'QT-F3-v2.0' }] });
 
     // ---------- status as a broker would say it
-    t('status: received, pending UW approval, quoted, pending bind, bound, declined, closed', [fdStatus(mk('x')), fdStatus(D), fdStatus(B), fdStatus(C), fdStatus(A), fdStatus(E), fdStatus(F)].join() === 'Received,Pending UW Approval,Quoted,Pending Bind,Bound,Declined,Closed');
+    t('status: received, pending UW approval, quoted, pending bind, bound, declined, closed', [caseStatus(mk('x')), caseStatus(D), caseStatus(B), caseStatus(C), caseStatus(A), caseStatus(E), caseStatus(F)].join() === 'Received,Pending UW Approval,Quoted,Pending Bind,Bound,Declined,Closed');
 
     // ---------- finding a case
     t('by insured name', ids(fdSearch({ text: 'metro' })) === 'SUB-F3');
@@ -107,7 +107,7 @@
 
     // ---------- the page and its tabs
     showFindPage();
-    t('Search & Lookup opens as a page with five tabs', el('findPageView').style.display === 'block' && el('navItemFind').classList.contains('active') && el('findRoot').querySelectorAll('.mw-tabs .tab-btn').length === 5);
+    t('Search & Lookup opens as a page with six tabs', el('findPageView').style.display === 'block' && el('navItemFind').classList.contains('active') && el('findRoot').querySelectorAll('.mw-tabs .tab-btn').length === 6);
     t('the Advanced tab starts by showing Recent submissions', /Recent submissions/.test(el('findRoot').innerHTML));
     el('fda_dot').value = '1234567'; fdRunAdvanced();
     t('running an advanced search lists the result', /1 result/.test(el('findRoot').innerHTML) && /SUB-F1/.test(el('findRoot').innerHTML));
@@ -127,6 +127,29 @@
     t('the page shows the customer and its submissions', /Lone Star Haulers LLC/.test(el('findRoot').innerHTML) && /SUB-F1/.test(el('findRoot').innerHTML) && /SUB-F2/.test(el('findRoot').innerHTML));
     t('a customer is found by FEIN or DOT as well', fdInsureds('551111').length === 0 && fdInsureds('55-2222222').length === 1 && fdInsureds('1234567').length === 1);
     t('a customer that is not there says so', (FD.insuredTerm = 'nobody here', fdRender(), /No customer matches/.test(el('findRoot').innerHTML)));
+
+    // ---------- the one customer view (the Unified Account View was merged into it)
+    t('the separate Unified Account page is gone: one customer view', typeof showUnifiedAccountPage === 'undefined' && typeof renderUnifiedAccountView === 'undefined' && typeof getUnifiedAccountRecords === 'undefined' && !el('unifiedAccountPageView') && !el('navItemUnifiedAccount'));
+    t('the tab is called Customer', /Customer/.test(el('findRoot').querySelector('.mw-tabs').textContent));
+    var AC1 = mk('SUB-AC1', { insured: 'Acme Trucking LLC', accountName: 'Acme Group', fein: '11-1111111', exposureVal: 2000000, losses: [{}], assignedTo: 'senior_uw' });
+    var AC2 = mk('SUB-AC2', { insured: 'Acme Property LLC', accountName: 'Acme Group', fein: '22-2222222', lobKey: 'property', lobName: 'Commercial Property', exposureVal: 3000000, assignedTo: 'senior_uw' });
+    SUBMISSIONS_DATASET.push(AC1, AC2);
+    var ac = fdInsureds('acme');
+    t('cases that name the same parent account are one customer across lines, even with different insured names and FEINs', ac.length === 1 && ac[0].name === 'Acme Group' && ac[0].subs.length === 2 && ac[0].lobs.length === 2);
+    t('a customer is also found by its parent account name', fdInsureds('acme group').length === 1 && fdInsureds('trucking llc').length === 1 && fdInsureds('trucking llc')[0].subs.length === 2);
+    t('the summary adds the totals: exposure, premium, lines and an average risk score', ac[0].exposure === 5000000 && typeof ac[0].premium === 'number' && ac[0].losses === 1 && (ac[0].avgRisk === null || typeof ac[0].avgRisk === 'number'));
+    FD.insuredTerm = 'acme'; fdTab('insured');
+    t('the page shows lines of business, total premium, total exposure and average risk score', /Lines of business/.test(el('findRoot').innerHTML) && /Total premium \(all lines\)/.test(el('findRoot').innerHTML) && /Total exposure/.test(el('findRoot').innerHTML) && /\$5,000,000/.test(el('findRoot').innerHTML) && /Average risk score/.test(el('findRoot').innerHTML));
+    t('the table shows each case with its underwriter, premium and status', /<th>Underwriter<\/th>/.test(el('findRoot').innerHTML) && /<th>Premium<\/th>/.test(el('findRoot').innerHTML) && /David Chen/.test(el('findRoot').innerHTML) && /SUB-AC2/.test(el('findRoot').innerHTML));
+    var keepRole = currentUserRole;
+    currentUserRole = 'assistant';
+    t('a role without the cross-line customer view sees only the cases it can see', !hasPermission('unifiedAccount', 'view') && fdInsureds('acme').length === 0);
+    var had = PERMISSIONS_MATRIX.assistant.unifiedAccount.view; PERMISSIONS_MATRIX.assistant.unifiedAccount.view = true;
+    t('with the view it sees every line of the customer, including cases not assigned to it', fdInsureds('acme').length === 1 && fdInsureds('acme')[0].subs.length === 2);
+    t('and the page says so', (fdRender(), /including cases not assigned to you/.test(el('findRoot').innerHTML)));
+    PERMISSIONS_MATRIX.assistant.unifiedAccount.view = had; currentUserRole = keepRole;
+    SUBMISSIONS_DATASET.splice(SUBMISSIONS_DATASET.indexOf(AC1), 1); SUBMISSIONS_DATASET.splice(SUBMISSIONS_DATASET.indexOf(AC2), 1);
+    t('"bound" is one definition everywhere', typeof fdBound === 'undefined' && typeof mwBound === 'undefined' && typeof cmBound === 'undefined' && typeof poBound === 'undefined' && typeof twBound === 'undefined' && typeof comIsBound === 'undefined' && typeof bndIsBound === 'undefined' && policyIsBound({ pasSync: { status: 'success', policyNumber: 'P1' } }) === true && policyIsBound({ pasSync: { status: 'success' } }) === false && policyIsBound({ pasSync: { status: 'failed', policyNumber: 'P1' } }) === false && policyIsBound({}) === false && policyIsBound(null) === false);
 
     // ---------- agents and brokers
     fdTab('brokers');

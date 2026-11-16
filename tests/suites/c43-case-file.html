@@ -1,0 +1,212 @@
+<!-- Suite C43: the Case File. Notes (typed, pinned, searchable, never deleted), email history (arrival email, follow-ups, quotation, logged by hand),
+     telematics loaded from a file (history, latest per vehicle, events per 1,000 miles), forms pack (empty library, add or import, mandatory forms,
+     export), additional insureds, eligibility and IFTA views, billing (payments never over the balance, void with a reason, status, overdue),
+     premium finance (schedule worked out, nothing built in), premium estimate from a rate table, quote options, and copy submission. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function day(n){ return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); }
+  function mk(id, o){ var s = { id: id, insured: 'Insured ' + id, fein: '74-1111111', broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], drivers: [], receivedTimestamp: Date.now(), receivedAt: 'Today 09:00 AM', priority: 'P3', statusText: 'x', slaText: 'x', slaCountdown: 'x' }; for (var k in (o||{})) s[k] = o[k]; return s; }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin(); currentUserRole = 'junior';
+    CF_FORMS.length = 0; CM_RATES.length = 0;
+    var S = mk('SUB-C1', { insured: 'Lone Star Haulers LLC', vehicles: [{ vin: 'V1' }, { vin: 'V2' }, { vin: 'V3' }], exposureVal: 1000000, rawEmailText: 'Hello, please quote.\nInsured: Lone Star', rawAttachments: [{ name: 'app.pdf' }], address: '9 Elm Road, Dallas, TX',
+      operationsProfile: { annual_revenue: 2400000, years_in_business: 6 }, drivers: [{ given_name: 'Pat', last_name: 'Lee' }], email: 'ops@lonestar.example', followUpEmails: [{ fromCase: 'SUB-OLD', at: '2026-11-02 10:00', by: 'X', text: 'Signed app attached', files: ['signed.pdf'] }] });
+    SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(S); activeSubmissionId = S.id;
+
+    // ---------- the page
+    showCaseFilePage();
+    t('the Case File opens as a page, with a button in the workflow bar', el('caseFilePageView').style.display === 'block' && !!el('btnFooterCaseFile'));
+    t('it has twelve tabs, notes first', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 12 && /Notes/.test(el('caseFileRoot').querySelector('.tab-btn').textContent));
+    activeSubmissionId = null; var n0 = toasts.length; showCaseFilePage();
+    t('with no case open it says so and does not open', toasts.length === n0 + 1 && /Open a case first/.test(toasts[toasts.length - 1])); activeSubmissionId = S.id;
+
+    // ---------- notes
+    t('a note needs text and a known type', !cfAddNote(S, { text: 'ab', type: 'General' }).ok && !cfAddNote(S, { text: 'A real note', type: 'Gossip' }).ok && !cfAddNote(null, { text: 'x', type: 'General' }).ok && !S.notes);
+    var n1 = cfAddNote(S, { text: 'Broker says fleet grew by 5 trucks in October.', type: 'Broker call' });
+    t('a note is saved with who wrote it and when', n1.ok && S.notes.length === 1 && n1.note.id === 'NOTE-1' && /Sarah|Underwriter/.test(n1.note.by) && !!n1.note.at && n1.note.pinned === false);
+    cfAddNote(S, { text: 'Loss run is two weeks old', type: 'Underwriting' });
+    cfAddNote(S, { text: 'Concerned about night driving', type: 'Risk concern', pinned: true });
+    t('pinned notes come first, then newest first', cfNotes(S).map(function(x){ return x.id; }).join() === 'NOTE-3,NOTE-2,NOTE-1');
+    t('a note can be pinned and unpinned', cfPinNote(S, 'NOTE-1') && cfNotes(S).map(function(x){ return x.id; }).join() === 'NOTE-3,NOTE-1,NOTE-2' && cfPinNote(S, 'NOTE-1') && cfNotes(S).map(function(x){ return x.id; }).join() === 'NOTE-3,NOTE-2,NOTE-1' && !cfPinNote(S, 'NOPE'));
+    t('notes can be searched', cfNotes(S, 'night').length === 1 && cfNotes(S, 'loss run').length === 1 && cfNotes(S, 'zzz').length === 0);
+    t('notes have no edit or delete', !/delete|Delete|Edit/.test(cfNotesHtml(S).replace(/Notes are never edited or deleted/, '')));
+    cfTab('notes');
+    el('cf_ntext').value = 'Called the broker back'; el('cf_ntype').value = 'Follow-up'; cfAddNoteForm();
+    t('the form adds a note and shows it', S.notes.length === 4 && /Called the broker back/.test(el('caseFileRoot').innerHTML));
+    el('cf_ntext').value = ''; cfAddNoteForm();
+    t('an empty note is refused', S.notes.length === 4 && /Write the note/.test(toasts[toasts.length - 1]));
+    currentUserRole = 'compliance';
+    t('a role without edit rights is told, and sees no form', !cfCanEdit(S) && !/cf_ntext/.test(cfNotesHtml(S)));
+    currentUserRole = 'junior';
+
+    // ---------- emails
+    var em = cfEmails(S);
+    t('the arrival email, the follow-up and the files are in the history', em.some(function(e){ return e.source === 'arrival' && e.direction === 'in' && /please quote/.test(e.body) && e.files.join() === 'app.pdf'; }) && em.some(function(e){ return e.source === 'follow-up' && /SUB-OLD/.test(e.subject) && e.files.join() === 'signed.pdf'; }));
+    S.issuedQuoteEmail = { payload: { to: { broker: 'Arora & Sons' } }, lines: ['QUOTE', 'Premium 5,000'], sentAt: '2026-11-10T09:30:00.000Z' };
+    em = cfEmails(S);
+    t('the quotation sent to the broker is in the history as sent', em.some(function(e){ return e.source === 'quotation' && e.direction === 'out' && e.party === 'Arora & Sons' && /Premium 5,000/.test(e.body); }));
+    t('logging an email needs a direction, a party and a subject', !cfLogEmail(S, { direction: 'x', party: 'a', subject: 'abc' }).ok && !cfLogEmail(S, { direction: 'in', party: '', subject: 'abc' }).ok && !cfLogEmail(S, { direction: 'in', party: 'a', subject: 'a' }).ok);
+    var le = cfLogEmail(S, { direction: 'out', party: 'broker@arora.example', subject: 'Need updated loss runs', body: 'Please send', at: '2026-11-12 08:00' });
+    t('a logged email is kept on the case', le.ok && S.emailLog.length === 1 && cfEmails(S).some(function(e){ return e.id === 'EML-1' && e.subject === 'Need updated loss runs'; }));
+    t('the history is newest first', cfEmails(S)[0].at >= cfEmails(S)[cfEmails(S).length - 1].at);
+    cfTab('emails');
+    t('the page lists the messages and a form to log one', /Submission email as received/.test(el('caseFileRoot').innerHTML) && /Log an email/.test(el('caseFileRoot').innerHTML));
+    var bare = mk('SUB-C2'); t('a case with no messages says so', /No messages on this case yet/.test(cfEmailsHtml(bare)));
+
+    // ---------- telematics
+    var csv = 'unit,period_start,period_end,miles,hard_brake,speeding,harsh_accel,score\nV1,2026-10-01,2026-10-31,10000,20,10,5,82\nV2,2026-10-01,2026-10-31,5000,5,0,1,91\n,2026-10-01,2026-10-31,100,1,1,1,50\nV3,2026-10-01,2026-10-31,abc,1,1,1,50';
+    var p = cfParseTelematics(csv, 'tel.csv');
+    t('a telematics CSV is read; rows that cannot be read are listed, not guessed', p.ok && p.rows.length === 2 && p.skipped.length === 2 && /no unit/.test(p.skipped[0].reason) && /miles/.test(p.skipped[1].reason));
+    t('JSON is read too', cfParseTelematics(JSON.stringify([{ unit: 'A', miles: 100, score: 70 }]), 'x.json').rows.length === 1 && cfParseTelematics(JSON.stringify({ rows: [{ vin: 'B', miles: 50 }] }), 'x.json').rows[0].unit === 'B');
+    t('a file with nothing readable is refused', !cfParseTelematics('foo', 'x.csv').ok && !cfParseTelematics('unit,miles\n,1', 'x.csv').ok && !cfParseTelematics('{bad', 'x.json').ok);
+    t('with nothing loaded the tab says so', /No telematics data has been loaded/.test(cfTelematicsHtml(S)));
+    var l1 = cfAddTelematics(S, csv, 'tel.csv');
+    t('a load is kept with its file, who and when', l1.ok && S.telematics.length === 1 && l1.load.file === 'tel.csv' && l1.load.rows.length === 2);
+    cfAddTelematics(S, 'unit,miles,hard_brake\nV1,12000,30', 'later.csv');
+    var sum = cfTelematicsSummary(S);
+    t('the summary takes the latest row for each vehicle', sum.vehicles === 2 && sum.rows.filter(function(r){ return r.unit === 'V1'; })[0].miles === 12000 && sum.miles === 17000);
+    t('events per 1,000 miles are worked out', sum.hardBrakePer1000 === Math.round((30 + 5) / 17000 * 1000 * 100) / 100 && sum.speedingPer1000 === null || sum.speedingPer1000 !== undefined);
+    t('a figure no row carries is "not given", never zero', cfTelematicsSummary({ telematics: [{ rows: [{ unit: 'A', miles: 100, hardBrake: null, speeding: null, accel: null, score: null }] }] }).hardBrakePer1000 === null && cfTelematicsSummary({ telematics: [] }).vehicles === 0);
+    cfTab('telematics');
+    t('the page shows the fleet figures, the vehicles and the history of loads', /Hard brakes per 1,000 mi/.test(el('caseFileRoot').innerHTML) && /Latest by vehicle/.test(el('caseFileRoot').innerHTML) && /later.csv/.test(el('caseFileRoot').innerHTML) && /tel.csv/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- forms pack
+    t('the forms library starts empty and the tab says so', /library is empty/.test(cfFormsHtml(S)));
+    t('a form needs a number, a title, a known line and is not added twice', !cfAddForm({ number: '', title: 'Title here' }).ok && !cfAddForm({ number: 'F1', title: 'ab' }).ok && !cfAddForm({ number: 'F1', title: 'Title here', lobs: 'moon' }).ok && CF_FORMS.length === 0);
+    var f1 = cfAddForm({ number: 'FORM-A', title: 'Truckers coverage form', edition: '10 13', lobs: 'trucking', mandatory: true });
+    var f2 = cfAddForm({ number: 'FORM-B', title: 'Hired and non-owned auto', edition: '01 20', lobs: ['trucking'] });
+    var f3 = cfAddForm({ number: 'FORM-C', title: 'Property valuation', lobs: 'property' });
+    var f4 = cfAddForm({ number: 'FORM-D', title: 'Applies to every line' });
+    t('forms are added to the library and kept in the browser', f1.ok && f2.ok && f3.ok && f4.ok && JSON.parse(localStorage.getItem(CF_FORMS_KEY)).length === 4);
+    t('the same form and edition is refused', !cfAddForm({ number: 'form-a', title: 'Again here', edition: '10 13' }).ok && cfAddForm({ number: 'FORM-A', title: 'New edition', edition: '05 25', lobs: 'trucking' }).ok);
+    t('a case sees the forms for its line and the ones for every line', cfFormsFor(S).map(function(f){ return f.number; }).sort().join() === 'FORM-A,FORM-A,FORM-B,FORM-D');
+    t('a mandatory form is on the pack without being ticked, and cannot be unticked', cfSelectedForms(S).some(function(f){ return f.id === f1.form.id; }) && !cfToggleForm(S, f1.form.id, false));
+    t('an optional form can be ticked and unticked', cfToggleForm(S, f2.form.id, true) && cfSelectedForms(S).some(function(f){ return f.id === f2.form.id; }) && cfToggleForm(S, f2.form.id, false) && !cfSelectedForms(S).some(function(f){ return f.id === f2.form.id; }));
+    t('a form for another line cannot be ticked', !cfToggleForm(S, f3.form.id, true));
+    cfToggleForm(S, f2.form.id, true);
+    t('who changed the pack and when is kept', /Sarah|Underwriter/.test(cfPack(S).updatedBy) && !!cfPack(S).updatedAt);
+    var csvOut = cfFormsCsv(S);
+    t('the export lists the case, who exported it, and the chosen forms with edition and mandatory', /SUB-C1/.test(csvOut) && /Exported by/.test(csvOut) && /"FORM-A","Truckers coverage form","10 13","Yes"/.test(csvOut) && /"FORM-B","Hired and non-owned auto","01 20","No"/.test(csvOut) && !/FORM-C/.test(csvOut));
+    var imp = cfImportForms('number,title,edition,lobs,mandatory\nIMP-1,Imported form one,01 21,trucking,yes\nIMP-2,x,01 21,trucking,no\nIMP-3,Imported three,,moon,no');
+    t('a CSV import adds the good rows and lists the bad ones', imp.added === 1 && imp.skipped.length === 2 && CF_FORMS.some(function(f){ return f.number === 'IMP-1' && f.mandatory; }));
+    cfTab('forms');
+    t('the page lists the forms with a tick box, a Mandatory label and an export button', /FORM-B/.test(el('caseFileRoot').innerHTML) && /Mandatory/.test(el('caseFileRoot').innerHTML) && /Export list/.test(el('caseFileRoot').innerHTML));
+    t('the library form is shown only to a role that may edit review rules', (function(){ var shown = false, hidden = false, keep = currentUserRole; ['admin','senior_uw','senior','junior','assistant','compliance'].forEach(function(r){ currentUserRole = r; if (hasPermission('reviewRules', 'edit')) shown = shown || /Forms library/.test(cfFormsHtml(S)); else hidden = hidden || !/Forms library/.test(cfFormsHtml(S)); }); currentUserRole = keep; return shown && hidden; })());
+
+    // ---------- additional insureds
+    t('an additional insured needs a name, a relationship and a basis', !cmAddAI(S, { name: 'a', kind: 'Landlord', basis: 'Specific' }).ok && !cmAddAI(S, { name: 'First Bank', kind: 'Pirate', basis: 'Specific' }).ok && !cmAddAI(S, { name: 'First Bank', kind: 'Lender / loss payee', basis: 'Maybe' }).ok);
+    var ai = cmAddAI(S, { name: 'First Bank', kind: 'Lender / loss payee', basis: 'Specific', address: '1 Bank St' });
+    t('it is added and logged', ai.ok && S.additionalInsureds.length === 1 && S.decisionLog.some(function(d){ return d.decision === 'additional_insured_added'; }));
+    t('the same party in the same role is refused while active', !cmAddAI(S, { name: 'first bank', kind: 'Lender / loss payee', basis: 'Specific' }).ok && cmAddAI(S, { name: 'First Bank', kind: 'Landlord', basis: 'Blanket' }).ok);
+    t('ending needs a reason, and it is kept rather than deleted', !cmEndAI(S, 'AI-1', 'no').ok && cmEndAI(S, 'AI-1', 'Loan paid off').ok && S.additionalInsureds.length === 2 && !!S.additionalInsureds[0].endedAt && !cmEndAI(S, 'AI-1', 'Loan paid off again').ok);
+    t('a certificate holder is not an additional-insured kind: it is recorded once, on the certificate', CM_AI_KINDS.indexOf('Certificate holder') < 0 && !cmAddAI(S, { name: 'Holder Co', kind: 'Certificate holder', basis: 'Specific' }).ok);
+    S.certificates = [{ id: 'CRT-9', holderName: 'Holder Co', holderType: 'Mortgagee', status: 'issued' }, { id: 'CRT-10', status: 'issued' }];
+    t('the tab lists the certificate holders from the certificates, read-only, and skips a certificate with no holder', cmCertHolders(S).length === 1 && cmCertHolders(S)[0].name === 'Holder Co' && /Certificate holders/.test(cmAIHtml(S)) && /Holder Co/.test(cmAIHtml(S)) && /from Certificates/.test(cmAIHtml(S)) && !/Holder Co<\/strong><\/td><td>[^<]*<\/td><td>[^<]*<\/td><td>[^<]*<\/td><td><button/.test(cmAIHtml(S)));
+    S.certificates = [];
+    t('once ended it can be listed again', cmAddAI(S, { name: 'First Bank', kind: 'Lender / loss payee', basis: 'Specific' }).ok);
+
+    // ---------- eligibility and IFTA (views)
+    t('Eligibility says where the questions come from when there are none', /come from the product/.test(cmEligibilityHtml(mk('E1'))));
+    var E = mk('E2', { questionnaireGroups: [{ title: 'Operations', items: [{ q: 'Hazmat hauled?', a: 'No' }, { q: 'Radius of operation', a: null }] }], appetiteRules: [{ factor: 'Fleet age', val: '4', guardrail: '<= 10', pass: true }, { factor: 'Driver age', val: '19', guardrail: '>= 21', pass: false }] });
+    var eh = cmEligibilityHtml(E);
+    t('Eligibility shows each question with its answer, "Not Provided" where there is none, and the appetite rules', /Hazmat hauled/.test(eh) && /No/.test(eh) && /Not Provided/.test(eh) && /Fleet age/.test(eh) && /badge-success/.test(eh) && /badge-danger/.test(eh));
+    t('IFTA says so when no report was read', /No IFTA report/.test(cmIftaHtml(mk('I1'))));
+    var I = mk('I2', { iftaData: { reports: [{ rows: [{ state: 'TX', miles: 90000, gallons: 15000 }, { state: 'OK', miles: 10000, gallons: 1600 }] }, { rows: [{ state: 'TX', miles: 80000, gallons: 13000 }] }] }, operationsProfile: { annual_mileage: 400000 }, riskStateSet: { state: 'TX' } });
+    var ih = cmIftaHtml(I);
+    t('IFTA shows miles, annualised miles, mpg, home-state share and the jurisdictions', /Miles read/.test(ih) && /180,000/.test(ih) && /Annualised miles/.test(ih) && /Miles per gallon/.test(ih) && /Miles in TX/.test(ih) && /OK/.test(ih));
+    cfTab('ifta'); cfTab('elig'); cfTab('ai');
+    t('the three tabs render for the open case', /First Bank/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- billing
+    t('before the bind there is no invoice and no payment can be recorded', cmBillStatus(S) === 'No invoice' && !cmRecordPayment(S, { date: day(0), amount: 10, method: 'Check', reference: 'C1' }).ok && /No invoice yet/.test(cmBillingHtml(S)));
+    t('premium finance cannot be recorded before the bind', !cmSetFinance(S, { company: 'Acme Finance', down: 0, charge: 0, n: 4, firstDue: day(30) }).ok);
+    S.pasSync = { status: 'success', policyNumber: 'POL-1', effectiveDate: day(0) };
+    S.invoice = { invoiceNumber: 'INV-1', issuedAt: day(-10) + 'T10:00:00Z', paymentDue: day(20) + 'T00:00:00Z', policyNumber: 'POL-1', billingModel: 'Agency Bill', grossPremium: 9000, brokerFee: 500, surplusTax: 300, stampingFee: 200, totalCharges: 10000, netDueToMga: 8800 };
+    t('after the bind the status is Unpaid with the whole amount as the balance', cmBillStatus(S) === 'Unpaid' && cmBalance(S) === 10000 && cmTotalDue(S) === 10000);
+    t('a payment needs an amount, a date not in the future, a method and a reference', !cmRecordPayment(S, { date: day(0), amount: 0, method: 'Check', reference: 'C1' }).ok && !cmRecordPayment(S, { date: day(1), amount: 100, method: 'Check', reference: 'C1' }).ok && !cmRecordPayment(S, { date: day(0), amount: 100, method: 'Barter', reference: 'C1' }).ok && !cmRecordPayment(S, { date: day(0), amount: 100, method: 'Check', reference: '' }).ok && !cmRecordPayment(S, { date: 'soon', amount: 100, method: 'Check', reference: 'C1' }).ok);
+    t('a payment above the balance is refused', !cmRecordPayment(S, { date: day(0), amount: 10000.01, method: 'Check', reference: 'C1' }).ok && cmPaid(S) === 0);
+    var pay1 = cmRecordPayment(S, { date: day(-1), amount: 4000, method: 'Check', reference: 'CHK-1001' });
+    t('a payment is recorded and the status is Partial', pay1.ok && cmPaid(S) === 4000 && cmBalance(S) === 6000 && cmBillStatus(S) === 'Partial' && S.decisionLog.some(function(d){ return d.decision === 'payment_recorded'; }));
+    t('past the due date a balance is Overdue', cmBillStatus(S, day(21)) === 'Overdue' && cmBillStatus(S, day(19)) === 'Partial');
+    t('voiding needs a reason, takes the payment out of the total, and the record stays', !cmVoidPayment(S, 'PAY-1', 'no').ok && cmVoidPayment(S, 'PAY-1', 'Check bounced').ok && cmPaid(S) === 0 && cmBilling(S).payments.length === 1 && !cmVoidPayment(S, 'PAY-1', 'Check bounced again').ok);
+    cmRecordPayment(S, { date: day(0), amount: 10000, method: 'Wire', reference: 'WIRE-9' });
+    t('the full balance makes it Paid, and nothing more can be taken', cmBillStatus(S) === 'Paid' && cmBalance(S) === 0 && !cmRecordPayment(S, { date: day(0), amount: 1, method: 'Check', reference: 'C2' }).ok);
+    cfTab('billing');
+    t('the page shows the invoice, the status, the payments and the voided one', /INV-1/.test(el('caseFileRoot').innerHTML) && /Paid/.test(el('caseFileRoot').innerHTML) && /Check bounced/.test(el('caseFileRoot').innerHTML) && /WIRE-9/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- premium finance
+    var G = mk('SUB-C3', { fein: '55-0000003', pasSync: { status: 'success', policyNumber: 'POL-3' }, invoice: { invoiceNumber: 'INV-3', issuedAt: day(-1) + 'T10:00:00Z', paymentDue: day(30) + 'T00:00:00Z', totalCharges: 10000, grossPremium: 9000 } });
+    SUBMISSIONS_DATASET.push(G); activeSubmissionId = G.id;
+    var base = { company: 'Acme Premium Finance', down: 2000, charge: 240, n: 4, firstDue: day(30) };
+    t('finance needs a company, a sensible down payment, a charge typed in, 2 to 12 instalments and a date after the invoice', !cmSetFinance(G, Object.assign({}, base, { company: '' })).ok && !cmSetFinance(G, Object.assign({}, base, { down: 10000 })).ok && !cmSetFinance(G, Object.assign({}, base, { down: -1 })).ok && !cmSetFinance(G, Object.assign({}, base, { charge: '' })).ok && !cmSetFinance(G, Object.assign({}, base, { n: 1 })).ok && !cmSetFinance(G, Object.assign({}, base, { n: 13 })).ok && !cmSetFinance(G, Object.assign({}, base, { firstDue: day(-5) })).ok);
+    var fin = cmSetFinance(G, base);
+    t('financing is recorded: financed amount is the total less the down payment', fin.ok && fin.finance.financed === 8000 && fin.finance.charge === 240 && fin.finance.n === 4);
+    t('the schedule splits financed plus charge, and the last instalment takes the rounding', fin.finance.schedule.length === 4 && fin.finance.schedule.reduce(function(a, i){ return a + i.amount; }, 0).toFixed(2) === '8240.00' && fin.finance.schedule[0].amount === 2060);
+    t('rounding is absorbed by the last instalment', (function(){ var s = cmSchedule(1000, 0, 3, '2026-01-31'); return s[0].amount === 333.33 && s[1].amount === 333.33 && s[2].amount === 333.34 && s.reduce(function(a, i){ return a + i.amount; }, 0).toFixed(2) === '1000.00'; })());
+    t('instalment dates are monthly and stay inside short months', (function(){ var s = cmSchedule(100, 0, 3, '2026-01-31'); return s[0].due === '2026-01-31' && s[1].due === '2026-02-28' && s[2].due === '2026-03-31'; })());
+    t('a second arrangement is refused while one is active', !cmSetFinance(G, base).ok);
+    t('an instalment can be marked paid, once', cmPayInstallment(G, 1) && !!cmBilling(G).finance.schedule[0].paidAt && !cmPayInstallment(G, 1) && !cmPayInstallment(G, 99));
+    G.cancellation = { eventId: 'CAN-1', status: 'pending' }; cfTab('billing');
+    t('a cancellation on a financed policy warns that the return goes to the finance company', /finance company, not the insured/.test(el('caseFileRoot').innerHTML));
+    t('ending finance needs a reason and is logged', !cmEndFinance(G, 'no').ok && cmEndFinance(G, 'Paid in full by the insured').ok && cmBilling(G).finance.status === 'ended' && G.decisionLog.some(function(d){ return d.decision === 'premium_finance_cancelled'; }));
+    t('after it ends a new arrangement can be recorded', cmSetFinance(G, base).ok);
+    t('no finance charge or rate is built in', !/\d+(\.\d+)?%\s*APR/i.test(cmBillingHtml(mk('B0'))));
+
+    // ---------- premium estimate
+    activeSubmissionId = S.id; S.pasSync = null; delete S.invoice;
+    t('with no rate loaded the estimate says so', !cmEstimate(S).ok && /No rate is loaded/.test(cmEstimate(S).message));
+    t('a rate needs a line, a basis, a rate above 0, a minimum of 0 or more and a date', !cmAddRate({ lobKey: 'moon', basis: 'power_unit', rate: 10, effective: day(0) }).ok && !cmAddRate({ lobKey: 'trucking', basis: 'wat', rate: 10, effective: day(0) }).ok && !cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 0, effective: day(0) }).ok && !cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 10, minPremium: -1, effective: day(0) }).ok && !cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 10, effective: 'x' }).ok);
+    cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 2500, minPremium: 1000, effective: day(-30) });
+    var est = cmEstimate(S);
+    t('per power unit: 3 vehicles at the rate', est.ok && est.premium === 7500 && est.units === 3);
+    cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 3000, effective: day(10) });
+    t('a rate that is not yet effective is not used; the latest effective one is', cmEstimate(S).premium === 7500 && cmEstimate(S, day(11)).premium === 9000);
+    cmAddRate({ lobKey: 'trucking', basis: 'tiv', rate: 0.5, minPremium: 0, effective: day(-1) });
+    t('per $100 of value', cmEstimate(S).premium === 5000 && cmEstimate(S).units === 10000);
+    cmAddRate({ lobKey: 'trucking', basis: 'revenue', rate: 3, effective: day(0) });
+    t('per $1,000 of revenue', cmEstimate(S).premium === 7200);
+    cmAddRate({ lobKey: 'trucking', basis: 'power_unit', rate: 100, minPremium: 5000, effective: day(0) });
+    t('the minimum premium applies when the figure is lower', cmEstimate(S).premium === 5000 && cmEstimate(S).minApplied === true);
+    S.vehicles = []; t('no vehicles to rate says so', !cmEstimate(S).ok && /no vehicles/.test(cmEstimate(S).message)); S.vehicles = [{ vin: 'V1' }, { vin: 'V2' }, { vin: 'V3' }];
+    S.discretionaryPricing = { basePremium: 6000, finalPremium: 6000 };
+    t('the estimate is compared with the imported rating and the difference is shown', (function(){ var e = cmEstimate(S); return e.ok && (!e.compare || typeof e.compare.pct === 'number'); })());
+    cfTab('quote');
+    t('the page labels it an estimate only and shows the rate table', /Estimate only/.test(el('caseFileRoot').innerHTML) && /Rate table/.test(el('caseFileRoot').innerHTML));
+
+    // ---------- quote options
+    t('without a quote there is nothing to copy', !cmAddQuoteOption(S, { label: 'Option B', premium: 5000 }).ok && /no quote/i.test(cmAddQuoteOption(S, { label: 'Option B', premium: 5000 }).message));
+    QUOTE_VERSIONS_DATASET.length = 0;
+    QUOTE_VERSIONS_DATASET.push({ subId: 'SUB-C1', insured: 'Lone Star', quotes: [{ versionId: 'QT-1-v1.0', versionTag: 'v1.0', quoteNo: 'QT-1-v1.0', type: 'Underwriter Issued Quote', premium: 6000, finalPremium: 6000, liabilityLimit: '$1,000,000 CSL', pdDeductible: '$1,000', status: 'Official Bindable Quote', statusBadge: 'badge-primary', isBound: false, isLatest: true }] });
+    t('an option needs a name and a premium', !cmAddQuoteOption(S, { label: '', premium: 5000 }).ok && !cmAddQuoteOption(S, { label: 'Option B', premium: 0 }).ok);
+    var opt = cmAddQuoteOption(S, { label: 'Option B', limit: '$2,000,000 CSL', deductible: '$2,500', premium: 7000 });
+    var ent = QUOTE_VERSIONS_DATASET[0];
+    t('an option copies the quote with its own limit, deductible and premium', opt.ok && ent.quotes.length === 2 && opt.quote.versionId === 'QT-1-v1.0-opt1' && opt.quote.liabilityLimit === '$2,000,000 CSL' && opt.quote.pdDeductible === '$2,500' && opt.quote.finalPremium === 7000 && opt.quote.copyOf === 'QT-1-v1.0');
+    t('it is never the bindable quote and the original stays the latest', opt.quote.isLatest === false && opt.quote.isOption === true && opt.quote.status === 'Quote Option' && ent.quotes[0].isLatest === true && ent.quotes[0].status === 'Official Bindable Quote');
+    t('an option with the same name is refused; a blank limit keeps the quote\'s', !cmAddQuoteOption(S, { label: 'option b', premium: 7000 }).ok && cmAddQuoteOption(S, { label: 'Option C', premium: 6500 }).quote.liabilityLimit === '$1,000,000 CSL');
+    t('options are copied from the quote, not from an earlier option', ent.quotes[2].copyOf === 'QT-1-v1.0');
+    t('the ledger lists the quote and the options, and a bound case takes no more', (cfTab('quote'), /Option: Option B/.test(el('caseFileRoot').innerHTML)) && (S.pasSync = { status: 'success', policyNumber: 'P' }, !cmAddQuoteOption(S, { label: 'Option D', premium: 1 }).ok));
+    S.pasSync = null;
+
+    // ---------- copy submission
+    var C = SUBMISSIONS_DATASET.length;
+    t('only the Head of Underwriting can copy a submission', !cmCopySubmission(S, {}).ok && SUBMISSIONS_DATASET.length === C); currentUserRole = 'admin';
+    S.notes = S.notes || [{ id: 'NOTE-1' }]; S.pasSync = { status: 'success', policyNumber: 'POL-X' };
+    var cp = cmCopySubmission(S, { lobKey: 'property', note: 'Property line for the same customer' });
+    var N = cp.sub;
+    t('a copy is a new case with a new id, for the chosen line', cp.ok && N.id !== S.id && N.lobKey === 'property' && SUBMISSIONS_DATASET[0].id === N.id && N.copiedFrom === 'SUB-C1');
+    t('it carries the insured, address, vehicles, drivers and operations', N.insured === S.insured && N.address === S.address && N.vehicles.length === 3 && N.drivers.length === 1 && N.operationsProfile.years_in_business === 6);
+    t('what it carries is a copy, not the same objects', N.vehicles !== S.vehicles && N.vehicles[0] !== S.vehicles[0] && (N.vehicles[0].vin = 'CHANGED', S.vehicles[0].vin === 'V1'));
+    t('it does not carry the quotes, notes, documents, policy or invoice', !N.notes && !N.pasSync && !N.invoice && N.docs.length === 0 && !QUOTE_VERSIONS_DATASET.some(function(q){ return q.subId === N.id; }) && !N.issuedQuoteEmail);
+    t('both cases record the copy', S.decisionLog.some(function(d){ return d.decision === 'submission_copied' && d.notes.indexOf(N.id) > -1; }) && N.decisionLog.some(function(d){ return d.decision === 'submission_copied' && /SUB-C1/.test(d.notes); }));
+    t('the copy goes through Phase 1 and its FEIN is not flagged as a duplicate of the case it came from', !!N.phase1 && !!N.phase1.checks && N.phase1.checks.fein.status === 'pass', JSON.stringify(N.phase1 && N.phase1.checks && N.phase1.checks.fein));
+    t('a different, unrelated case with the same FEIN is still a duplicate', (function(){ var X = mk('SUB-X9', { fein: '74-1111111' }); SUBMISSIONS_DATASET.push(X); var fx = p1CheckFein(X), fn = p1CheckFein(N); return fx.status === 'fail' && fx.lines.some(function(l){ return /SUB-C1/.test(l.text); }) && fn.status === 'fail' && !fn.lines.some(function(l){ return /SUB-C1/.test(l.text); }) && fn.lines.some(function(l){ return /SUB-X9/.test(l.text); }); })());
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n').slice(0,3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

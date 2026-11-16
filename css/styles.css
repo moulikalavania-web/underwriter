@@ -8431,3 +8431,17 @@ body.has-bottom-footer .app-layout {
 .cf-note-h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; margin-bottom: 4px; }
 .cf-note-t { white-space: pre-wrap; font-size: 14px; }
 .cf-pre { white-space: pre-wrap; background: var(--bg-subtle); border-radius: 6px; padding: 10px; font-size: 12px; max-height: 260px; overflow: auto; margin: 6px 0 0; }
+#policiesPageView { max-width: 1200px; }
+#reportsPageView { max-width: 1400px; }
+.rp-layout { display: grid; grid-template-columns: 230px 1fr; gap: 16px; align-items: start; margin-top: 12px; }
+.rp-list { display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; }
+.rp-item { text-align: left; background: var(--color-panel); border: 1px solid var(--bg-subtle); border-radius: 8px; padding: 9px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.rp-item.sel { border-color: var(--color-brand); box-shadow: 0 0 0 2px var(--color-brand); font-weight: 700; }
+.rp-na { font-size: 12px; color: var(--text-muted); padding: 8px 4px; }
+.rp-body { min-width: 0; }
+.tw-chat { background: var(--bg-subtle); border-radius: 10px; padding: 10px; max-height: 380px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.tw-msg { background: var(--color-panel); border-radius: 8px; padding: 6px 10px; font-size: 13px; max-width: 80%; align-self: flex-start; }
+.tw-msg.mine { align-self: flex-end; background: var(--color-brand-light); }
+.tw-msg-h { font-size: 11px; }
+.tw-at { color: var(--color-brand-dark); font-weight: 700; }
+@media (max-width: 900px) { .rp-layout { grid-template-columns: 1fr; } .rp-list { position: static; flex-direction: row; flex-wrap: wrap; } }

@@ -40,7 +40,7 @@ call functions from modules that were loaded **before** it in `index.html`.
 | **data-config.js** | Seed submission dataset, LOB catalog, user roles/personas, permissions, Underwriting Discretionary Pricing (Post-Rating) engine |
 | **shell-navigation.js** | App shell: top nav, sidebar, page routing (`showXPage()` functions), role switcher, localStorage save/restore |
 | **archive-decline-team.js** | Decline Center, Archive, Team Activity screens |
-| **audit-intelligence-admin.js** | Audit Log, Quote Intelligence, Unified Account View, User Master (admin) |
+| **audit-intelligence-admin.js** | Audit Log, Quote Intelligence, User Master (admin); the cross-line customer view is the Customer tab of Search & Lookup |
 | **intake-dashboard-assignment.js** | Submission Intake table, Assignment Dashboard, submission detail card |
 | **case-documents-downstream.js** | Document Ingestion (Screen 2), Underwriting Workbench (Screen 5), Authority Desk (Screen 6), document preview modals |
 | **quote-bind-pas.js** | Rating Engine payload viewer, Quote & Bind (Screen 8), PAS/Policy screens, Discretionary Pricing UI |
@@ -63,6 +63,19 @@ approving or declining. Appetite limits are placeholders in `P1_APPETITE`. Tests
 `js/clearance-board.js` draws one verdict, a five-gate lane (producer licence, sanctions, broker of record, FEIN duplicate,
 appetite) and a short "what needs you" list; the existing cards sit inside folded gates and only the gates that need a person
 open by themselves. The rules and the hold on leaving Step 2 are unchanged. Tests: `tests/suites/c40-clearance-board.html`.
+
+## Underwriter work areas (added after Phase 1)
+
+| File | What it adds |
+|---|---|
+| `js/my-work.js` | My Work: follow-up tasks and the seven exception queues |
+| `js/find-lookup.js` | Header search, Recent, queue filters, Search & Lookup (advanced search, insured, agents and brokers, companies, phone book) |
+| `js/case-file.js`, `js/case-money.js` | Case File: notes, email history, telematics, forms pack, additional insured, eligibility, IFTA, billing and premium finance, premium estimate, quote options, copy submission, reopen quote |
+| `js/policy-ops.js` | Policies: expiring and expired, batch review and expiration letters, claim renewals, endorsement requests, transfers, underwriter change, cancellation report |
+| `js/reports.js`, `js/state-guidelines.js` | Reports library (12-month matrix, loss run, aggregate exposure and more) and the state guidelines register read by Phase 1 |
+| `js/team-tools.js` | Mailman, print queue, tickets, notice board, chat, audit and loss control, calculator, profile and password |
+
+Nothing here ships demo data or built-in rates; reference data is entered or loaded. Tests: `c41` to `c46` in `tests/suites/`.
 
 ## Add-on modules
 

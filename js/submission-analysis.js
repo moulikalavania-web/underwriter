@@ -99,8 +99,8 @@ function renderLossRunAnalysis(sub) {
         ${a.terms.map(t => `<tr><td>${t.label}</td><td>${t.rows ? t.claims : '<span class="text-muted">no loss run</span>'}</td><td>${t.rows ? anUsd(t.incurred) : "—"}</td><td>${t.rows ? t.open : "—"}</td><td>${t.rows ? anUsd(t.largest) : "—"}</td></tr>`).join("")}
         <tr><td><strong>Total</strong></td><td><strong>${a.claims}</strong></td><td><strong>${anUsd(a.incurred)}</strong></td><td><strong>${a.open}</strong></td><td><strong>${anUsd(a.largest)}</strong></td></tr>
       </tbody></table>
-      <p class="ws-small text-muted" style="margin:8px 0 0;">Average claim ${anUsd(a.average)} · frequency ${a.trend} · valuation date ${a.valued ? wsEsc(a.valued) : "not stated"}. A large claim is ${anUsd(ANALYSIS_LARGE_LOSS)} or more.</p>`}
-      ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${wsEsc(f.text)}</li>`).join("")}</ul>` : ""}
+      <p class="ws-small text-muted" style="margin:8px 0 0;">Average claim ${anUsd(a.average)} · frequency ${a.trend} · valuation date ${a.valued ? escHtml(a.valued) : "not stated"}. A large claim is ${anUsd(ANALYSIS_LARGE_LOSS)} or more.</p>`}
+      ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${escHtml(f.text)}</li>`).join("")}</ul>` : ""}
     </div>
   </div>`;
 }
@@ -194,14 +194,14 @@ function renderSov(sub) {
   const loc = sov.kind === "locations";
   const head = loc ? "<th>Loc</th><th>Address</th><th>Building</th><th>Contents</th><th>Business income</th><th>TIV</th><th>Construction</th><th>Source</th>" : "<th>Unit</th><th>Vehicle</th><th>VIN</th><th>Type</th><th>Stated value</th>";
   const body = sov.rows.map(r => loc
-    ? `<tr><td>${wsEsc(r.loc)}</td><td>${wsEsc(r.address)}</td><td>${anUsd(r.building)}</td><td>${anUsd(r.contents)}</td><td>${anUsd(r.bi)}</td><td>${anUsd(r.tiv)}</td><td>${wsEsc(r.construction || "—")}</td><td class="ws-small">${wsEsc(r.sourceDocument || "")}</td></tr>`
-    : `<tr><td>${wsEsc(r.loc)}</td><td>${wsEsc(r.address)}</td><td class="font-mono ws-small">${wsEsc(r.vin || "—")}</td><td>${wsEsc(r.type || "—")}</td><td>${anUsd(r.tiv)}</td></tr>`).join("");
+    ? `<tr><td>${escHtml(r.loc)}</td><td>${escHtml(r.address)}</td><td>${anUsd(r.building)}</td><td>${anUsd(r.contents)}</td><td>${anUsd(r.bi)}</td><td>${anUsd(r.tiv)}</td><td>${escHtml(r.construction || "—")}</td><td class="ws-small">${escHtml(r.sourceDocument || "")}</td></tr>`
+    : `<tr><td>${escHtml(r.loc)}</td><td>${escHtml(r.address)}</td><td class="font-mono ws-small">${escHtml(r.vin || "—")}</td><td>${escHtml(r.type || "—")}</td><td>${anUsd(r.tiv)}</td></tr>`).join("");
   box.innerHTML = `<div class="card">
     <div class="card-header"><h3><i class="ph ph-table"></i> Statement of values (${loc ? "locations" : "scheduled units"})</h3>${a.flags.some(f => f.level === "warn") ? '<span class="badge badge-warning">Check</span>' : '<span class="badge badge-success">Consistent</span>'}</div>
     <div class="card-body">
       <table class="data-table"><thead><tr>${head}</tr></thead><tbody>${body}<tr><td colspan="${loc ? 5 : 4}"><strong>Total (${a.count})</strong></td><td colspan="${loc ? 3 : 1}"><strong>${anUsd(a.total)}</strong></td></tr></tbody></table>
       ${a.stated ? `<p class="ws-small text-muted" style="margin:8px 0 0;">Total stated in the documents: ${anUsd(a.stated)}.</p>` : ""}
-      ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${wsEsc(f.text)}</li>`).join("")}</ul>` : ""}
+      ${a.flags.length ? `<ul class="email-digest-flag-list" style="list-style:none; padding-left:0; margin-top:10px;">${a.flags.map(f => `<li><span class="badge ${f.level === "warn" ? "badge-warning" : "badge-light"}">${f.level === "warn" ? "Check" : "Note"}</span> ${escHtml(f.text)}</li>`).join("")}</ul>` : ""}
     </div>
   </div>`;
 }
@@ -263,7 +263,7 @@ function renderAppetiteMatch(sub) {
         <div><div class="ws-small text-muted">Risk score</div><div style="font-size:24px; font-weight:700;">${m.risk === null ? "—" : m.risk}</div><div class="ws-small text-muted">${m.band ? m.band.label : ""}</div></div>
         <div><div class="ws-small text-muted">Overrides in use</div><div style="font-size:24px; font-weight:700;">${m.overridden.length}</div><div class="ws-small text-muted">rules passed by an approver</div></div>
       </div>
-      ${m.failed.length ? `<table class="data-table"><thead><tr><th>Rule that failed</th><th>Submitted</th><th>Required</th><th>Can be overridden</th></tr></thead><tbody>${m.failed.map(r => `<tr><td>${wsEsc(r.factor)}</td><td>${wsEsc(r.val)}</td><td>${wsEsc(r.guardrail || (r.operator + " " + r.baseValue))}</td><td>${r.canOverride === false ? '<span class="badge badge-danger">No</span>' : '<span class="badge badge-warning">By an approver</span>'}</td></tr>`).join("")}</tbody></table>` : (m.total ? '<p class="text-sm" style="margin:0;"><i class="ph ph-check-circle text-success"></i> Every appetite rule passes.</p>' : '<p class="text-sm text-muted" style="margin:0;">The product has no appetite rules to evaluate for this case.</p>')}
+      ${m.failed.length ? `<table class="data-table"><thead><tr><th>Rule that failed</th><th>Submitted</th><th>Required</th><th>Can be overridden</th></tr></thead><tbody>${m.failed.map(r => `<tr><td>${escHtml(r.factor)}</td><td>${escHtml(r.val)}</td><td>${escHtml(r.guardrail || (r.operator + " " + r.baseValue))}</td><td>${r.canOverride === false ? '<span class="badge badge-danger">No</span>' : '<span class="badge badge-warning">By an approver</span>'}</td></tr>`).join("")}</tbody></table>` : (m.total ? '<p class="text-sm" style="margin:0;"><i class="ph ph-check-circle text-success"></i> Every appetite rule passes.</p>' : '<p class="text-sm text-muted" style="margin:0;">The product has no appetite rules to evaluate for this case.</p>')}
     </div>
   </div>`;
 }

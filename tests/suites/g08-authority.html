@@ -151,7 +151,7 @@
     var aS2 = authAssess(S2, 'junior');
     t('premium over the junior ceiling is not a speciality matter: the line is fine, the premium is what holds it', aS2.specialty.ok && !aS2.own.ok && !aS2.ok);
 
-    t('XSS-safe', authEsc('<i>') === '&lt;i&gt;');
+    t('XSS-safe', escHtml('<i>') === '&lt;i&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   window.showToast = origToast;
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));

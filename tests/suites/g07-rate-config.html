@@ -110,7 +110,7 @@
     var Z = clone(seed); Z.id='SUB-FEE'; delete Z.broker_fee; Z.placementType='admitted'; SUBMISSIONS_DATASET.push(Z);
     var f = typeof buildFuturisticQuoteFigures === 'function' ? buildFuturisticQuoteFigures(Z) : null;
     t('invoice default fee comes from config', !f || f.brokerFee === 75, f ? String(f.brokerFee) : 'no figures');
-    t('XSS-safe', cfgEsc('<b>') === '&lt;b&gt;');
+    t('XSS-safe', escHtml('<b>') === '&lt;b&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   try { localStorage.removeItem(CFG_STORAGE_KEY); } catch(e) {}
   window.showToast = origToast;

@@ -1,0 +1,154 @@
+<!-- Suite C45: reports and state guidelines. The 12-month performance matrix (by month received, per underwriter or the whole book), underwriter
+     comparison, quote hit analysis, top performers, expirations, renewal process, aggregate exposure with a typed limit, the book-level loss run,
+     agency, cancellations, CSV export; and the state guidelines register that Phase 1's appetite check reads. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function plus(n){ var d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function mdy(iso){ return iso.slice(5, 7) + '/' + iso.slice(8, 10) + '/' + iso.slice(0, 4); }
+  function monthsAgo(n){ var d = new Date(); d.setUTCDate(15); d.setUTCMonth(d.getUTCMonth() - n); return d.getTime(); }
+  function mkey(n){ return new Date(monthsAgo(n)).toISOString().slice(0, 7); }
+  function cell(res, rowLabel, col){ var r = res.rows.filter(function(x){ return x[0] === rowLabel; })[0], i = res.cols.indexOf(col); return r ? r[i] : undefined; }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'gl_cpc' && x.broker === 'Gallagher Commercial Brokers'; })[0];
+  function mk(id, o){
+    var s = { id: id, insured: 'Insured ' + id, fein: '', broker: 'Arora & Sons', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, decisionLog: [], currentStep: 3, completedSteps: [], docs: [], vehicles: [], drivers: [], losses: [], receivedTimestamp: monthsAgo(0), receivedAt: 'Today 09:00 AM', priority: 'P3', assignedTo: 'junior' };
+    for (var k in (o || {})) s[k] = o[k]; return s;
+  }
+  function bound(prem, extra){ return Object.assign({ pasSync: { status: 'success', policyNumber: 'POL-' + Math.random().toString(36).slice(2, 7), syncedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') }, discretionaryPricing: { finalPremium: prem }, quoteIssued: true }, extra || {}); }
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+    SG_ENTRIES.length = 0;
+    // this month: 4 received by junior (2 quoted, 1 bound at $12,000 with 3 vehicles, 1 declined); last month: 2 received by senior_uw (1 bound $6,000 with 2 vehicles)
+    var A = mk('A', Object.assign({ vehicles: [{}, {}, {}] }, bound(12000)));
+    var B = mk('B', { quoteIssued: true });
+    var C = mk('C', { lifecycleStatus: 'declined', lifecycleStatusAt: Date.now() });
+    var D = mk('D', { quoteIssued: true, outcomes: [{ id: 'OUT-1', type: 'not_taken_by_insured', status: 'current' }], lifecycleStatus: 'closed' });
+    var E = mk('E', Object.assign({ receivedTimestamp: monthsAgo(1), assignedTo: 'senior_uw', vehicles: [{}, {}] }, bound(6000)));
+    var F = mk('F', { receivedTimestamp: monthsAgo(1), assignedTo: 'senior_uw', outcomes: [{ id: 'OUT-2', type: 'closed_incomplete', status: 'current' }], lifecycleStatus: 'closed' });
+    var G = mk('G', { receivedTimestamp: monthsAgo(20), assignedTo: 'senior_uw' });
+    SUBMISSIONS_DATASET.length = 0; [A, B, C, D, E, F, G].forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+
+    // ---------- the page
+    showReportsPage();
+    t('Reports opens as a page with a nav item and a list of reports', el('reportsPageView').style.display === 'block' && el('navItemReports').classList.contains('active') && el('reportsRoot').querySelectorAll('.rp-item').length === 7);
+    t('it says which reports are not built because no data is held', /Workers compensation/.test(el('reportsRoot').innerHTML) && /DNOC/.test(el('reportsRoot').innerHTML) && /Loss control/.test(el('reportsRoot').innerHTML));
+
+    // ---------- the 12-month matrix
+    var m = rpRun('matrix', {}), thisM = mkey(0), lastM = mkey(1);
+    t('the matrix has the measure column, twelve months and a total', m.cols.length === 14 && m.cols[0] === 'Measure' && m.cols[12] === thisM && m.cols[13] === '12 months');
+    t('every measure the spec lists is a row', ['Received', 'Quoted', 'Declined', 'Not taken', 'Missing information', 'Bound', 'Average premium per power unit', 'Submission to quote', 'Quote to bind', 'Decline rate'].every(function(l){ return m.rows.some(function(r){ return r[0] === l; }); }));
+    t('this month: received, quoted, declined, not taken, bound', cell(m, 'Received', thisM) === 4 && cell(m, 'Quoted', thisM) === 3 && cell(m, 'Declined', thisM) === 1 && cell(m, 'Not taken', thisM) === 1 && cell(m, 'Bound', thisM) === 1, JSON.stringify(m.rows.map(function(r){ return r[0] + ':' + r[12]; })));
+    t('last month: received, missing information, bound', cell(m, 'Received', lastM) === 2 && cell(m, 'Missing information', lastM) === 1 && cell(m, 'Bound', lastM) === 1);
+    t('a case from 20 months ago is outside the twelve months and the total', m.cols.indexOf(mkey(20)) < 0 && cell(m, 'Received', '12 months') === 6);
+    t('average premium per power unit is bound premium over the vehicles', cell(m, 'Average premium per power unit', thisM) === '$4,000' && cell(m, 'Average premium per power unit', lastM) === '$3,000' && cell(m, 'Average premium per power unit', '12 months') === '$3,600');
+    t('rates: submission to quote, quote to bind, decline', cell(m, 'Submission to quote', thisM) === '75%' && cell(m, 'Quote to bind', thisM) === '33.3%' && cell(m, 'Decline rate', thisM) === '25%');
+    t('a month with nothing shows a dash for a rate, not 0%', cell(m, 'Submission to quote', mkey(5)) === '—');
+    var mu = rpRun('matrix', { assignee: 'senior_uw' });
+    t('the matrix can be limited to one underwriter', cell(mu, 'Received', thisM) === 0 && cell(mu, 'Received', lastM) === 2 && cell(mu, 'Received', '12 months') === 2);
+    var ml = rpRun('matrix', { lob: 'property' });
+    t('and to one line of business', cell(ml, 'Received', '12 months') === 0);
+    t('the matrix says indication-only is not a status in this app', m.notes.some(function(n){ return /Indication-only/.test(n); }));
+    var mp = rpRun('matrix', { until: lastM });
+    t('"Last month" moves the window', mp.cols[12] === lastM && cell(mp, 'Received', lastM) === 2);
+
+    // ---------- the one underwriter comparison, and hit analysis
+    var cp = rpRun('compare', {}), jr = cp.rows.filter(function(r){ return /Sarah/.test(r[1]); })[0], su = cp.rows.filter(function(r){ return /David/.test(r[1]); })[0];
+    t('the comparison has a row per underwriter with the matrix measures', cp.cols.indexOf('Missing info') > -1 && cp.cols[0] === 'Rank' && !!jr && !!su && jr[2] === 4 && su[2] === 3 && jr[7] === 1 && su[6] === 1);
+    t('the comparison can be limited by date', rpRun('compare', { from: plus(-5) }).rows.length === 1 && /Sarah/.test(rpRun('compare', { from: plus(-5) }).rows[0][1]));
+    var hit = rpRun('hit', {});
+    var ar = hit.rows.filter(function(r){ return r[0] === 'Arora & Sons' && r[1] === 'Commercial Auto / Trucking'; })[0];
+    t('quote hit analysis by broker and line: received, quoted, bound, ratios, average bound premium', !!ar && ar[2] === 7 && ar[4] === 2 && ar[7] === '$9,000');
+    t('the comparison is ranked by premium bound, then hit ratio (there is no separate top-performers report)', cp.rows[0][0] === 1 && /Sarah/.test(cp.rows[0][1]) && cp.rows[0][8] === '$12,000' && /David/.test(cp.rows[1][1]) && cp.rows[1][8] === '$6,000' && RP_REPORTS.every(function(r){ return r.key !== 'top'; }) && typeof rpTop === 'undefined');
+    t('Performance no longer carries a second underwriter table; it points here', typeof perfCompute(SUBMISSIONS_DATASET, {}).byAssignee === 'undefined');
+    var keepRole = currentUserRole;
+    currentUserRole = 'junior';
+    t('a role with no Performance access cannot read the performance reports, and they show locked', rpRun('matrix', {}).denied === true && rpRun('hit', {}).denied === true && rpRun('agency', {}).denied === true && rpRun('compare', {}).denied === true && (rpRender(), /ph-lock/.test(el('reportsRoot').innerHTML)));
+    t('but the case reports follow only case visibility', rpRun('loss', {}).denied !== true && rpRun('aggregate', {}).denied !== true && rpRun('cancel', {}).denied !== true);
+    currentUserRole = 'senior_uw';
+    t('view authority reads the book measures but not the underwriter comparison', !rpRun('matrix', {}).denied && !rpRun('hit', {}).denied && rpRun('compare', {}).denied === true && /approve authority/.test(rpRun('compare', {}).notes[0]));
+    var mv = rpRun('matrix', { assignee: 'junior' });
+    t('naming one underwriter in the matrix needs approval authority, so the filter is ignored without it', cell(mv, 'Received', '12 months') === 6 && !/rpf_assignee/.test((rpPick('matrix'), el('reportsRoot').innerHTML)));
+    currentUserRole = 'senior';
+    t('approval authority reads the comparison and may name an underwriter', !rpRun('compare', {}).denied && cell(rpRun('matrix', { assignee: 'senior_uw' }), 'Received', '12 months') === 2 && /rpf_assignee/.test((rpPick('matrix'), el('reportsRoot').innerHTML)));
+    currentUserRole = keepRole;
+
+    // ---------- renewals are not a report: there is one renewal list
+    t('there is no expirations or renewal-process report; the page points to the Renewal pipeline', RP_REPORTS.every(function(r){ return r.key !== 'expirations' && r.key !== 'renewal'; }) && typeof rpExpirations === 'undefined' && typeof rpRenewal === 'undefined' && /Renewal pipeline/.test(el('reportsRoot').innerHTML));
+
+    // ---------- aggregate exposure
+    SUBMISSIONS_DATASET.length = 0;
+    var P = [mk('P1', Object.assign({ insured: 'Big Account', exposureVal: 4000000, riskStateSet: { state: 'TX' } }, bound(10000))), mk('P2', Object.assign({ insured: 'Big Account', exposureVal: 3000000, lobKey: 'property', lobName: 'Commercial Property', riskStateSet: { state: 'OK' } }, bound(5000))), mk('P3', Object.assign({ insured: 'Small Account', exposureVal: 500000, broker: 'Other Brokers', riskStateSet: { state: 'TX' } }, bound(2000))),
+      mk('P4', Object.assign({ insured: 'Cancelled Co', exposureVal: 9000000, policyState: 'cancelled' }, bound(1))), mk('P5', { insured: 'Unbound Co', exposureVal: 9000000 })];
+    P.forEach(function(s){ SUBMISSIONS_DATASET.push(s); });
+    var ag = rpRun('aggregate', { group: 'account' });
+    t('aggregate exposure groups bound, live policies by account: policies, premium, exposure', ag.rows.length === 2 && ag.rows[0][0] === 'Big Account' && ag.rows[0][1] === 2 && ag.rows[0][2] === '$15,000' && ag.rows[0][3] === '$7,000,000' && ag.rows[1][0] === 'Small Account');
+    t('cancelled, transferred and unbound policies are left out', !ag.rows.some(function(r){ return /Cancelled|Unbound/.test(r[0]); }));
+    t('with no limit typed nothing is flagged and no limit is built in', ag.cols.length === 4 && ag.notes.some(function(n){ return /None is built in/.test(n); }));
+    var al = rpRun('aggregate', { group: 'account', limit: '5000000' });
+    t('a typed limit flags the accounts above it', al.cols.length === 5 && al.rows[0][4] === 'Over the limit' && al.rows[1][4] === 'Within');
+    t('grouping by line, state and broker works', rpRun('aggregate', { group: 'lob' }).rows.length === 2 && rpRun('aggregate', { group: 'state' }).rows.some(function(r){ return r[0] === 'TX' && r[1] === 2; }) && rpRun('aggregate', { group: 'broker' }).rows.some(function(r){ return r[0] === 'Other Brokers'; }));
+    t('and by one line', rpRun('aggregate', { group: 'account', lob: 'property' }).rows.length === 1);
+
+    // ---------- the book-level loss run
+    SUBMISSIONS_DATASET.length = 0;
+    var L1 = mk('L1', Object.assign({ insured: 'Lossy Haulers', losses: [{ year: '2025', status: 'Closed', incurred: '$40,000', desc: 'Rear-end collision' }, { year: '2024', status: 'Open', incurred: 120000, desc: 'Cargo theft' }] }, bound(1000)));
+    var L2 = mk('L2', { insured: 'Clean Co', lobKey: 'property', lobName: 'Commercial Property', losses: [{ year: '2025', status: 'Closed', incurred: '$2,500', desc: 'Water damage' }] });
+    SUBMISSIONS_DATASET.push(L1, L2);
+    var lr = rpRun('loss', {});
+    t('the loss run lists every loss on every case, largest first, with a total', lr.rows.length === 4 && lr.rows[0][0] === 'Lossy Haulers' && lr.rows[0][6] === '$120,000' && lr.rows[3][0] === 'Total' && lr.rows[3][6] === '$162,500');
+    t('amounts typed as $40,000 are read as numbers', lr.rows[1][6] === '$40,000');
+    t('it filters by line, status, year and size', rpRun('loss', { lob: 'property' }).rows.length === 2 && rpRun('loss', { status: 'Open' }).rows.length === 2 && rpRun('loss', { year: '2024' }).rows.length === 2 && rpRun('loss', { min: '10000' }).rows.length === 3);
+    t('with no losses it says there is nothing to report', (SUBMISSIONS_DATASET.length = 0, rpRun('loss', {}).rows.length === 0));
+    t('the loss run says it is reported losses, not a loss ratio', lr.notes.some(function(n){ return /loss ratio/.test(n); }));
+
+    // ---------- agency, cancellations, CSV
+    SUBMISSIONS_DATASET.push(A, B, E);
+    var ag2 = rpRun('agency', {});
+    t('the agency report is by producer', ag2.rows.length === 1 && ag2.rows[0][0] === 'Arora & Sons' && ag2.rows[0][1] === 3 && ag2.rows[0][3] === 2);
+    t('the cancellation report reuses the policy transactions', rpRun('cancel', {}).rows.length === 0);
+    var csv = rpCsv({ cols: ['A', 'B'], rows: [['=cmd()', 'x,y'], ['plain', 'say "hi"']] });
+    t('the CSV escapes commas and quotes and neutralises formulas', /'=cmd\(\)/.test(csv) && /"x,y"/.test(csv) && /"say ""hi"""/.test(csv) && csv.split('\r\n').length === 4);
+    t('every report runs without an error', RP_REPORTS.every(function(r){ var x = r.run({}); return x && x.cols.length > 0 && Array.isArray(x.rows); }));
+    t('a user sees only the cases they may see', rpRun('agency', {}).rows.length === 1 && (currentUserRole = 'assistant', rpRun('aggregate', {}).rows.length === 0 && rpFilterFacts({}).length === 0) && (currentUserRole = 'admin', rpFilterFacts({}).length > 0));
+    rpPick('matrix');
+    t('the page renders the matrix with its filters and an export button', /Performance matrix/.test(el('reportsRoot').innerHTML) && /Last month/.test(el('reportsRoot').innerHTML) && /Export CSV/.test(el('reportsRoot').innerHTML));
+    rpPick('loss');
+    t('picking another report swaps the filters', /Incurred at least/.test(el('reportsRoot').innerHTML) && !/Last month/.test(el('reportsRoot').innerHTML));
+
+    // ---------- state guidelines
+    t('the register starts empty and says so', SG_ENTRIES.length === 0 && /No state positions are recorded/.test(sgHtml()));
+    t('a position needs a state, a line, a position, a date and a source', !sgAdd({ state: 'ZZ', position: 'Write', effective: plus(0), source: 'UG-1' }).ok && !sgAdd({ state: 'TX', lob: 'moon', position: 'Write', effective: plus(0), source: 'UG-1' }).ok && !sgAdd({ state: 'TX', position: 'Maybe', effective: plus(0), source: 'UG-1' }).ok && !sgAdd({ state: 'TX', position: 'Write', effective: 'x', source: 'UG-1' }).ok && !sgAdd({ state: 'TX', position: 'Write', effective: plus(0), source: '' }).ok);
+    t('Refer and Do not write need an explanation', !sgAdd({ state: 'TX', position: 'Refer', effective: plus(0), source: 'UG-1', note: '' }).ok && !sgAdd({ state: 'TX', position: 'Do not write', effective: plus(0), source: 'UG-1', note: 'no' }).ok);
+    var g1 = sgAdd({ state: 'ok', lob: 'all', position: 'Do not write', effective: plus(-30), source: 'UG-12 section 4', note: 'Carrier has exited Oklahoma' });
+    t('a position is added and kept in the browser', g1.ok && g1.entry.state === 'OK' && JSON.parse(localStorage.getItem(SG_KEY)).length === 1);
+    t('it is in force from its date', sgFor('OK', 'trucking').position === 'Do not write' && sgFor('OK', 'trucking', plus(-31)) === null && sgFor('TX', 'trucking') === null);
+    sgAdd({ state: 'OK', lob: 'property', position: 'Write', effective: plus(-10), source: 'UG-12 section 9', note: '' });
+    t('a line-specific position beats an all-lines one', sgFor('OK', 'property').position === 'Write' && sgFor('OK', 'trucking').position === 'Do not write');
+    sgAdd({ state: 'OK', lob: 'all', position: 'Write', effective: plus(-1), source: 'UG-14', note: '' });
+    t('a newer position supersedes the older one; nothing is deleted', sgFor('OK', 'trucking').position === 'Write' && SG_ENTRIES.length === 3);
+    sgAdd({ state: 'NM', lob: 'all', position: 'Do not write', effective: plus(-5), source: 'UG-15', note: 'Not licensed in New Mexico' });
+    sgAdd({ state: 'CO', lob: 'trucking', position: 'Refer', effective: plus(-5), source: 'UG-16', note: 'Refer all fleets over 20 units' });
+    sgAdd({ state: 'NY', lob: 'all', position: 'Do not write', effective: plus(10), source: 'UG-17', note: 'Planned exit' });
+
+    // Phase 1 reads the register
+    function p1(state, lob){ var s = mk('G-' + state + lob, { insured: 'Reg ' + state, lobKey: lob, lobName: (LOB_CATALOG.filter(function(l){ return l.key === lob; })[0] || {}).name, riskStateSet: { state: state }, operationsProfile: { years_in_business: 10 }, phase1: {} }); return p1CheckAppetite(s); }
+    t('a Do not write state fails the Phase 1 appetite check and names the guideline', (function(){ var r = p1('NM', 'trucking'); return r.status === 'fail' && /state guideline SG-/.test(r.summary) && /UG-15/.test(r.summary); })());
+    t('a state the register says Write passes', p1('OK', 'trucking').status === 'pass');
+    t('a Refer state passes but tells the reviewer to send it to a senior underwriter', (function(){ var r = p1('CO', 'trucking'); return r.status === 'pass' && r.lines.some(function(l){ return /refer state/.test(l.text) && /senior underwriter/.test(l.text); }); })());
+    t('a Refer position for one line does not touch another line', p1('CO', 'property').lines.every(function(l){ return !/refer state/.test(l.text); }));
+    t('a position that is not yet effective does not apply', p1('NY', 'trucking').status === 'pass');
+    t('there is no placeholder list of states any more: where the register is silent nothing is restricted', typeof P1_APPETITE.blockedStates === 'undefined' && p1('AK', 'trucking').status === 'pass' && p1('AK', 'trucking').lines.some(function(l){ return /no state guideline is recorded/.test(l.text); }));
+    t('with no state recorded nothing is read from the register', (function(){ var s = mk('G-X', { lobKey: 'trucking', lobName: 'T', operationsProfile: { years_in_business: 10 } }); return p1CheckAppetite(s).status === 'fail' && /State: not given/.test(p1CheckAppetite(s).summary); })());
+    t('the register shows on the Search & Lookup page, with source and who added it', (showFindPage(), fdTab('guidelines'), /UG-15/.test(el('findRoot').innerHTML) && /Not licensed in New Mexico/.test(el('findRoot').innerHTML) && /superseded/.test(el('findRoot').innerHTML)));
+    t('the tab is hidden from external users', (function(){ var ext = Object.keys(EXTERNAL_ROLES)[0]; if (!ext) return true; var keep = currentUserRole; currentUserRole = ext; fdRender(); var n = el('findRoot').querySelectorAll('.mw-tabs .tab-btn').length; currentUserRole = keep; return n === 2; })());
+    t('adding a position needs edit rights on review rules', (function(){ var keep = currentUserRole, shown = false, hidden = false; ['admin', 'senior_uw', 'senior', 'junior', 'assistant', 'compliance'].forEach(function(r){ currentUserRole = r; if (hasPermission('reviewRules', 'edit')) shown = shown || /Add a position/.test(sgHtml()); else hidden = hidden || /needs edit rights/.test(sgHtml()); }); currentUserRole = keep; return shown && hidden; })());
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack || '').split('\n').slice(0, 3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

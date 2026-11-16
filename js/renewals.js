@@ -55,7 +55,6 @@ var RN_INFO_CHECKLIST = ["Updated, signed renewal application", "Currently value
 // ----------------------------------------------------------------------------
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
-function rnToday() { return new Date().toISOString().slice(0, 10); }
 function rnDays(a, b) { return Math.round((new Date(b + "T00:00:00Z") - new Date(a + "T00:00:00Z")) / 86400000); }
 function rnAdd(iso, n) { const d = new Date(iso + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + Number(n)); return d.toISOString().slice(0, 10); }
 function rnMoney(n) { return "$" + Number(n || 0).toLocaleString("en-US"); }
@@ -139,17 +138,13 @@ function rnValidateRenew(ctx, f) {
 // 2. STATE
 // ----------------------------------------------------------------------------
 function rnSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
-function rnNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function rnActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function rnEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function rnLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: 7, decision, by: rnActor(), at: rnNow(), notes });
+  sub.decisionLog.push({ step: 7, decision, by: rnActor(), at: nowStamp(), notes });
 }
 function rnPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -174,7 +169,7 @@ function rnIsRenewable(sub) {
 }
 
 function rnPolicies(today) {
-  const t = today || rnToday();
+  const t = today || todayIso();
   return SUBMISSIONS_DATASET.filter(rnIsRenewable).map(sub => {
     const f = rnFacts(sub);
     const days = rnDays(t, f.expiration);
@@ -221,7 +216,7 @@ function rnPriorPolicyRecord(sub, f) {
 
 function rnCreateRenewalSubmission(sub, today) {
   const f = rnFacts(sub);
-  const t = today || rnToday();
+  const t = today || todayIso();
   const copy = JSON.parse(JSON.stringify(sub));
   const pendingBor = (sub.borRecords || []).find(b => b.status === "accepted_at_renewal");
   RN_RESET_FIELDS.forEach(k => { delete copy[k]; });
@@ -248,7 +243,7 @@ function rnCreateRenewalSubmission(sub, today) {
   copy.statusText = "Renewal Intake"; copy.statusBadge = "badge-primary";
   copy.currentStep = 1; copy.completedSteps = [];
   copy.missingItems = { documents: [], dataFields: [] };
-  copy.decisionLog.push({ step: 1, decision: "submission_updated", by: rnActor(), at: rnNow(), notes: `Renewal submission created from ${sub.id} (policy ${f.policyNumber}, expiring ${f.expiration}). Stale documents (loss runs, application) were not carried forward; compliance checks start fresh.` });
+  copy.decisionLog.push({ step: 1, decision: "submission_updated", by: rnActor(), at: nowStamp(), notes: `Renewal submission created from ${sub.id} (policy ${f.policyNumber}, expiring ${f.expiration}). Stale documents (loss runs, application) were not carried forward; compliance checks start fresh.` });
   SUBMISSIONS_DATASET.unshift(copy);
   return copy;
 }
@@ -263,13 +258,13 @@ function rnRecipients(sub) {
   return out;
 }
 function rnDocHtml(title, rows, paras) {
-  return `<h2 style="margin:0 0 4px;font-size:17px;">${rnEsc(title)}</h2>
+  return `<h2 style="margin:0 0 4px;font-size:17px;">${escHtml(title)}</h2>
     <div style="color:#64748b;font-size:11.5px;margin-bottom:10px;">${RENEWAL_TEMPLATE_META.approved ? "" : `Template ${RENEWAL_TEMPLATE_META.version} — not approved by Compliance; do not send outside a test environment.`}</div>
-    <table style="font-size:13px;margin-bottom:10px;">${rows.map(r => `<tr><td style="padding:3px 12px 3px 0;color:#475569;white-space:nowrap;vertical-align:top;">${rnEsc(r[0])}</td><td style="padding:3px 0;">${rnEsc(r[1])}</td></tr>`).join("")}</table>
-    ${paras.map(t => `<p style="font-size:13px;white-space:pre-line;">${rnEsc(t)}</p>`).join("")}`;
+    <table style="font-size:13px;margin-bottom:10px;">${rows.map(r => `<tr><td style="padding:3px 12px 3px 0;color:#475569;white-space:nowrap;vertical-align:top;">${escHtml(r[0])}</td><td style="padding:3px 0;">${escHtml(r[1])}</td></tr>`).join("")}</table>
+    ${paras.map(t => `<p style="font-size:13px;white-space:pre-line;">${escHtml(t)}</p>`).join("")}`;
 }
 function rnWrap(title, body) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${rnEsc(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title></head><body style="font-family:Calibri,Arial,sans-serif;max-width:760px;margin:30px auto;font-size:14px;line-height:1.45;color:#111;">${body}</body></html>`;
 }
 
 // ----------------------------------------------------------------------------
@@ -289,7 +284,7 @@ function rnStartReview(subId) {
   const sub = rnEligible(subId); if (!sub) return;
   const r = rnRecord(sub);
   if (r.status !== "not_started") return;
-  r.status = "under_review"; r.reviewStartedAt = rnNow(); r.reviewStartedBy = rnActor();
+  r.status = "under_review"; r.reviewStartedAt = nowStamp(); r.reviewStartedBy = rnActor();
   rnLog(sub, "renewal_review_started", `Renewal review started for policy ${rnFacts(sub).policyNumber} (expires ${rnFacts(sub).expiration}).`);
   rnPersist(); renderRenewalPipeline(); renderRenewalChip(sub);
   showToast("Renewal review started.", "info");
@@ -303,8 +298,8 @@ function rnRequestInfo(subId) {
   const items = RN_INFO_CHECKLIST.filter((x, i) => rnC("rn_info_" + i));
   const note = rnV("rn_infoNote");
   if (!items.length) { showToast("Tick at least one item to request.", "danger"); return; }
-  if (r.status === "not_started") { r.status = "under_review"; r.reviewStartedAt = rnNow(); r.reviewStartedBy = rnActor(); }
-  r.infoRequestedAt = rnNow(); r.infoRequestedBy = rnActor(); r.infoItems = items; r.infoNote = note;
+  if (r.status === "not_started") { r.status = "under_review"; r.reviewStartedAt = nowStamp(); r.reviewStartedBy = rnActor(); }
+  r.infoRequestedAt = nowStamp(); r.infoRequestedBy = rnActor(); r.infoItems = items; r.infoNote = note;
   rnLog(sub, "renewal_info_requested", `Renewal information requested from ${sub.channelType === "direct" ? "the insured" : sub.broker}: ${items.join("; ")}.${note ? " Note: " + note : ""}`);
   rnPersist(); renderRenewalPipeline(); renderRenewalChip(sub);
   showToast("Information request recorded.", "info");
@@ -317,7 +312,7 @@ function rnForm() {
 
 function rnCtx(sub, today) {
   const f = rnFacts(sub);
-  return { today: today || rnToday(), expiration: f.expiration, state: typeof deriveRiskState === "function" ? deriveRiskState(sub) : null,
+  return { today: today || todayIso(), expiration: f.expiration, state: typeof deriveRiskState === "function" ? deriveRiskState(sub) : null,
     canOverride: hasPermission("renewals", "override"),
     consumerNoticeIds: (sub.notices || []).filter(n => n.status === "issued" && n.consumerUsed).map(n => n.id) };
 }
@@ -334,7 +329,7 @@ function rnDecide(subId, kind) {
 
   const stateRule = ctx.state && RENEWAL_NOTICE_STATE_RULES[ctx.state];
   const recipients = rnRecipients(sub);
-  r.decision = kind; r.decidedBy = rnActor(); r.decidedAt = rnNow(); r.reason = f.reason || null; r.terms = f.terms || null; r.expectedPct = f.expectedPct === "" ? null : Number(f.expectedPct);
+  r.decision = kind; r.decidedBy = rnActor(); r.decidedAt = nowStamp(); r.reason = f.reason || null; r.terms = f.terms || null; r.expectedPct = f.expectedPct === "" ? null : Number(f.expectedPct);
 
   if (kind === "non_renew") {
     const reasonLabel = RN_NONRENEWAL_REASONS.find(x => x.code === f.reason).label;
@@ -375,7 +370,7 @@ function rnRescindNonRenewal(subId) {
   if (r.status !== "non_renewal_notified") return;
   const why = rnV("rn_rescindWhy");
   if (why.length < 10) { showToast("Give the reason for rescinding (at least 10 characters).", "danger"); return; }
-  r.history.push({ notice: r.notice, rescindedBy: rnActor(), rescindedAt: rnNow(), reason: why });
+  r.history.push({ notice: r.notice, rescindedBy: rnActor(), rescindedAt: nowStamp(), reason: why });
   r.notice = null; r.decision = null; r.status = "under_review";
   rnLog(sub, "nonrenewal_rescinded", `Non-renewal rescinded before expiry: ${why}. Notify the insured and everyone who received the notice.`);
   rnPersist(); renderRenewalPipeline(); renderRenewalChip(sub);
@@ -430,8 +425,8 @@ function rnPullSources(sub, f) {
     if (typeof fn !== "function") { out[s.key] = { status: "not_connected" }; return; }
     try {
       const res = fn({ subId: sub.id, insured: sub.insured, policyNumber: f.policyNumber, vehicles: sub.vehicles || [], drivers: sub.drivers || [] });
-      out[s.key] = res && res.ok ? { status: "received", summary: res.summary || "", at: rnNow() } : { status: "failed", error: (res && res.error) || "The service returned no data.", at: rnNow() };
-    } catch (e) { out[s.key] = { status: "failed", error: e.message, at: rnNow() }; }
+      out[s.key] = res && res.ok ? { status: "received", summary: res.summary || "", at: nowStamp() } : { status: "failed", error: (res && res.error) || "The service returned no data.", at: nowStamp() };
+    } catch (e) { out[s.key] = { status: "failed", error: e.message, at: nowStamp() }; }
   });
   return out;
 }
@@ -444,26 +439,88 @@ function rnRateRenewal(sub, f) {
 }
 
 /**
- * The renewal batch. For every policy inside the review window it starts the review and takes a snapshot of the risk as
- * carried into renewal. The prototype does not pull outside data: the snapshot lists what must be refreshed.
+ * Starts the review of one policy and takes a snapshot of the risk as carried into renewal. The prototype does not pull outside
+ * data: the snapshot lists what must be refreshed. `by` says who or what started it. Returns false when the policy is not eligible
+ * (already started, or already expired). The one place a review is started in a batch, so the two batch buttons cannot differ.
  */
+function rnBeginReview(p, by) {
+  const r = rnRecord(p.sub);
+  if (r.status !== "not_started" || p.days < 0) return false;
+  r.status = "under_review"; r.reviewStartedAt = nowStamp(); r.reviewStartedBy = by;
+  r.riskRefresh = { at: nowStamp(), expiringPremium: p.f.annual, vehicles: (p.sub.vehicles || []).length, drivers: (p.sub.drivers || []).length, claims: (p.sub.losses || []).length, toRefresh: RN_INFO_CHECKLIST.slice(), sources: rnPullSources(p.sub, p.f), indicatedPremium: null };
+  RN_SOURCES.forEach(s => { if (r.riskRefresh.sources[s.key].status === "received" && s.clears) r.riskRefresh.toRefresh = r.riskRefresh.toRefresh.filter(x => x !== s.clears); });
+  const rated = rnRateRenewal(p.sub, p.f);
+  if (rated !== null) r.riskRefresh.indicatedPremium = rated;
+  rnLog(p.sub, "renewal_review_started", `Renewal batch: review started for policy ${p.f.policyNumber} (expires ${p.f.expiration}, ${p.days} days). Carried into renewal: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es); expiring premium ${rnMoney(p.f.annual)}. ${RN_SOURCES.map(s => s.label + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${rated !== null ? " Rating service indicates " + rnMoney(rated) + "." : " No rating service connected: the renewal is priced in its own workflow."} Still to refresh: ${r.riskRefresh.toRefresh.join("; ") || "nothing"}.`);
+  return true;
+}
+
+/** The renewal batch: every policy inside the review window. */
 function rnRunBatch(today) {
   if (!hasPermission("renewals", "edit")) { denyPermission("renewals", "edit"); return 0; }
   let n = 0;
-  rnPolicies(today).forEach(p => {
-    const r = rnRecord(p.sub);
-    if (r.status !== "not_started" || p.days < 0 || p.days > RENEWAL_REVIEW_START_DAYS) return;
-    r.status = "under_review"; r.reviewStartedAt = rnNow(); r.reviewStartedBy = "Renewal batch";
-    r.riskRefresh = { at: rnNow(), expiringPremium: p.f.annual, vehicles: (p.sub.vehicles || []).length, drivers: (p.sub.drivers || []).length, claims: (p.sub.losses || []).length, toRefresh: RN_INFO_CHECKLIST.slice(), sources: rnPullSources(p.sub, p.f), indicatedPremium: null };
-    RN_SOURCES.forEach(s => { if (r.riskRefresh.sources[s.key].status === "received" && s.clears) r.riskRefresh.toRefresh = r.riskRefresh.toRefresh.filter(x => x !== s.clears); });
-    const rated = rnRateRenewal(p.sub, p.f);
-    if (rated !== null) r.riskRefresh.indicatedPremium = rated;
-    rnLog(p.sub, "renewal_review_started", `Renewal batch: review started for policy ${p.f.policyNumber} (expires ${p.f.expiration}, ${p.days} days). Carried into renewal: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es); expiring premium ${rnMoney(p.f.annual)}. ${RN_SOURCES.map(s => s.label + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${rated !== null ? " Rating service indicates " + rnMoney(rated) + "." : " No rating service connected: the renewal is priced in its own workflow."} Still to refresh: ${r.riskRefresh.toRefresh.join("; ") || "nothing"}.`);
-    n++;
-  });
+  rnPolicies(today).forEach(p => { if (p.days <= RENEWAL_REVIEW_START_DAYS && rnBeginReview(p, "Renewal batch")) n++; });
   if (n) { rnPersist(); renderRenewalPipeline(); }
   showToast(n ? `Renewal batch: review started for ${n} polic${n === 1 ? "y" : "ies"}.` : "Renewal batch: nothing is due.", n ? "success" : "info");
   return n;
+}
+
+/** The same start, for the policies selected in the pipeline (any time before expiry). Returns { started, skipped: [{ id, why }] }. */
+function rnStartReviews(ids) {
+  if (!hasPermission("renewals", "edit")) { denyPermission("renewals", "edit"); return { started: 0, skipped: [], denied: true }; }
+  let started = 0; const skipped = [], all = rnPolicies();
+  ids.forEach(id => {
+    const p = all.find(x => x.sub.id === id);
+    if (!p) { skipped.push({ id, why: "not on the renewal pipeline" }); return; }
+    if (p.days < 0) { skipped.push({ id, why: "already expired" }); return; }
+    const status = rnRecord(p.sub).status;
+    if (status !== "not_started") { skipped.push({ id, why: "review already " + status.replace(/_/g, " ") }); return; }
+    if (rnBeginReview(p, rnActor())) started++;
+  });
+  if (started) rnPersist();
+  return { started, skipped };
+}
+
+// ----------------------------------------------------------------------------
+// EXPIRATION LETTERS (one letter per policy, wording by where the policy stands)
+// ----------------------------------------------------------------------------
+/** How an expired policy ended. */
+function rnEnded(p) { return { renewed: "Renewed", non_renewed: "Non-renewed (notice given)", lapsed: "Lapsed: no renewal decision" }[p.stage] || "Expired"; }
+
+function rnLetterParas(p) {
+  const exp = p.f.expiration;
+  const common = `Your policy ${p.f.policyNumber} for ${p.sub.insured} ` + (p.days >= 0 ? `expires at 12:01 AM on ${exp}.` : `expired at 12:01 AM on ${exp}.`);
+  const r = p.sub.renewal || {};
+  const byStage = {
+    upcoming: ["We will review your policy for renewal. If we need more information, your producer will contact you.", "No decision on renewal has been made yet."],
+    review_due: ["We are reviewing your policy for renewal. If we need more information, your producer will contact you.", "No decision on renewal has been made yet."],
+    under_review: ["We are reviewing your policy for renewal" + (r.infoRequestedAt ? " and have asked for more information" : "") + ".", "No decision on renewal has been made yet."],
+    renewal_in_progress: ["We are willing to renew your policy. Your renewal quotation" + (r.notice && r.notice.kind === "conditional" ? ", on the changed terms in our earlier notice," : "") + " will follow."],
+    non_renewal_notified: [`A notice that we will not renew was mailed on ${r.notice ? r.notice.mailedOn : "the date on that notice"}. Coverage continues until the expiration date above.`, "You may wish to arrange other insurance before then. Your producer can help."],
+    renewed: [`Your policy was renewed as ${r.renewedPolicyNumber || "a new policy"}.`],
+    non_renewed: ["A notice that we would not renew was mailed before expiration. The policy has ended."],
+    lapsed: ["We did not receive a renewal decision before the policy expired, and the policy has ended. Please contact your producer."]
+  }[p.stage] || [];
+  return [common].concat(byStage);
+}
+function rnLetterBody(p) {
+  const rows = [["Policy number", p.f.policyNumber], ["Named insured", p.sub.insured || ""], ["Producer", p.sub.channelType === "direct" ? "Direct" : (p.sub.broker || "")], ["Expiration", `${p.f.expiration} (12:01 AM)`], ["Letter date", todayIso()]];
+  const recip = rnRecipients(p.sub);
+  return rnDocHtml("EXPIRATION NOTICE", rows, rnLetterParas(p).concat(recip.length ? ["Copies of this letter go to: " + recip.map(c => `${c.name} (${c.role})`).join("; ") + "."] : []));
+}
+/** Records a letter on each chosen policy and returns one printable document. */
+function rnIssueLetters(ids) {
+  if (!hasPermission("renewals", "edit")) { denyPermission("renewals", "edit"); return { ok: false, message: "permission" }; }
+  const chosen = rnPolicies().filter(p => ids.indexOf(p.sub.id) > -1);
+  if (!chosen.length) return { ok: false, message: "Select at least one policy." };
+  chosen.forEach(p => {
+    const r = rnRecord(p.sub); if (!r.letters) r.letters = [];
+    r.letters.push({ at: nowStamp(), by: rnActor(), stage: p.stage, expiration: p.f.expiration });
+    rnLog(p.sub, "expiration_letter_issued", `Expiration letter issued for policy ${p.f.policyNumber} (${p.stage.replace(/_/g, " ")}, expires ${p.f.expiration}).`);
+  });
+  rnPersist();
+  const body = chosen.map((p, i) => `<div style="${i ? "page-break-before:always;" : ""}">${rnLetterBody(p)}</div>`).join("");
+  return { ok: true, count: chosen.length, html: rnWrap("Expiration letters", body) };
 }
 
 /** When a renewal submission is bound, close out the expiring policy and open the new term. */
@@ -474,7 +531,7 @@ function rnOnBound(sub) {
   const r = rnRecord(old);
   if (r.status === "renewed") return;
   const offer = rnOffer(old);
-  r.status = "renewed"; r.renewedPolicyNumber = sub.pasSync.policyNumber; r.renewedBy = sub.id; r.renewedAt = rnNow();
+  r.status = "renewed"; r.renewedPolicyNumber = sub.pasSync.policyNumber; r.renewedBy = sub.id; r.renewedAt = nowStamp();
   r.accepted = offer ? { expiring: offer.expiring, premium: offer.premium, changePct: offer.changePct } : null;
   rnLog(old, "renewal_completed", `Renewed as ${sub.pasSync.policyNumber} (submission ${sub.id}).`);
   rnLog(sub, "renewal_completed", `Bound as the renewal of ${old.id} (policy ${rnFacts(old).policyNumber}).`);
@@ -483,7 +540,7 @@ function rnOnBound(sub) {
   sub.policyTerm = { termNo: oldTerm + 1, effective: f.effective, expiration: f.expiration, policyNumber: sub.pasSync.policyNumber, priorPolicyNumber: rnFacts(old).policyNumber, priorSubmissionId: old.id };
   if (!old.policyTerm) old.policyTerm = { termNo: 1, effective: rnFacts(old).effective, expiration: rnFacts(old).expiration, policyNumber: rnFacts(old).policyNumber, priorPolicyNumber: null, priorSubmissionId: null };
   if (typeof pcRecordTransaction === "function" && typeof pcVersions === "function") {
-    const ev = { id: `RNW-${sub.id}`, type: "renewal", effective: f.effective, by: rnActor(), at: rnNow() };
+    const ev = { id: `RNW-${sub.id}`, type: "renewal", effective: f.effective, by: rnActor(), at: nowStamp() };
     const txn = pcRecordTransaction(sub, ev, { linkedTo: old.id });
     const v = pcVersions(sub)[0]; v.kind = "renewal"; v.transactionId = txn.id; txn.versionNo = v.version;
     rnLog(sub, "renewal_term_created", `Policy term ${sub.policyTerm.termNo} ${f.effective} to ${f.expiration}: transaction ${txn.id}, policy version ${v.version}, premium ${rnMoney(v.annualPremium)}${offer && offer.changePct !== null ? " (" + (offer.changePct >= 0 ? "+" : "") + offer.changePct + "% on the expiring term)" : ""}.`);
@@ -504,51 +561,72 @@ var RN_STAGE_UI = {
   non_renewed: { badge: "badge-light", label: "Non-renewed" },
   lapsed: { badge: "badge-danger", label: "Lapsed — no decision" }
 };
-var rnUI = { bucket: "all", stage: "all", selected: null };
+var rnUI = { bucket: "all", stage: "all", selected: null, sel: {}, lastBatch: null };
 
 function rnSetFilter(kind, v) { rnUI[kind] = v; renderRenewalPipeline(); }
 function rnSelect(id) { rnUI.selected = id; renderRenewalPipeline(); }
+function rnToggle(id, on) { rnUI.sel[id] = !!on; renderRenewalPipeline(); }
+function rnToggleAll(on) {
+  let list = rnPolicies();
+  if (rnUI.bucket === "expired") list = list.filter(p => p.days < 0); else if (rnUI.bucket !== "all") list = list.filter(p => p.days >= 0 && p.days <= Number(rnUI.bucket));
+  if (rnUI.stage !== "all") list = list.filter(p => p.stage === rnUI.stage);
+  list.forEach(p => { rnUI.sel[p.sub.id] = !!on; }); renderRenewalPipeline();
+}
+function rnSelectedIds() { return Object.keys(rnUI.sel).filter(k => rnUI.sel[k]); }
+function rnBatchStart() {
+  const r = rnStartReviews(rnSelectedIds()); if (r.denied) return;
+  rnUI.lastBatch = { text: `Renewal review started for ${r.started} polic${r.started === 1 ? "y" : "ies"}${r.skipped.length ? "; " + r.skipped.length + " skipped:" : "."}`, skipped: r.skipped };
+  renderRenewalPipeline();
+}
+function rnBatchLetters() {
+  const r = rnIssueLetters(rnSelectedIds());
+  if (!r.ok) { if (r.message !== "permission") showToast("⛔ " + r.message, "danger"); return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([r.html], { type: "text/html" })); a.download = "expiration-letters-" + todayIso() + ".html";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  rnUI.lastBatch = { text: `${r.count} expiration letter${r.count === 1 ? "" : "s"} issued and downloaded as one printable file. The template is an unapproved draft until Compliance approves it.`, skipped: [] };
+  renderRenewalPipeline();
+}
 
 function rnOfferHtml(sub) {
   const r = rnRecord(sub), o = rnOffer(sub);
-  const refresh = r.riskRefresh ? `<div class="text-xs text-muted" style="margin-top:8px;">Risk carried into renewal on ${rnEsc(r.riskRefresh.at)}: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es). ${RN_SOURCES.map(s => rnEsc(s.label) + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${r.riskRefresh.indicatedPremium !== null ? " Rating service: " + rnMoney(r.riskRefresh.indicatedPremium) + "." : ""} Still to refresh: ${rnEsc(r.riskRefresh.toRefresh.join("; ") || "nothing")}.</div>` : "";
+  const refresh = r.riskRefresh ? `<div class="text-xs text-muted" style="margin-top:8px;">Risk carried into renewal on ${escHtml(r.riskRefresh.at)}: ${r.riskRefresh.vehicles} vehicle(s), ${r.riskRefresh.drivers} driver(s), ${r.riskRefresh.claims} loss(es). ${RN_SOURCES.map(s => escHtml(s.label) + ": " + RN_SOURCE_STATUS[r.riskRefresh.sources[s.key].status]).join("; ")}.${r.riskRefresh.indicatedPremium !== null ? " Rating service: " + rnMoney(r.riskRefresh.indicatedPremium) + "." : ""} Still to refresh: ${escHtml(r.riskRefresh.toRefresh.join("; ") || "nothing")}.</div>` : "";
   if (!o) return refresh;
-  const flags = o.flags.map(x => `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> ${rnEsc(x.charAt(0).toUpperCase() + x.slice(1))}. Underwriting must review the terms before the quote is issued.</div>`).join("");
+  const flags = o.flags.map(x => `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> ${escHtml(x.charAt(0).toUpperCase() + x.slice(1))}. Underwriting must review the terms before the quote is issued.</div>`).join("");
   return `${refresh}<h4 style="margin:12px 0 6px;">Renewal offer</h4>
     <div class="clean-meta-list">
-      <div class="clean-meta-row"><span class="meta-label">Status</span><span class="meta-value">${rnEsc(RN_OFFER_LABEL[o.state])}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Status</span><span class="meta-value">${escHtml(RN_OFFER_LABEL[o.state])}</span></div>
       <div class="clean-meta-row"><span class="meta-label">Premium</span><span class="meta-value">${o.premium > 0 ? rnMoney(o.premium) + (o.changePct !== null ? ` (${o.changePct >= 0 ? "+" : ""}${o.changePct}% on the expiring ${rnMoney(o.expiring)})` : "") : "Not rated yet; the renewal submission is priced in its own workflow"}</span></div>
-      <div class="clean-meta-row"><span class="meta-label">Underwriting approval</span><span class="meta-value">${rnEsc(o.approval)}</span></div>
+      <div class="clean-meta-row"><span class="meta-label">Underwriting approval</span><span class="meta-value">${escHtml(o.approval)}</span></div>
     </div>${flags}`;
 }
 
 function rnDetailHtml(p) {
   const sub = p.sub, r = rnRecord(sub), canEdit = hasPermission("renewals", "edit"), canApprove = hasPermission("renewals", "approve"), canOverride = hasPermission("renewals", "override");
-  const today = rnToday();
+  const today = todayIso();
   const ms = p.milestones.map(m => {
     const done = (m.key === "review" && r.reviewStartedAt) || (m.key === "info" && r.infoRequestedAt) || (m.key === "quote" && ["renewal_in_progress", "renewed"].includes(r.status)) || (["nonrenewal", "conditional"].includes(m.key) && r.decision);
     const overdue = !done && m.due < today && p.days >= 0;
-    return `<tr><td>${rnEsc(m.label)}</td><td>${rnEsc(m.due)}</td><td>${done ? '<span class="badge badge-success text-xs">Done</span>' : (overdue ? '<span class="badge badge-danger text-xs">Overdue</span>' : '<span class="badge badge-light text-xs">Ahead</span>')}</td></tr>`;
+    return `<tr><td>${escHtml(m.label)}</td><td>${escHtml(m.due)}</td><td>${done ? '<span class="badge badge-success text-xs">Done</span>' : (overdue ? '<span class="badge badge-danger text-xs">Overdue</span>' : '<span class="badge badge-light text-xs">Ahead</span>')}</td></tr>`;
   }).join("");
 
   let actions = "";
   if (["renewed", "non_renewed", "lapsed"].includes(p.stage)) {
-    actions = `<div class="alert ${p.stage === "renewed" ? "alert-success" : "alert-warning"} text-xs">${p.stage === "renewed" ? `Renewed as ${rnEsc(r.renewedPolicyNumber)} (submission ${rnEsc(r.renewedBy)}).` : (p.stage === "non_renewed" ? "The policy has expired and was not renewed." : "The policy expired with no decision. Compliance should review whether the policy must be treated as extended.")}</div>`;
+    actions = `<div class="alert ${p.stage === "renewed" ? "alert-success" : "alert-warning"} text-xs">${p.stage === "renewed" ? `Renewed as ${escHtml(r.renewedPolicyNumber)} (submission ${escHtml(r.renewedBy)}).` : (p.stage === "non_renewed" ? "The policy has expired and was not renewed." : "The policy expired with no decision. Compliance should review whether the policy must be treated as extended.")}</div>`;
   } else if (p.stage === "non_renewal_notified") {
-    actions = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> Non-renewal notice mailed ${rnEsc(r.notice.mailedOn)} (proof ${rnEsc(r.notice.proofRef)}); the policy ends ${rnEsc(r.notice.effective)}.${r.notice.late ? " <strong>Late notice.</strong>" : ""}</div>
-      <button class="btn btn-xs btn-outline" style="width:auto;" onclick="rnDownloadNotice('${rnEsc(sub.id)}')"><i class="ph ph-download-simple"></i> Notice</button>
-      ${canOverride ? `<div style="margin-top:8px;display:flex;gap:8px;"><input id="rn_rescindWhy" class="form-control" style="width:340px;" placeholder="Reason to rescind (10+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRescindNonRenewal('${rnEsc(sub.id)}')">Rescind non-renewal</button></div>` : ""}`;
+    actions = `<div class="alert alert-danger text-xs"><i class="ph ph-prohibit"></i> Non-renewal notice mailed ${escHtml(r.notice.mailedOn)} (proof ${escHtml(r.notice.proofRef)}); the policy ends ${escHtml(r.notice.effective)}.${r.notice.late ? " <strong>Late notice.</strong>" : ""}</div>
+      <button class="btn btn-xs btn-outline" style="width:auto;" onclick="rnDownloadNotice('${escHtml(sub.id)}')"><i class="ph ph-download-simple"></i> Notice</button>
+      ${canOverride ? `<div style="margin-top:8px;display:flex;gap:8px;"><input id="rn_rescindWhy" class="form-control" style="width:340px;" placeholder="Reason to rescind (10+ characters)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRescindNonRenewal('${escHtml(sub.id)}')">Rescind non-renewal</button></div>` : ""}`;
   } else if (p.stage === "renewal_in_progress") {
-    actions = `<div class="alert alert-info text-xs"><i class="ph ph-arrows-clockwise"></i> Renewal submission <strong>${rnEsc(r.renewalSubmissionId)}</strong> is in the workflow${r.decision === "conditional" ? " (conditional renewal; notice mailed " + rnEsc(r.notice.mailedOn) + ")" : ""}.</div>
-      <button class="btn btn-sm btn-primary" style="width:auto;" onclick="rnOpenRenewalSubmission('${rnEsc(r.renewalSubmissionId)}')"><i class="ph ph-arrow-square-out"></i> Open renewal submission</button>`;
+    actions = `<div class="alert alert-info text-xs"><i class="ph ph-arrows-clockwise"></i> Renewal submission <strong>${escHtml(r.renewalSubmissionId)}</strong> is in the workflow${r.decision === "conditional" ? " (conditional renewal; notice mailed " + escHtml(r.notice.mailedOn) + ")" : ""}.</div>
+      <button class="btn btn-sm btn-primary" style="width:auto;" onclick="rnOpenRenewalSubmission('${escHtml(r.renewalSubmissionId)}')"><i class="ph ph-arrow-square-out"></i> Open renewal submission</button>`;
   } else {
-    const infoBoxes = RN_INFO_CHECKLIST.map((x, i) => `<label style="display:block;font-size:12.5px;"><input type="checkbox" id="rn_info_${i}" checked> ${rnEsc(x)}</label>`).join("");
-    const reasonOpts = RN_NONRENEWAL_REASONS.map(x => `<option value="${x.code}">${rnEsc(x.label)}</option>`).join("");
-    const fcraOpts = ['<option value="">— none —</option>'].concat((sub.notices || []).filter(n => n.status === "issued" && n.consumerUsed).map(n => `<option value="${rnEsc(n.id)}">${rnEsc(n.id)}</option>`)).join("");
+    const infoBoxes = RN_INFO_CHECKLIST.map((x, i) => `<label style="display:block;font-size:12.5px;"><input type="checkbox" id="rn_info_${i}" checked> ${escHtml(x)}</label>`).join("");
+    const reasonOpts = RN_NONRENEWAL_REASONS.map(x => `<option value="${x.code}">${escHtml(x.label)}</option>`).join("");
+    const fcraOpts = ['<option value="">— none —</option>'].concat((sub.notices || []).filter(n => n.status === "issued" && n.consumerUsed).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.id)}</option>`)).join("");
     actions = `
-      ${canEdit ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${r.status === "not_started" ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnStartReview('${rnEsc(sub.id)}')"><i class="ph ph-play"></i> Start renewal review</button>` : ""}</div>
+      ${canEdit ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${r.status === "not_started" ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnStartReview('${escHtml(sub.id)}')"><i class="ph ph-play"></i> Start renewal review</button>` : ""}</div>
         <h4 style="margin:6px 0;">Request renewal information</h4>${infoBoxes}
-        <div style="display:flex;gap:8px;margin-top:6px;"><input id="rn_infoNote" class="form-control" style="flex:1;" placeholder="Note to the producer (optional)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRequestInfo('${rnEsc(sub.id)}')">Record request</button></div>${r.infoRequestedAt ? `<div class="text-xs text-muted" style="margin-top:4px;">Requested ${rnEsc(r.infoRequestedAt)} by ${rnEsc(r.infoRequestedBy)}</div>` : ""}` : ""}
+        <div style="display:flex;gap:8px;margin-top:6px;"><input id="rn_infoNote" class="form-control" style="flex:1;" placeholder="Note to the producer (optional)"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRequestInfo('${escHtml(sub.id)}')">Record request</button></div>${r.infoRequestedAt ? `<div class="text-xs text-muted" style="margin-top:4px;">Requested ${escHtml(r.infoRequestedAt)} by ${escHtml(r.infoRequestedBy)}</div>` : ""}` : ""}
       ${(canApprove || canOverride) ? `<h4 style="margin:16px 0 6px;">Decision</h4>
       <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
         <input id="rn_pct" type="number" step="0.1" class="form-control" style="width:250px;" placeholder="Expected premium change %">
@@ -571,14 +649,14 @@ function rnDetailHtml(p) {
         <input id="rn_lateWhy" class="form-control" style="flex:1;min-width:220px;" placeholder="Why it is late (10+ characters)">
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
-        ${canApprove ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="rnDecide('${rnEsc(sub.id)}','renew')"><i class="ph ph-arrows-clockwise"></i> Renew</button>
-        <button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnDecide('${rnEsc(sub.id)}','conditional')"><i class="ph ph-warning"></i> Renew with changes (conditional)</button>` : ""}
-        ${canOverride ? `<button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="rnDecide('${rnEsc(sub.id)}','non_renew')"><i class="ph ph-prohibit"></i> Non-renew</button>` : ""}
+        ${canApprove ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="rnDecide('${escHtml(sub.id)}','renew')"><i class="ph ph-arrows-clockwise"></i> Renew</button>
+        <button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnDecide('${escHtml(sub.id)}','conditional')"><i class="ph ph-warning"></i> Renew with changes (conditional)</button>` : ""}
+        ${canOverride ? `<button class="btn btn-sm btn-outline-danger" style="width:auto;" onclick="rnDecide('${escHtml(sub.id)}','non_renew')"><i class="ph ph-prohibit"></i> Non-renew</button>` : ""}
       </div>` : `<p class="text-xs text-muted"><i class="ph ph-lock"></i> Renewal decisions need an underwriter with approval authority.</p>`}`;
   }
-  return `<div class="card" style="margin-top:14px;"><div class="card-header"><h3><i class="ph ph-calendar-check"></i> ${rnEsc(sub.insured)} — ${rnEsc(p.f.policyNumber)}</h3><span class="badge ${RN_STAGE_UI[p.stage].badge}">${RN_STAGE_UI[p.stage].label}</span></div>
+  return `<div class="card" style="margin-top:14px;"><div class="card-header"><h3><i class="ph ph-calendar-check"></i> ${escHtml(sub.insured)} — ${escHtml(p.f.policyNumber)}</h3><span class="badge ${RN_STAGE_UI[p.stage].badge}">${RN_STAGE_UI[p.stage].label}</span></div>
     <div class="card-body">
-      <div class="text-xs text-muted" style="margin-bottom:8px;">Expires ${rnEsc(p.f.expiration)} (${p.days >= 0 ? p.days + " days" : -p.days + " days ago"}) · annual premium ${rnMoney(p.f.annual)} · risk state ${rnEsc(p.state || "unknown")}</div>
+      <div class="text-xs text-muted" style="margin-bottom:8px;">Expires ${escHtml(p.f.expiration)} (${p.days >= 0 ? p.days + " days" : -p.days + " days ago"}) · annual premium ${rnMoney(p.f.annual)} · risk state ${escHtml(p.state || "unknown")}</div>
       <div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Milestone</th><th>Date</th><th>Status</th></tr></thead><tbody>${ms}</tbody></table></div>
       ${rnOfferHtml(sub)}
       <div style="margin-top:12px;">${actions}</div>
@@ -607,9 +685,10 @@ function renderRenewalPipeline() {
   rnSweep();
   let list = rnPolicies();
   const total = list.length;
-  if (rnUI.bucket !== "all") { const n = Number(rnUI.bucket); list = list.filter(p => p.days >= 0 && p.days <= n); }
+  if (rnUI.bucket === "expired") list = list.filter(p => p.days < 0);
+  else if (rnUI.bucket !== "all") { const n = Number(rnUI.bucket); list = list.filter(p => p.days >= 0 && p.days <= n); }
   if (rnUI.stage !== "all") list = list.filter(p => p.stage === rnUI.stage);
-  const today = rnToday();
+  const today = todayIso();
 
   const counts = {}; rnPolicies().forEach(p => { counts[p.stage] = (counts[p.stage] || 0) + 1; });
   const summary = Object.keys(RN_STAGE_UI).filter(k => counts[k]).map(k => `<span class="badge ${RN_STAGE_UI[k].badge}" style="margin-right:6px;">${RN_STAGE_UI[k].label}: ${counts[k]}</span>`).join("");
@@ -618,13 +697,15 @@ function renderRenewalPipeline() {
     const na = rnNextAction(p, today);
     const next = na && { label: na.label, due: na.due };
     const late = na && na.overdue ? na.overdueCount : 0;
-    return `<tr ${rnUI.selected === p.sub.id ? 'style="background:#f1f5f9;"' : ""}><td><strong>${rnEsc(p.sub.insured)}</strong><div class="text-xs text-muted">${rnEsc(p.sub.id)}</div></td><td>${rnEsc(p.sub.lobName || "")}</td><td class="font-mono">${rnEsc(p.f.policyNumber)}</td>
-      <td>${rnEsc(p.f.expiration)}<div class="text-xs ${p.days < 30 ? "text-danger" : "text-muted"}">${p.days >= 0 ? p.days + " days" : "expired"}</div></td><td class="font-mono">${rnMoney(p.f.annual)}</td>
-      <td><span class="badge ${RN_STAGE_UI[p.stage].badge} text-xs">${RN_STAGE_UI[p.stage].label}</span>${late ? ` <span class="badge badge-danger text-xs">${late} overdue</span>` : ""}</td>
-      <td class="text-xs">${next ? rnEsc(next.label) + "<br><span class='" + (na.overdue ? "text-danger" : "text-muted") + "'>" + (na.overdue ? "overdue since " : "by ") + rnEsc(next.due) + "</span>" : "—"}</td>
-      <td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="rnSelect('${rnEsc(p.sub.id)}')">Manage</button></td></tr>`;
+    const letters = ((p.sub.renewal || {}).letters || []).length;
+    return `<tr ${rnUI.selected === p.sub.id ? 'style="background:#f1f5f9;"' : ""}><td><input type="checkbox" aria-label="Select ${escHtml(p.sub.id)}" ${rnUI.sel[p.sub.id] ? "checked" : ""} onchange="rnToggle('${escHtml(p.sub.id)}', this.checked)"></td><td><strong>${escHtml(p.sub.insured)}</strong><div class="text-xs text-muted">${escHtml(p.sub.id)}</div></td><td>${escHtml(p.sub.lobName || "")}</td><td class="font-mono">${escHtml(p.f.policyNumber)}</td>
+      <td>${escHtml(p.f.expiration)}<div class="text-xs ${p.days < 30 ? "text-danger" : "text-muted"}">${p.days >= 0 ? p.days + " days" : Math.abs(p.days) + " days ago"}</div></td><td class="font-mono">${rnMoney(p.f.annual)}</td>
+      <td><span class="badge ${RN_STAGE_UI[p.stage].badge} text-xs">${RN_STAGE_UI[p.stage].label}</span>${late ? ` <span class="badge badge-danger text-xs">${late} overdue</span>` : ""}${p.days < 0 ? `<div class="text-xs text-muted">${escHtml(rnEnded(p))}</div>` : ""}</td>
+      <td class="text-xs">${next ? escHtml(next.label) + "<br><span class='" + (na.overdue ? "text-danger" : "text-muted") + "'>" + (na.overdue ? "overdue since " : "by ") + escHtml(next.due) + "</span>" : "—"}</td>
+      <td class="text-xs">${letters ? letters + " sent" : "—"}</td><td><button class="btn btn-xs btn-outline" style="width:auto;" onclick="rnSelect('${escHtml(p.sub.id)}')">Manage</button></td></tr>`;
   }).join("");
 
+  const chosen = list.filter(p => rnUI.sel[p.sub.id]);
   const sel = rnUI.selected && rnPolicies().find(p => p.sub.id === rnUI.selected);
   root.innerHTML = `
     <div class="card">
@@ -632,11 +713,13 @@ function renderRenewalPipeline() {
       <div class="card-body">
         ${hasPermission("renewals", "edit") ? `<div style="margin-bottom:10px;"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnRunBatch()"><i class="ph ph-queue"></i> Run renewal batch</button> <span class="text-xs text-muted">Starts review for every policy inside ${RENEWAL_REVIEW_START_DAYS} days of expiry and records the risk carried into renewal.</span></div>` : ""}
         <div style="margin-bottom:10px;">${summary || '<span class="text-xs text-muted">No bound policies yet. A policy appears here once it has been bound with an expiry date.</span>'}</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-          <select class="form-control" style="width:230px;" onchange="rnSetFilter('bucket', this.value)">${[["all", "Any expiry date"], ["30", "Expiring within 30 days"], ["60", "Within 60 days"], ["90", "Within 90 days"], ["120", "Within 120 days"]].map(o => `<option value="${o[0]}" ${rnUI.bucket === o[0] ? "selected" : ""}>${o[1]}</option>`).join("")}</select>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+          <select class="form-control" style="width:230px;" onchange="rnSetFilter('bucket', this.value)">${[["all", "Any expiry date"], ["30", "Expiring within 30 days"], ["60", "Within 60 days"], ["90", "Within 90 days"], ["120", "Within 120 days"], ["expired", "Already expired"]].map(o => `<option value="${o[0]}" ${rnUI.bucket === o[0] ? "selected" : ""}>${o[1]}</option>`).join("")}</select>
           <select class="form-control" style="width:230px;" onchange="rnSetFilter('stage', this.value)"><option value="all">Any stage</option>${Object.keys(RN_STAGE_UI).map(k => `<option value="${k}" ${rnUI.stage === k ? "selected" : ""}>${RN_STAGE_UI[k].label}</option>`).join("")}</select>
+          ${hasPermission("renewals", "edit") ? `<span style="margin-left:auto;display:flex;gap:8px;"><button class="btn btn-sm btn-outline" style="width:auto;" onclick="rnBatchStart()"${chosen.length ? "" : " disabled"}><i class="ph ph-play"></i> Start review (${chosen.length})</button><button class="btn btn-sm btn-primary" style="width:auto;" onclick="rnBatchLetters()"${chosen.length ? "" : " disabled"}><i class="ph ph-envelope-simple"></i> Expiration letters (${chosen.length})</button></span>` : ""}
         </div>
-        ${rows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Insured</th><th>Line</th><th>Policy</th><th>Expires</th><th>Annual premium</th><th>Stage</th><th>Next milestone</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : (total ? '<p class="text-xs text-muted">No policies match the filters.</p>' : "")}
+        ${rnUI.lastBatch ? `<div class="alert alert-success text-xs"><i class="ph ph-list-checks"></i> ${escHtml(rnUI.lastBatch.text)}${rnUI.lastBatch.skipped && rnUI.lastBatch.skipped.length ? `<ul style="margin:6px 0 0 18px;">${rnUI.lastBatch.skipped.map(x => `<li>${escHtml(x.id)}: ${escHtml(x.why)}</li>`).join("")}</ul>` : ""}</div>` : ""}
+        ${rows ? `<div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th><input type="checkbox" aria-label="Select all" onchange="rnToggleAll(this.checked)"></th><th>Insured</th><th>Line</th><th>Policy</th><th>Expires</th><th>Annual premium</th><th>Stage</th><th>Next milestone</th><th>Letters</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : (total ? '<p class="text-xs text-muted">No policies match the filters.</p>' : "")}
       </div>
     </div>
     ${sel ? rnDetailHtml(sel) : ""}`;
@@ -658,10 +741,10 @@ function renderRenewalChip(sub) {
       if (pct > RENEWAL_CONDITIONAL_PREMIUM_PCT && r && r.decision === "renew") warn = `<div class="alert alert-warning text-xs"><i class="ph ph-warning"></i> The renewal premium is ${pct}% above the expiring premium, over the ${RENEWAL_CONDITIONAL_PREMIUM_PCT}% threshold, but the decision was a plain renewal and no conditional-renewal notice was given. Check the notice rules before issuing the quote.</div>`;
       else warn = `<div class="text-xs text-muted">Renewal premium ${pct >= 0 ? "+" : ""}${pct}% against the expiring premium of ${rnMoney(prior.premium)}.</div>`;
     }
-    html = `<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-arrows-clockwise"></i> Renewal of ${rnEsc(sub.renewalOf)}</h3><span class="badge badge-primary">Renewal</span></div><div class="card-body"><div class="text-xs" style="margin-bottom:6px;">Expiring policy ${rnEsc(prior ? prior.policyNumber : "")} (${rnEsc(prior ? prior.policyPeriod : "")}). Compare it on Quote Intelligence → Old vs New.</div>${warn}</div></div>`;
+    html = `<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-arrows-clockwise"></i> Renewal of ${escHtml(sub.renewalOf)}</h3><span class="badge badge-primary">Renewal</span></div><div class="card-body"><div class="text-xs" style="margin-bottom:6px;">Expiring policy ${escHtml(prior ? prior.policyNumber : "")} (${escHtml(prior ? prior.policyPeriod : "")}). Compare it on Quote Intelligence → Old vs New.</div>${warn}</div></div>`;
   } else if (rnIsRenewable(sub)) {
-    const f = rnFacts(sub), days = rnDays(rnToday(), f.expiration), stage = rnStageOf(sub.renewal, days);
-    html = `<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-calendar-check"></i> Renewal</h3><span class="badge ${RN_STAGE_UI[stage].badge}">${RN_STAGE_UI[stage].label}</span></div><div class="card-body"><div class="text-xs">Expires ${rnEsc(f.expiration)} (${days >= 0 ? days + " days" : "expired"}). Manage it in Quote Intelligence → Renewal Pipeline.</div></div></div>`;
+    const f = rnFacts(sub), days = rnDays(todayIso(), f.expiration), stage = rnStageOf(sub.renewal, days);
+    html = `<div class="card" style="margin-bottom:16px;"><div class="card-header"><h3><i class="ph ph-calendar-check"></i> Renewal</h3><span class="badge ${RN_STAGE_UI[stage].badge}">${RN_STAGE_UI[stage].label}</span></div><div class="card-body"><div class="text-xs">Expires ${escHtml(f.expiration)} (${days >= 0 ? days + " days" : "expired"}). Manage it in Quote Intelligence → Renewal Pipeline.</div></div></div>`;
   }
   box.innerHTML = html;
 }

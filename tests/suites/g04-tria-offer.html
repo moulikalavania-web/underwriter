@@ -139,7 +139,7 @@
     renderTriaCard(sub);
     h = document.getElementById('triaOfferContainer').innerHTML;
     t('card renders accepted record', h.indexOf('Accepted') > -1 && h.indexOf('Withdraw') > -1 && h.indexOf('Earlier offers') > -1);
-    t('XSS-safe', triaEsc('<b onmouseover=1>') === '&lt;b onmouseover=1&gt;');
+    t('XSS-safe', escHtml('<b onmouseover=1>') === '&lt;b onmouseover=1&gt;');
 
     // --- chained guards on a clean line (Gallagher GL CPC, OH): TRIA is the outermost gate
     SUBMISSIONS_DATASET.length = 0;

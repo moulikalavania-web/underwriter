@@ -42,7 +42,7 @@
     t('facts: liability kind and coverage schedule', f0.kind === 'liability' && f0.coverages.length > 0 && f0.carrier);
     t('facts: property kind', bndFacts(seed('property')).kind === 'property');
     t('facts: effective date parsed from MM/DD/YYYY', bndParseDate('09/01/2026') === '2026-09-01');
-    t('not bound before the PAS returns a policy number', bndIsBound(gal0) === false);
+    t('not bound before the PAS returns a policy number', policyIsBound(gal0) === false);
 
     // ---------- staging: what stops the quote and what stops the BIND
     SUBMISSIONS_DATASET.length = 0;
@@ -99,7 +99,7 @@
     try {
       var gal = SUBMISSIONS_DATASET[0];
       t('PAS bind succeeds once every gate is satisfied', !!gal.pasSync && gal.pasSync.status === 'success' && !!gal.pasSync.policyNumber, JSON.stringify(gal.pasSync || null).slice(0, 120));
-      t('bound -> bndIsBound', bndIsBound(gal) === true);
+      t('bound -> policyIsBound', policyIsBound(gal) === true);
       t('post-bind clock started by the real bind', !!gal.subjectivityBindDate);
 
       // ---------- binder
@@ -111,7 +111,7 @@
       var b1 = bndBinders(gal)[0];
       t('junior issues a binder', !!b1 && b1.status === 'active' && b1.id === 'BND-' + gal.id + '-1');
       t('binder carries policy number, period and coverage snapshot', b1.policyNumber === gal.pasSync.policyNumber && b1.coverages.length === gal.coverageRows.length && !!b1.effective && b1.expires > b1.effective);
-      t('binder expires within the configured days', b1.expires <= bndAddDays(bndToday(), BINDER_VALID_DAYS));
+      t('binder expires within the configured days', b1.expires <= bndAddDays(todayIso(), BINDER_VALID_DAYS));
       t('binder html: title, policy number, template warning', /BINDER OF INSURANCE/.test(b1.html) && b1.html.indexOf(b1.policyNumber) > -1 && /not approved by Compliance/.test(b1.html));
       t('binder html names the NAIC gap while unconfigured', /NAIC number not configured/.test(b1.html));
       t('binder audit entry', logs(gal, 'binder_issued').length === 1);
@@ -184,7 +184,7 @@
       var b3 = bndBinders(gal).filter(function(b){return b.status==='active';})[0];
       t('a new binder can be issued after a void', !!b3);
       b3.expires = '2026-01-01';
-      t('a binder past its expiry reads as expired', bndBinderState(b3, bndToday()) === 'expired' && bndActiveBinder(gal) === null);
+      t('a binder past its expiry reads as expired', bndBinderState(b3, todayIso()) === 'expired' && bndActiveBinder(gal) === null);
       currentUserRole = 'assistant'; renderBindersCard(gal); bndIssueCertificate();
       t('no certificate on an expired binder', bndCerts(gal).length === 3);
 
@@ -200,7 +200,7 @@
 
       // views
       t('bind-stage banners function returns html', typeof renderBindStageBanners(prop) === 'string');
-      t('XSS-safe', bndEsc('<script>') === '&lt;script&gt;');
+      t('XSS-safe', escHtml('<script>') === '&lt;script&gt;');
     } catch (e) { out.push('EXCEPTION (async phase) ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
     finish();
   }, 2600);

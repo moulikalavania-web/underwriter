@@ -69,17 +69,13 @@ function subjMirrorText(i) {
 // ----------------------------------------------------------------------------
 function subjSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function subjActiveSub() { return subjSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function subjNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function subjActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function subjEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function subjLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 4, decision, by: subjActor(), at: subjNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 4, decision, by: subjActor(), at: nowStamp(), notes });
 }
 function subjPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -94,7 +90,7 @@ function subjNewItem(sub, f) {
     id: "SJ-" + n, text: String(f.text).trim(), timing: parsed.timing,
     dueDays: parsed.timing === "post_bind" ? (parsed.dueDays || SUBJ_DEFAULT_POST_BIND_DAYS) : null,
     dueDate: null, neededBy: f.neededBy || null, status: "open", source: f.source || "manual",
-    createdBy: f.createdBy || subjActor(), createdAt: subjNow()
+    createdBy: f.createdBy || subjActor(), createdAt: nowStamp()
   };
   if (item.timing === "post_bind" && sub.subjectivityBindDate) item.dueDate = subjAddDays(sub.subjectivityBindDate, item.dueDays);
   items.push(item);
@@ -183,7 +179,7 @@ function subjReceive(id, host) {
   const i = subjFind(sub, id); if (!i || i.status !== "open") return;
   const ref = subjNote(id, host);
   if (ref.length < 3) { showToast("Enter the reference of what was received (document name, email id).", "danger"); return; }
-  i.status = "received"; i.receivedBy = subjActor(); i.receivedAt = subjNow(); i.evidence = ref; i.returnedNote = null;
+  i.status = "received"; i.receivedBy = subjActor(); i.receivedAt = nowStamp(); i.evidence = ref; i.returnedNote = null;
   subjLog(sub, "subjectivity_received", `Received: "${i.text}" — ${ref}. Awaiting underwriter acceptance.`);
   subjAfter(sub, host);
   showToast("Receipt recorded. An underwriter must accept it.", "info");
@@ -194,7 +190,7 @@ function subjAccept(id, host) {
   if (!hasPermission("subjectivities", "approve")) { denyPermission("subjectivities", "approve"); return; }
   const i = subjFind(sub, id); if (!i || i.status !== "received") return;
   if (SUBJ_REQUIRE_SEPARATE_ACCEPTER && i.receivedBy === subjActor()) { showToast("⛔ The person who recorded receipt cannot also accept it. Ask another underwriter.", "danger"); return; }
-  i.status = "accepted"; i.acceptedBy = subjActor(); i.acceptedAt = subjNow();
+  i.status = "accepted"; i.acceptedBy = subjActor(); i.acceptedAt = nowStamp();
   subjLog(sub, "subjectivity_accepted", `Accepted: "${i.text}" (${i.evidence}).`);
   subjAfter(sub, host);
   showToast("Subjectivity accepted.", "success");
@@ -218,7 +214,7 @@ function subjWaive(id, host) {
   const i = subjFind(sub, id); if (!i || subjIsDone(i)) return;
   const reason = subjNote(id, host);
   if (reason.length < 10) { showToast("A written reason (at least 10 characters) is required to waive a subjectivity.", "danger"); return; }
-  i.status = "waived"; i.waivedBy = subjActor(); i.waivedAt = subjNow(); i.waivedReason = reason;
+  i.status = "waived"; i.waivedBy = subjActor(); i.waivedAt = nowStamp(); i.waivedReason = reason;
   subjLog(sub, "subjectivity_waived", `Waived (${i.timing === "pre_bind" ? "pre-bind" : "post-bind"}): "${i.text}" — ${reason}`);
   subjAfter(sub, host);
   showToast("Subjectivity waived and logged.", "success");
@@ -251,7 +247,7 @@ function subjOpenAddDialog() {
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <div class="u-row-gap10"><i class="ph ph-list-plus text-primary u-fs-22"></i>
-          <div><h3 class="u-title-16">Add Subjectivity</h3><p class="text-xs text-muted u-m0">${subjEsc(sub.id)} — ${subjEsc(sub.insured || "")}</p></div></div>
+          <div><h3 class="u-title-16">Add Subjectivity</h3><p class="text-xs text-muted u-m0">${escHtml(sub.id)} — ${escHtml(sub.insured || "")}</p></div></div>
         <button class="btn-close" aria-label="Close" onclick="subjCloseAddDialog()"><i class="ph ph-x"></i></button>
       </div>
       <div class="modal-body">
@@ -331,10 +327,10 @@ function subjBoardHtml(sub, host) {
     const ui = SUBJ_STATUS_UI[i.status];
     const overdue = st.overdue.includes(i);
     let facts = "";
-    if (i.status === "received") facts = `Received ${subjEsc(i.receivedAt)} by ${subjEsc(i.receivedBy)} — ${subjEsc(i.evidence)}`;
-    if (i.status === "accepted") facts = `Accepted ${subjEsc(i.acceptedAt)} by ${subjEsc(i.acceptedBy)} (${subjEsc(i.evidence)})`;
-    if (i.status === "waived") facts = `Waived ${subjEsc(i.waivedAt)} by ${subjEsc(i.waivedBy)}: ${subjEsc(i.waivedReason)}`;
-    if (i.status === "open" && i.returnedNote) facts = `Returned: ${subjEsc(i.returnedNote)}`;
+    if (i.status === "received") facts = `Received ${escHtml(i.receivedAt)} by ${escHtml(i.receivedBy)} — ${escHtml(i.evidence)}`;
+    if (i.status === "accepted") facts = `Accepted ${escHtml(i.acceptedAt)} by ${escHtml(i.acceptedBy)} (${escHtml(i.evidence)})`;
+    if (i.status === "waived") facts = `Waived ${escHtml(i.waivedAt)} by ${escHtml(i.waivedBy)}: ${escHtml(i.waivedReason)}`;
+    if (i.status === "open" && i.returnedNote) facts = `Returned: ${escHtml(i.returnedNote)}`;
 
     const noteInput = `<input id="sj_note_${host}_${i.id}" class="form-control" style="width:230px; display:inline-block;" placeholder="Reference, or reason">`;
     const b = (fn, label, cls, perm) => perm ? `<button class="btn btn-xs ${cls}" style="width:auto;" onclick="${fn}('${i.id}','${host}')">${label}</button>` : "";
@@ -348,11 +344,11 @@ function subjBoardHtml(sub, host) {
       <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between;">
         <div style="flex:1; min-width:260px;">
           <span class="badge ${i.timing === "pre_bind" ? "badge-warning" : "badge-primary"} text-xs">${i.timing === "pre_bind" ? "Pre-bind" : "Post-bind"}</span>
-          <span style="font-size:13px; margin-left:6px;">${subjEsc(i.text)}</span>
+          <span style="font-size:13px; margin-left:6px;">${escHtml(i.text)}</span>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
-          <span class="text-xs ${overdue ? "text-danger" : "text-muted"}" style="font-size:12px; ${overdue ? "font-weight:700;" : ""}">${subjEsc(subjDueText(i, today))}</span>
-          <span class="badge ${ui.badge} text-xs">${subjEsc(ui.label)}</span>
+          <span class="text-xs ${overdue ? "text-danger" : "text-muted"}" style="font-size:12px; ${overdue ? "font-weight:700;" : ""}">${escHtml(subjDueText(i, today))}</span>
+          <span class="badge ${ui.badge} text-xs">${escHtml(ui.label)}</span>
         </div>
       </div>
       ${facts ? `<div class="text-xs text-muted" style="margin-top:4px; font-size:12px;">${facts}</div>` : ""}
@@ -365,7 +361,7 @@ function subjBoardHtml(sub, host) {
       <span><strong>Pre-bind:</strong> ${preDone} of ${st.pre.length} cleared${st.blocked ? ` <span class="badge badge-danger text-xs">blocks bind</span>` : ""}</span>
       <span><strong>Post-bind:</strong> ${st.postOpen.length} open${st.overdue.some(i => i.timing === "post_bind") ? ` <span class="badge badge-danger text-xs">${st.overdue.filter(i => i.timing === "post_bind").length} overdue</span>` : ""}</span>
       ${st.awaitingReview.length ? `<span><strong>${st.awaitingReview.length}</strong> awaiting acceptance</span>` : ""}
-      ${sub.subjectivityBindDate ? `<span class="text-muted">Bound ${subjEsc(sub.subjectivityBindDate)}</span>` : ""}
+      ${sub.subjectivityBindDate ? `<span class="text-muted">Bound ${escHtml(sub.subjectivityBindDate)}</span>` : ""}
     </div>`;
   const ordered = items.slice().sort((a, b) => (a.timing === b.timing ? 0 : (a.timing === "pre_bind" ? -1 : 1)));
   const note = compact ? `<div class="text-xs text-muted" style="margin-top:6px;"><i class="ph ph-info"></i> Receipt, acceptance and waiver are tracked on the Quote &amp; Bind screen.</div>` : "";
@@ -391,7 +387,7 @@ function renderSubjectivitiesQuoteList(sub) {
   const items = ensureSubjectivityItems(sub).filter(i => !subjIsDone(i));
   if (!items.length) return `<div>No open subjectivities. All conditions have been accepted or waived.</div>`;
   const pre = items.filter(i => i.timing === "pre_bind"), post = items.filter(i => i.timing === "post_bind");
-  const li = i => `<li>${subjEsc(i.text)}${i.timing === "post_bind" ? ` <em>(within ${i.dueDays || SUBJ_DEFAULT_POST_BIND_DAYS} days of binding${i.dueDate ? ", due " + subjEsc(i.dueDate) : ""})</em>` : ""}</li>`;
+  const li = i => `<li>${escHtml(i.text)}${i.timing === "post_bind" ? ` <em>(within ${i.dueDays || SUBJ_DEFAULT_POST_BIND_DAYS} days of binding${i.dueDate ? ", due " + escHtml(i.dueDate) : ""})</em>` : ""}</li>`;
   return (pre.length ? `<div style="font-weight:700;">Before binding</div><ul style="margin:2px 0 8px; padding-left:18px; line-height:1.5;">${pre.map(li).join("")}</ul>` : "") +
          (post.length ? `<div style="font-weight:700;">After binding</div><ul style="margin:2px 0 0; padding-left:18px; line-height:1.5;">${post.map(li).join("")}</ul>` : "");
 }
@@ -400,7 +396,7 @@ function renderSubjectivitiesBindBanner(sub, stage) {
   if (!sub) return "";
   const st = subjStatus(sub);
   if (st.blocked && stage === "quote") return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-clipboard-text"></i> ${st.preBlocking.length} pre-bind subjectivity item(s) are open. The quote can be issued with them listed, but the policy cannot be bound until each is received and accepted (or waived).</div>`;
-  if (st.blocked) return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${st.preBlocking.length} pre-bind subjectivity item(s) must be received and accepted (or waived): ${subjEsc(st.preBlocking.map(i => i.text).join("; "))}</div>`;
+  if (st.blocked) return `<div class="alert alert-danger text-xs" style="margin-bottom:12px;"><i class="ph ph-prohibit"></i> <strong>Bind blocked.</strong> ${st.preBlocking.length} pre-bind subjectivity item(s) must be received and accepted (or waived): ${escHtml(st.preBlocking.map(i => i.text).join("; "))}</div>`;
   const od = st.overdue.filter(i => i.timing === "post_bind");
   if (od.length) return `<div class="alert alert-warning text-xs" style="margin-bottom:12px;"><i class="ph ph-warning"></i> ${od.length} post-bind subjectivity item(s) are overdue. The carrier may cancel for non-compliance; consider a cancellation review.</div>`;
   return `<div class="alert alert-success text-xs" style="margin-bottom:12px;"><i class="ph ph-clipboard-text"></i> Pre-bind subjectivities are clear.${st.postOpen.length ? ` ${st.postOpen.length} post-bind item(s) will be tracked after binding.` : ""}</div>`;

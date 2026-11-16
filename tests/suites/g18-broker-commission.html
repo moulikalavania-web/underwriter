@@ -274,7 +274,7 @@
     BOR_COMMISSION_TREATMENT = 'prorata';
     COMMISSION_SCHEDULE.find(function(a){return a.id==='AGR-AON-2026';}).rates.gl_cpc.new = 12;
 
-    t('XSS-safe', comEsc('<i onclick=1>') === '&lt;i onclick=1&gt;');
+    t('XSS-safe', escHtml('<i onclick=1>') === '&lt;i onclick=1&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

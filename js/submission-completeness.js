@@ -247,17 +247,13 @@ function evaluateCompleteness(sub) {
 // ----------------------------------------------------------------------------
 function completenessSub(id) { return SUBMISSIONS_DATASET.find(s => s.id === id) || null; }
 function completenessActiveSub() { return completenessSub(typeof activeSubmissionId !== "undefined" ? activeSubmissionId : null); }
-function completenessNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
 function completenessActor() {
   const r = (typeof USER_ROLES_CONFIG !== "undefined" && USER_ROLES_CONFIG[currentUserRole]) || null;
   return r ? `${r.name} (${r.title})` : "Unknown user";
 }
-function completenessEsc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
 function completenessLog(sub, decision, notes) {
   if (!sub.decisionLog) sub.decisionLog = [];
-  sub.decisionLog.push({ step: sub.currentStep || 1, decision, by: completenessActor(), at: completenessNow(), notes });
+  sub.decisionLog.push({ step: sub.currentStep || 1, decision, by: completenessActor(), at: nowStamp(), notes });
 }
 function completenessPersist() {
   if (typeof persistAppState === "function") persistAppState();
@@ -277,7 +273,7 @@ function runCompletenessCheck(sub, trigger) {
     store.lastSnapshot = snap;
     completenessPersist();
   }
-  store.lastCheckedAt = completenessNow();
+  store.lastCheckedAt = nowStamp();
   store.lastPercent = r.percent;
   return r;
 }
@@ -304,7 +300,7 @@ function completenessWaive(itemId) {
   const el = document.getElementById("cmpWaive_" + itemId);
   const reason = el ? el.value.trim() : "";
   if (reason.length < 10) { showToast("A written reason (at least 10 characters) is required to waive an item.", "danger"); if (el) el.focus(); return; }
-  completenessStore(sub).waivers.push({ id: itemId, label: item.label, reason, by: completenessActor(), at: completenessNow() });
+  completenessStore(sub).waivers.push({ id: itemId, label: item.label, reason, by: completenessActor(), at: nowStamp() });
   completenessLog(sub, "completeness_waived", `Waived "${item.label}": ${reason}`);
   runCompletenessCheck(sub, "waiver");
   completenessPersist();
@@ -376,8 +372,8 @@ function renderCompletenessCard(sub) {
       action = `<input id="cmpWaive_${i.id}" class="form-control" style="width:200px; display:inline-block;" placeholder="Reason to waive (10+ chars)">
         <button class="btn btn-xs btn-outline" style="width:auto;" onclick="completenessWaive('${i.id}')">Waive</button>`;
     }
-    const detail = i.met ? completenessEsc(i.detail) : (i.waived ? completenessEsc(i.waiver.reason) + ` <span class="text-muted">— ${completenessEsc(i.waiver.by)}</span>` : completenessEsc(i.hint));
-    return `<tr><td>${completenessEsc(i.label)}${i.required ? ' <span class="text-danger">*</span>' : ""}</td><td>${status}</td><td class="text-xs">${detail}</td><td>${action}</td></tr>`;
+    const detail = i.met ? escHtml(i.detail) : (i.waived ? escHtml(i.waiver.reason) + ` <span class="text-muted">— ${escHtml(i.waiver.by)}</span>` : escHtml(i.hint));
+    return `<tr><td>${escHtml(i.label)}${i.required ? ' <span class="text-danger">*</span>' : ""}</td><td>${status}</td><td class="text-xs">${detail}</td><td>${action}</td></tr>`;
   };
   const dataRows = r.items.filter(i => i.kind === "data").map(row).join("");
   const docRows = r.items.filter(i => i.kind === "document").map(row).join("");
@@ -402,8 +398,8 @@ function renderCompletenessCard(sub) {
         <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; align-items:center;">
           ${canEdit ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="completenessRecheckClicked()"><i class="ph ph-arrows-clockwise"></i> Re-check</button>` : ""}
           ${canEdit && !ok && (sub.rawAttachments || []).length ? `<button class="btn btn-sm btn-outline" style="width:auto;" onclick="completenessFetchFromDocuments()"><i class="ph ph-file-search"></i> Fetch missing items from attached documents</button>` : ""}
-          ${canEdit && !ok ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="completenessRequestMissing()"><i class="ph ph-envelope-open"></i> Request missing items from ${completenessEsc(sub.channelType === "direct" ? "customer" : (sub.broker || "broker"))}</button>` : ""}
-          ${store.lastCheckedAt ? `<span class="text-xs text-muted">Last checked ${completenessEsc(store.lastCheckedAt)}</span>` : ""}
+          ${canEdit && !ok ? `<button class="btn btn-sm btn-primary" style="width:auto;" onclick="completenessRequestMissing()"><i class="ph ph-envelope-open"></i> Request missing items from ${escHtml(sub.channelType === "direct" ? "customer" : (sub.broker || "broker"))}</button>` : ""}
+          ${store.lastCheckedAt ? `<span class="text-xs text-muted">Last checked ${escHtml(store.lastCheckedAt)}</span>` : ""}
         </div>
         <p class="text-xs text-muted" style="margin-top:10px;"><i class="ph ph-info"></i> The check reads the submission's data fields, schedules, extracted values and the names of attached documents. It cannot read inside a PDF, so currently valued loss runs must be confirmed by the underwriter. Checklists are configuration (COMPLETENESS_CHECKLISTS) and can also be extended by the product JSON.</p>
       </div>

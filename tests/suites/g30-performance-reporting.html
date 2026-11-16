@@ -74,7 +74,7 @@
     var mg = perfCompute(G, {}, NOW);
     var marsh = mg.byProducer.filter(function(g){return /Marsh/.test(g.key);})[0], arora = mg.byProducer.filter(function(g){return /Arora/.test(g.key);})[0];
     t('by producer: own funnel and hit ratio', marsh.received===1 && marsh.hitRatio===100 && arora.received===2 && arora.quoted===1 && arora.hitRatio===0 && marsh.premium===5000);
-    t('by line and by assignee', mg.byLob.length===1 && mg.byAssignee.filter(function(g){return g.key==='junior';})[0].received===2);
+    t('by line; underwriters are compared in Reports, not here', mg.byLob.length===1 && typeof mg.byAssignee === 'undefined');
     var D = mk('DIR', ts('2026-09-01','08:00'), { channelType:'direct', broker:'' });
     t('direct business grouped as Direct', perfCompute([D], {}, NOW).byProducer[0].key === 'Direct');
 
@@ -86,15 +86,15 @@
     currentUserRole = 'junior'; renderPerformance();
     t('no access for a junior', /do not have access/.test(el('performanceRoot').innerHTML));
     currentUserRole = 'senior_uw'; renderPerformance();
-    t('senior UW sees book measures but not underwriter-level', /Hit ratio/.test(el('performanceRoot').innerHTML) && /Underwriter-level measures need approval/.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
+    t('senior UW sees book measures and is told the underwriter comparison needs approval authority', /Hit ratio/.test(el('performanceRoot').innerHTML) && /Underwriter comparison \(it needs approval authority/.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
     currentUserRole = 'senior'; renderPerformance();
-    t('CUO also sees the underwriter table', /By assigned underwriter/.test(el('performanceRoot').innerHTML));
+    t('CUO is pointed to the one comparison, with no second table here', /Reports, Underwriter comparison\./.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
     changeUserRole('carrier_auditor'); renderPerformance();
     t('carrier auditor sees only policies on their carrier, and no people table', /Underwriting Performance/.test(el('performanceRoot').innerHTML) && !/By assigned underwriter/.test(el('performanceRoot').innerHTML));
     changeUserRole('broker_user'); renderPerformance();
     t('producer refused', /do not have access/.test(el('performanceRoot').innerHTML));
     changeUserRole('senior');
-    t('XSS-safe', perfEsc('<b>') === '&lt;b&gt;');
+    t('XSS-safe', escHtml('<b>') === '&lt;b&gt;');
   } catch (e) { out.push('EXCEPTION ' + e.message + ' ' + (e.stack||'').split('\n')[1]); }
   out.push('PAGE ERRORS: ' + (errs.length ? errs.join(' | ') : 'none'));
   var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);

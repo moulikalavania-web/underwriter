@@ -55,10 +55,7 @@ var CFG_STATE = null;
 // ----------------------------------------------------------------------------
 // 1. PURE LOGIC
 // ----------------------------------------------------------------------------
-function cfgToday() { return new Date().toISOString().slice(0, 10); }
 function cfgItem(key) { return CFG_ITEMS.filter(function (i) { return i.key === key; })[0] || null; }
-function cfgNow() { return new Date().toISOString().slice(0, 16).replace("T", " "); }
-function cfgEsc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]; }); }
 
 function cfgFresh() {
   var st = { items: {}, seq: 0 };
@@ -78,7 +75,7 @@ function cfgSave() { try { localStorage.setItem(CFG_STORAGE_KEY, JSON.stringify(
 
 /** The active version of an item on a date: approved, effective on or before the date, latest effective date wins. */
 function cfgVersionAt(key, asOf) {
-  var d = asOf || cfgToday(), best = null, bestIdx = -1;
+  var d = asOf || todayIso(), best = null, bestIdx = -1;
   (CFG_STATE.items[key].versions || []).forEach(function (v, idx) {
     if (v.status !== "active" || v.effectiveFrom > d) return;
     if (!best || v.effectiveFrom >= best.effectiveFrom) { best = v; bestIdx = idx; }
@@ -106,7 +103,7 @@ function cfgValidate(item, raw, effectiveFrom, reason, today) {
     if (item.int && Math.floor(v) !== v) p.push("the value must be a whole number");
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveFrom || ""))) p.push("enter the effective date");
-  else if (effectiveFrom < (today || cfgToday())) p.push("the effective date cannot be in the past");
+  else if (effectiveFrom < (today || todayIso())) p.push("the effective date cannot be in the past");
   if (String(reason || "").trim().length < 15) p.push("explain the change (at least 15 characters)");
   return { problems: p, value: v };
 }
@@ -129,7 +126,7 @@ function cfgPin(sub) {
     var ver = cfgVersionAt(i.key);
     vals[i.key] = { value: ver ? ver.value : i.def, versionId: ver ? ver.id : null };
   });
-  sub.configSnapshot = { at: cfgNow(), values: vals };
+  sub.configSnapshot = { at: nowStamp(), values: vals };
 }
 
 // ----------------------------------------------------------------------------
@@ -153,7 +150,7 @@ function cfgPropose(key) {
   if (cur && cur.value === r.value) { showToast("⛔ That is already the value in force on that date.", "danger"); return; }
   CFG_STATE.seq++;
   var id = key + "#p" + CFG_STATE.seq + "-" + Date.now().toString(36);
-  CFG_STATE.items[key].versions.push({ id: id, value: r.value, effectiveFrom: eff, reason: why, proposedBy: cfgActor(), proposedAt: cfgNow(), status: "pending" });
+  CFG_STATE.items[key].versions.push({ id: id, value: r.value, effectiveFrom: eff, reason: why, proposedBy: cfgActor(), proposedAt: nowStamp(), status: "pending" });
   cfgSave(); cfgAudit(key, "cfg_proposed", "Proposed " + item.label + ": " + cfgFmt(item, cur ? cur.value : item.def) + " → " + cfgFmt(item, r.value) + ", effective " + eff + ". Reason: " + why);
   renderRateConfig();
 }
@@ -170,11 +167,11 @@ function cfgDecide(key, approve) {
   if (!approve) {
     var why = cfgV("cfg_rej_" + key);
     if (why.length < 10) { showToast("⛔ Give a reason for rejecting (at least 10 characters).", "danger"); return; }
-    p.status = "rejected"; p.rejectedBy = cfgActor(); p.rejectedAt = cfgNow(); p.rejectReason = why;
+    p.status = "rejected"; p.rejectedBy = cfgActor(); p.rejectedAt = nowStamp(); p.rejectReason = why;
     cfgSave(); cfgAudit(key, "cfg_rejected", "Rejected change to " + item.label + " (" + cfgFmt(item, p.value) + "): " + why);
     renderRateConfig(); return;
   }
-  p.status = "active"; p.approvedBy = cfgActor(); p.approvedAt = cfgNow();
+  p.status = "active"; p.approvedBy = cfgActor(); p.approvedAt = nowStamp();
   cfgSave(); cfgApply();
   cfgAudit(key, "cfg_approved", "Approved change to " + item.label + ": " + cfgFmt(item, p.value) + " effective " + p.effectiveFrom + ". Proposed by " + p.proposedBy + ".");
   renderRateConfig();
@@ -186,7 +183,7 @@ function cfgFmt(item, v) { return item.unit === "$" ? "$" + v : (item.unit && it
  *  This is kept as a seam: a production system would write each change to a system-level audit log here. */
 function cfgAudit(key, decision, notes) {
   if (!CFG_STATE.log) CFG_STATE.log = [];
-  CFG_STATE.log.push({ key: key, decision: decision, by: cfgActor(), at: cfgNow(), notes: notes });
+  CFG_STATE.log.push({ key: key, decision: decision, by: cfgActor(), at: nowStamp(), notes: notes });
   cfgSave();
 }
 
@@ -203,22 +200,22 @@ function renderRateConfig() {
     html += '<h4 style="margin:12px 0 6px;">' + g.t + '</h4><div class="rules-table-container" style="max-height:none;overflow:visible;"><table class="data-table"><thead><tr><th>Item</th><th>In force</th><th>Upcoming / pending</th><th>History</th></tr></thead><tbody>';
     CFG_ITEMS.filter(function (i) { return i.group === g.k; }).forEach(function (i) {
       var cur = cfgVersionAt(i.key), vs = CFG_STATE.items[i.key].versions, pend = cfgPending(i.key);
-      var upcoming = vs.filter(function (v) { return v.status === "active" && v.effectiveFrom > cfgToday(); });
-      var up = upcoming.map(function (v) { return '<div class="text-xs"><span class="badge badge-light">Approved</span> ' + cfgEsc(cfgFmt(i, v.value)) + ' from ' + cfgEsc(v.effectiveFrom) + '</div>'; }).join("");
+      var upcoming = vs.filter(function (v) { return v.status === "active" && v.effectiveFrom > todayIso(); });
+      var up = upcoming.map(function (v) { return '<div class="text-xs"><span class="badge badge-light">Approved</span> ' + escHtml(cfgFmt(i, v.value)) + ' from ' + escHtml(v.effectiveFrom) + '</div>'; }).join("");
       var pd = "";
       if (pend) {
-        pd = '<div class="text-xs"><span class="badge badge-warning">Pending</span> ' + cfgEsc(cfgFmt(i, pend.value)) + ' from ' + cfgEsc(pend.effectiveFrom) + '<br><span class="text-muted">' + cfgEsc(pend.proposedBy) + ': ' + cfgEsc(pend.reason) + '</span></div>';
+        pd = '<div class="text-xs"><span class="badge badge-warning">Pending</span> ' + escHtml(cfgFmt(i, pend.value)) + ' from ' + escHtml(pend.effectiveFrom) + '<br><span class="text-muted">' + escHtml(pend.proposedBy) + ': ' + escHtml(pend.reason) + '</span></div>';
         if (canApprove && pend.proposedBy !== me) pd += '<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;"><button class="btn btn-xs btn-primary" style="width:auto;" onclick="cfgDecide(\'' + i.key + '\',true)">Approve</button><input id="cfg_rej_' + i.key + '" class="form-control" style="width:180px;" placeholder="Reason, if rejecting"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="cfgDecide(\'' + i.key + '\',false)">Reject</button></div>';
         else if (pend.proposedBy === me) pd += '<div class="text-xs text-muted">You proposed this; another approver must decide. <a href="#" onclick="cfgWithdraw(\'' + i.key + '\');return false;">Withdraw</a></div>';
       } else if (canEdit) {
         var inp = i.options ? '<select id="cfg_val_' + i.key + '" class="form-control" style="width:120px;">' + i.options.map(function (o) { return '<option value="' + o + '">' + o + '</option>'; }).join("") + '</select>'
           : '<input id="cfg_val_' + i.key + '" type="number" step="' + i.step + '" min="' + i.min + '" max="' + i.max + '" class="form-control" style="width:90px;" placeholder="New">';
-        pd = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + inp + '<input id="cfg_eff_' + i.key + '" type="date" class="form-control" style="width:140px;" value="' + cfgToday() + '"><input id="cfg_why_' + i.key + '" class="form-control" style="width:200px;" placeholder="Reason (15+ characters)"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="cfgPropose(\'' + i.key + '\')">Propose</button></div>';
+        pd = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' + inp + '<input id="cfg_eff_' + i.key + '" type="date" class="form-control" style="width:140px;" value="' + todayIso() + '"><input id="cfg_why_' + i.key + '" class="form-control" style="width:200px;" placeholder="Reason (15+ characters)"><button class="btn btn-xs btn-outline" style="width:auto;" onclick="cfgPropose(\'' + i.key + '\')">Propose</button></div>';
       }
       var hist = vs.filter(function (v) { return v.status !== "pending"; }).slice().reverse().map(function (v) {
-        return '<div class="text-xs text-muted">' + cfgEsc(cfgFmt(i, v.value)) + ' · from ' + cfgEsc(v.effectiveFrom) + ' · ' + cfgEsc(v.status) + (v.approvedBy && v.approvedBy !== "System default" ? ' · approved by ' + cfgEsc(v.approvedBy) : (v.status === "active" ? " · default" : "")) + '</div>';
+        return '<div class="text-xs text-muted">' + escHtml(cfgFmt(i, v.value)) + ' · from ' + escHtml(v.effectiveFrom) + ' · ' + escHtml(v.status) + (v.approvedBy && v.approvedBy !== "System default" ? ' · approved by ' + escHtml(v.approvedBy) : (v.status === "active" ? " · default" : "")) + '</div>';
       }).join("");
-      html += '<tr><td><strong>' + cfgEsc(i.label) + '</strong><div class="text-xs text-muted">' + cfgEsc(i.note) + '</div></td><td><strong>' + cfgEsc(cfgFmt(i, cur ? cur.value : i.def)) + '</strong></td><td>' + up + pd + '</td><td>' + hist + '</td></tr>';
+      html += '<tr><td><strong>' + escHtml(i.label) + '</strong><div class="text-xs text-muted">' + escHtml(i.note) + '</div></td><td><strong>' + escHtml(cfgFmt(i, cur ? cur.value : i.def)) + '</strong></td><td>' + up + pd + '</td><td>' + hist + '</td></tr>';
     });
     html += '</tbody></table></div>';
   });
