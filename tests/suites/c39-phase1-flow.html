@@ -1,0 +1,175 @@
+<!-- Suite C39: Phase 1. Create -> Received -> four automatic checks (producer licence, FEIN duplicate, appetite, watchlist) -> Review.
+     The checks run without a button; a failed check leads to the Decline scenario; a missing registry or watchlist holds approval
+     (and loading it here re-runs the checks); the human reviewer must comment before approving or declining; only the assigned
+     reviewer or the Head of Underwriting may sign off; a case Phase 1 has not finished opens here, never in the workflow. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  function lastToast(){ return toasts.length ? toasts[toasts.length - 1] : ''; }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.confirm = function(){ return true; };
+  var WATCH = SANCTIONS_WATCHLIST.slice(), REG = PRODUCER_REGISTRY.slice();
+  var opened = [];
+  P1_ORIG_OPEN = function(id){ opened.push(id); };
+  P1_ANIMATE = false;
+
+  var F = { channel: 'p1_channel', lob: 'p1_lob', insured: 'p1_insured', fein: 'p1_fein', state: 'p1_state', years: 'p1_years', broker: 'p1_broker', reviewer: 'p1_reviewer' };
+  async function mk(o){
+    o = Object.assign({ channel: 'broker', lob: 'trucking', insured: 'Lone Star Haulers LLC', fein: '74-1111111', state: 'TX', years: '6', broker: 'Arora & Sons', reviewer: 'admin' }, o || {});
+    openPhase1Flow();
+    for (var k in o) el(F[k]).value = o[k];
+    p1Submit();
+    await sleep(40);
+    return p1Sub();
+  }
+  function st(sub, key){ return sub.phase1.checks[key].status; }
+
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- the screens and their order
+    openPhase1Flow();
+    t('the Phase 1 page opens on the create form', el('phase1PageView').style.display === 'block' && !!el('p1_form'));
+    t('the stepper lists Create, Received, Checks, Review in order', /Create[\s\S]*Received[\s\S]*Checks[\s\S]*Review/.test(el('phase1Root').querySelector('.p1-stepper').textContent));
+    t('the form does not offer a button to run checks', !/Run checks|Start checks/i.test(el('phase1Root').innerHTML.replace(/Start now/g, '')));
+    t('the reviewer can be chosen on the form', el('p1_reviewer').options.length === 4);
+    P1_CHECKS.length === 4 && t('four checks, in the required order', P1_CHECKS.map(function(c){ return c.key; }).join() === 'producer,fein,appetite,watchlist');
+
+    // ---------- happy path: everything clear
+    var a = await mk();
+    t('the case is created and Phase 1 moves to the review step by itself', !!a && P1.step === 'decision' && a.phase1.stage === 'review');
+    t('all four checks ran, in order, without a button', Object.keys(a.phase1.checks).join() === 'producer,fein,appetite,watchlist' && a.phase1.runs === 1);
+    t('and all passed', ['producer','fein','appetite','watchlist'].every(function(k){ return st(a, k) === 'pass'; }), JSON.stringify(Object.keys(a.phase1.checks).map(function(k){ return a.phase1.checks[k].status + ':' + a.phase1.checks[k].summary; })));
+    t('the outcome is clear and the screen says so', p1Outcome(a) === 'clear' && /All four checks passed/.test(el('phase1Root').textContent));
+    t('the queue shows the case as awaiting review', a.statusText === 'Phase 1: Awaiting review');
+    t('it is blank apart from the form', a.address === '' && a.vehicles.length === 0 && a.docs.length === 0);
+    t('the audit trail has the receipt and the check run', a.decisionLog.some(function(d){ return d.decision === 'phase1_received'; }) && a.decisionLog.some(function(d){ return d.decision === 'phase1_checks'; }));
+    t('the audit log knows how to show these entries', ['phase1_received','phase1_checks','phase1_approved','phase1_edited'].every(function(k){ return !!AUDIT_ACTION_META[k]; }));
+
+    // ---------- human in the loop: a comment is required
+    opened.length = 0; toasts.length = 0;
+    el('p1_comment').value = 'ok';
+    p1Approve();
+    t('approval without a real comment is refused', a.phase1.stage === 'review' && /comment/i.test(lastToast()) && !opened.length);
+    el('p1_comment').value = 'Reviewed all four results; broker licensed in TX, FEIN unique, in appetite.';
+    p1Approve();
+    t('with a comment the case is approved and recorded', a.phase1.stage === 'done' && a.phase1.review.decision === 'approved' && /Reviewed all four/.test(a.phase1.review.comment));
+    t('the comment is in the audit trail', a.decisionLog.some(function(d){ return d.decision === 'phase1_approved' && /Reviewed all four/.test(d.notes); }));
+    t('and the workflow opens for that case', opened.length === 1 && opened[0] === a.id);
+    t('the status says Phase 1 cleared', a.statusText === 'Phase 1 cleared');
+
+    // ---------- Decline scenario: duplicate FEIN
+    var d = await mk({ insured: 'Second Try Trucking', fein: '74-1111111' });
+    t('a second case with the same FEIN fails the duplicate check', st(d, 'fein') === 'fail' && /already on/.test(d.phase1.checks.fein.summary) && d.phase1.checks.fein.summary.indexOf(a.id) > -1);
+    t('the other checks still ran and passed', st(d, 'producer') === 'pass' && st(d, 'appetite') === 'pass' && st(d, 'watchlist') === 'pass');
+    t('the Decline scenario screen is shown, with the reason', p1Outcome(d) === 'decline' && d.phase1.stage === 'decline' && /Decline recommended/.test(el('phase1Root').textContent) && /FEIN duplicate/.test(el('phase1Root').textContent));
+    t('the stepper names the last step Decline', /Decline/.test(el('phase1Root').querySelector('.p1-stepper').textContent));
+    t('approve is not offered on a failed case', !/Approve and continue/.test(el('phase1Root').innerHTML) && /Confirm decline/.test(el('phase1Root').innerHTML));
+    opened.length = 0; p1Approve();
+    t('and approving it directly is refused', d.phase1.stage === 'decline' && !opened.length);
+    toasts.length = 0; p1ConfirmDecline();
+    t('declining needs a comment too', d.lifecycleStatus !== 'declined' && /comment/i.test(lastToast()));
+    el('p1_comment').value = 'Same FEIN is on file with another submission; declining as a duplicate.';
+    var declineLog = DECLINE_LOG.length; p1ConfirmDecline();
+    t('with a comment the decline is confirmed', d.lifecycleStatus === 'declined' && d.phase1.stage === 'declined' && d.statusText === 'Declined');
+    t('it is recorded as a duplicate in the Decline Center', DECLINE_LOG.length === declineLog + 1 && DECLINE_LOG[0].subId === d.id && DECLINE_LOG[0].triggerPoint === 'Duplicate FEIN');
+    var oc = (d.outcomes || []).filter(function(o){ return o.status === 'current'; })[0];
+    t('and as an outcome with the DUPLICATE reason and the reviewer\'s words', !!oc && oc.reasonCode === 'DUPLICATE' && /Same FEIN is on file/.test(oc.reasonText));
+    t('the screen afterwards is read-only and shows the comment', /Declined\./.test(el('phase1Root').textContent) && /Same FEIN is on file/.test(el('phase1Root').textContent) && !el('p1_comment'));
+    var same = await mk({ insured: 'Third Try Trucking', fein: '74-1111111' });
+    t('a declined submission does not block the FEIN (only active ones do)', st(same, 'fein') === 'fail' && same.phase1.checks.fein.summary.indexOf(a.id) > -1 && same.phase1.checks.fein.summary.indexOf(d.id) < 0);
+
+    // ---------- Decline scenario: correct a typo and re-run
+    var e = await mk({ insured: 'Typo Transport', fein: '74-1111111' });
+    t('a typo that collides is caught', p1Outcome(e) === 'decline');
+    p1Edit();
+    t('Correct details opens the same form, filled in', P1.step === 'create' && el('p1_fein').value === '74-1111111' && el('p1_insured').value === 'Typo Transport' && /Save and re-run/.test(el('p1_submit').textContent));
+    el('p1_fein').value = '74-2222222'; p1Submit(); await sleep(40);
+    t('saving re-runs the checks by themselves, on the same case', p1Sub().id === e.id && e.fein === '74-2222222' && e.phase1.runs === 2 && p1Outcome(e) === 'clear' && P1.step === 'decision');
+    t('and the correction is in the audit trail', e.decisionLog.some(function(x){ return x.decision === 'phase1_edited'; }));
+
+    // ---------- appetite
+    var s1 = await mk({ insured: 'Alaska Haulers', fein: '74-3333333', state: 'AK' });
+    t('a state we do not write fails appetite', st(s1, 'appetite') === 'fail' && /AK/.test(s1.phase1.checks.appetite.summary));
+    var s2 = await mk({ insured: 'Brand New Freight', fein: '74-4444444', years: '1' });
+    t('too few years in business fails appetite', st(s2, 'appetite') === 'fail' && /Years in business/.test(s2.phase1.checks.appetite.summary));
+    el('p1_comment').value = 'Below the minimum years in business; declining on appetite.'; p1ConfirmDecline();
+    t('an appetite decline is recorded with the APPETITE reason', DECLINE_LOG[0].triggerPoint === 'Appetite Knockout' && s2.outcomes[0].reasonCode === 'APPETITE');
+
+    // ---------- producer licence
+    var p = await mk({ insured: 'Unlicensed Broker Client', fein: '74-5555555', broker: 'Nobody Brokers Inc' });
+    t('a producer with no licence record fails the licence check', st(p, 'producer') === 'fail' && /Nobody Brokers/.test(p.phase1.checks.producer.summary));
+    var p2 = await mk({ insured: 'Wrong State Client', fein: '74-5555556', state: 'OK' });
+    t('a producer not licensed in the risk state fails', st(p2, 'producer') === 'fail');
+    var dr = await mk({ insured: 'Direct Customer Co', fein: '74-5555557', channel: 'direct', broker: '' });
+    t('a direct customer has no producer to check, and passes', st(dr, 'producer') === 'pass' && /Not applicable/.test(dr.phase1.checks.producer.summary) && dr.broker === 'Direct Customer Portal');
+
+    // ---------- watchlist
+    var w = await mk({ insured: 'Test Blocked Person', fein: '74-6666666' });
+    t('a party on the watchlist fails the watchlist check', st(w, 'watchlist') === 'fail' && /match/.test(w.phase1.checks.watchlist.summary));
+    t('and the screen sends it to Decline, not to approval', w.phase1.stage === 'decline');
+
+    // ---------- missing reference data: held, not declined; loading it re-runs the checks
+    SANCTIONS_WATCHLIST.length = 0; PRODUCER_REGISTRY.length = 0;
+    var u = await mk({ insured: 'No Data Yet Inc', fein: '74-7777777' });
+    t('with no registry or watchlist the checks cannot complete', st(u, 'producer') === 'unable' && st(u, 'watchlist') === 'unable' && p1Outcome(u) === 'incomplete');
+    t('it is not treated as a decline', u.phase1.stage === 'review' && !/Decline recommended/.test(el('phase1Root').textContent));
+    t('the screen explains what is missing and shows the loaders for both lists right there', /could not be completed/.test(el('phase1Root').textContent) && /No watchlist is loaded/.test(el('phase1Root').textContent) && /No licensing registry is loaded/.test(el('phase1Root').textContent));
+    t('approval is not offered while checks are incomplete', !/Approve and continue/.test(el('phase1Root').innerHTML) && /Re-run checks/.test(el('phase1Root').innerHTML));
+    opened.length = 0; el('p1_comment').value = 'Trying to approve without the data loaded.'; p1Approve();
+    t('and approving is refused', u.phase1.stage === 'review' && !opened.length);
+    REG.forEach(function(r){ PRODUCER_REGISTRY.push(r); }); WATCH.forEach(function(x){ SANCTIONS_WATCHLIST.push(x); });
+    refAfterLoad('watchlist');
+    t('loading the files re-runs the checks by themselves', u.phase1.runs === 2 && p1Outcome(u) === 'clear', 'runs ' + u.phase1.runs + ' outcome ' + p1Outcome(u));
+    t('and approval is then offered', /Approve and continue/.test(el('phase1Root').innerHTML));
+
+    // ---------- who may sign off
+    var r = await mk({ insured: 'Reviewer Test Haulers', fein: '74-8888888', reviewer: 'junior' });
+    t('choosing a reviewer assigns the case to them', r.assignedTo === 'junior' && r.phase1.reviewer === 'junior');
+    currentUserRole = 'senior_uw'; p1Render();
+    t('someone else sees the results but cannot comment or sign off', /read-only/.test(el('phase1Root').textContent) && el('p1_comment').disabled === true);
+    toasts.length = 0; el('p1_comment').disabled = false; el('p1_comment').value = 'I should not be able to approve this.'; p1Approve();
+    t('and the action itself refuses them', r.phase1.stage === 'review' && /assigned reviewer/.test(lastToast()));
+    currentUserRole = 'junior'; p1Render();
+    t('the assigned reviewer can comment', el('p1_comment').disabled === false);
+    el('p1_comment').value = 'Checked the four results and they are clean.'; opened.length = 0; p1Approve();
+    t('and sign off', r.phase1.stage === 'done' && r.phase1.review.role === 'junior' && opened[0] === r.id);
+    currentUserRole = 'admin';
+
+    // ---------- an unfinished case opens here, not in the workflow
+    var o = await mk({ insured: 'Open Me Haulers', fein: '74-9999999' });
+    showIntakePage(); opened.length = 0;
+    openCaseAtCurrentStep(o.id);
+    t('opening an unfinished case from the queue returns to the review', currentPage === 'phase1' && P1.subId === o.id && P1.step === 'decision' && !opened.length);
+    openCaseAtCurrentStep(a.id);
+    t('a finished case opens in the workflow as before', opened[opened.length - 1] === a.id);
+    currentUserRole = 'senior_uw'; showIntakePage(); openCaseAtCurrentStep(o.id);
+    t('an approver who is not the reviewer sees the unfinished case read-only', currentPage === 'phase1' && el('p1_comment').disabled === true);
+    currentUserRole = 'assistant'; showIntakePage(); toasts.length = 0; openCaseAtCurrentStep(o.id);
+    t('a user with no part in it cannot open an unfinished case', currentPage !== 'phase1' && /waiting for review/.test(lastToast()));
+    currentUserRole = 'admin';
+
+    // ---------- the animated path: results are revealed in order
+    P1_ANIMATE = true; P1_REVEAL_MS = 15; var tail = 15 * 5 + 400;
+    openPhase1Flow();
+    var f2 = { channel: 'broker', lob: 'trucking', insured: 'Animated Freight', fein: '74-1212121', state: 'TX', years: '4', broker: 'Arora & Sons', reviewer: 'admin' };
+    for (var k in f2) el(F[k]).value = f2[k];
+    p1Submit();
+    t('after Submit the Received screen shows at once', P1.step === 'received' && /Submission received/.test(el('phase1Root').textContent) && /SUB-/.test(el('phase1Root').textContent));
+    p1SkipWait();
+    t('Start now goes straight to the checks, which list all four', P1.step === 'checks' && el('phase1Root').querySelectorAll('.p1-row').length === 4);
+    await sleep(tail + 150);
+    t('the checks finish and the review opens by itself', P1.step === 'decision' && /Check results/.test(el('phase1Root').textContent));
+    P1_ANIMATE = false;
+
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n').slice(0,3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  })();
+})();
+</script>

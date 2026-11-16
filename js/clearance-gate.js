@@ -81,17 +81,9 @@ function clearanceLog(sub, decision, notes) {
   if (typeof persistAppState === "function") persistAppState();
 }
 
-/** The hold banner at the top of Step 2. */
+/** The verdict at the top of Step 2: the hold banner, the gate lane and what needs a person (js/clearance-board.js). */
 function renderClearanceHold(sub) {
-  const box = document.getElementById("clearanceHoldContainer");
-  if (!box) return;
-  if (!sub) { box.innerHTML = ""; return; }
-  const r = clearanceChecks(sub);
-  const row = (name, c) => `<li><strong>${name}:</strong> <span class="badge ${c.ok ? "badge-success" : "badge-danger"}">${c.label || (c.ok ? "OK" : "Not met")}</span>${c.ok ? "" : " " + c.detail}</li>`;
-  box.innerHTML = r.ok
-    ? `<div class="alert alert-success text-xs"><i class="ph ph-check-circle"></i> <strong>Legal checks passed.</strong> Producer licence and sanctions screening are clear; the case may continue after market clearance and the appetite rules.</div>`
-    : `<div class="alert alert-danger text-xs"><i class="ph ph-hand-palm"></i> <strong>Held at Step 2.</strong> The case cannot move on to Data Enrichment until both legal checks pass.
-        <ul style="margin:6px 0 0 18px;">${row("Producer licence and appointment", r.producer)}${row("Sanctions screening", r.sanctions)}</ul></div>`;
+  if (typeof renderClearanceBoard === "function") renderClearanceBoard(sub);
 }
 
 /** The reasons the case may not leave Step 2, or an empty list. */

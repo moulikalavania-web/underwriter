@@ -58,7 +58,7 @@
     t('a new stage is a new run', D.ruleRuns.length === 2 && run2.stage === 'quote');
     D.currentStep = 2;
     renderAppetiteRules(D.appetiteRules);
-    var card = el('ruleRunContainer').innerText;
+    var card = el('ruleRunContainer').textContent;
     t('the appetite page shows the run, the knockout and what happens', /Rule evaluation/i.test(card) && /Knockout: decline/i.test(card) && /Prohibited Class/i.test(card) && /Recommend decline/i.test(card), card.slice(0, 200));
     t('a knockout offers to record the decline, and does not decline by itself', /Record the decline/.test(el('ruleRunContainer').innerHTML) && D.lifecycleStatus !== 'declined');
     use(B); renderAppetiteRules(B.appetiteRules);

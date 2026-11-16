@@ -60,7 +60,7 @@ window.registerExternalRole = registerExternalRole;
 var EXT_VIEW_ALL = ["documents", "submissionData", "workflow", "archival", "reviewRules", "appetiteRules", "premiumAdjustment", "unifiedAccount", "auditLog", "sanctions", "producerLicensing", "tria", "notices", "completeness", "subjectivities", "binders", "policyChanges", "renewals", "brokerRelations", "surplusLines", "rateConfig", "authority", "bordereaux", "performance", "quoteConditions"];
 var EXT_VIEW_PORTAL = ["documents", "submissionData", "workflow", "completeness", "subjectivities", "binders", "policyChanges", "renewals"];
 // internal-only panels hidden from external users even on a submission they may open
-var EXT_HIDDEN_PANELS = ["sanctionsScreeningContainer", "producerLicensingContainer", "marketClearanceContainer", "authorityContainer", "surplusLinesContainer", "noticesContainer", "commissionContainer", "triaOfferContainer", "quoteConditionContainer"];
+var EXT_HIDDEN_PANELS = ["clearanceHoldContainer", "clearanceGates", "sanctionsScreeningContainer", "producerLicensingContainer", "marketClearanceContainer", "authorityContainer", "surplusLinesContainer", "noticesContainer", "commissionContainer", "triaOfferContainer", "quoteConditionContainer"];
 
 function extNone() { return { view: false, edit: false, approve: false, override: false, archive: false }; }
 function extPermissionsFor(roleKey) {

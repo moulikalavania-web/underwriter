@@ -30,22 +30,25 @@
     t('Get Started offers create and import only', /Create New Submission/.test(el('roleDashboardContainer').innerHTML) && /Import from Email/.test(el('roleDashboardContainer').innerHTML) && !/sample/i.test(el('roleDashboardContainer').innerHTML));
     var others = ['assistant','junior','senior_uw','senior','compliance'];
     t('only the Head of Underwriting sees Create / Import: the buttons are hidden from everyone else', others.every(function(r){ currentUserRole = r; renderRoleDashboard(); return !/Create New Submission|Import from Email/.test(el('roleDashboardContainer').innerHTML); }));
-    t('and the actions themselves refuse anyone else', others.every(function(r){ currentUserRole = r; var n = SUBMISSIONS_DATASET.length; openNewIntakeModal(); handleCreateNewIntake({ preventDefault: function(){} }); return SUBMISSIONS_DATASET.length === n && el('newIntakeModal').style.display !== 'flex'; }));
+    t('and the actions themselves refuse anyone else', others.every(function(r){ currentUserRole = r; var n = SUBMISSIONS_DATASET.length; openPhase1Flow(); return SUBMISSIONS_DATASET.length === n && el('phase1PageView').style.display !== 'block'; }));
     currentUserRole = 'admin'; renderRoleDashboard();
 
-    // ---------- Create New Submission: blank, validated
-    openNewIntakeModal();
-    el('newIntakeInsured').value = ''; el('newIntakeFEIN').value = '74-9842109'; el('newIntakeBroker').value = 'Arora & Sons';
-    handleCreateNewIntake({ preventDefault: function(){} });
+    // ---------- Create New Submission (Phase 1 form): blank, validated
+    P1_ANIMATE = false;
+    function fillP1(o){ var m = { insured: 'p1_insured', fein: 'p1_fein', broker: 'p1_broker', state: 'p1_state', years: 'p1_years' }; for (var k in o) el(m[k]).value = o[k]; }
+    openPhase1Flow();
+    t('Create New Submission opens the Phase 1 form', el('phase1PageView').style.display === 'block' && !!el('p1_form'));
+    fillP1({ insured: '', fein: '74-9842109', broker: 'Arora & Sons', state: 'TX', years: '5' });
+    p1Submit();
     t('a form with no insured is refused', SUBMISSIONS_DATASET.length === 0 && /named insured/.test(lastToast()));
-    el('newIntakeInsured').value = 'Tester Freight LLC'; el('newIntakeFEIN').value = '12-34';
-    handleCreateNewIntake({ preventDefault: function(){} });
+    fillP1({ insured: 'Tester Freight LLC', fein: '12-34' });
+    p1Submit();
     t('a bad FEIN is refused', SUBMISSIONS_DATASET.length === 0 && /FEIN/.test(lastToast()));
-    el('newIntakeFEIN').value = '749842109'; el('newIntakeBroker').value = '';
-    handleCreateNewIntake({ preventDefault: function(){} });
+    fillP1({ fein: '749842109', broker: '' });
+    p1Submit();
     t('a broker submission with no broker is refused', SUBMISSIONS_DATASET.length === 0 && /broker/i.test(lastToast()));
-    el('newIntakeBroker').value = 'Arora & Sons';
-    handleCreateNewIntake({ preventDefault: function(){} });
+    fillP1({ broker: 'Arora & Sons' });
+    p1Submit();
     var N = SUBMISSIONS_DATASET[0];
     t('it works on a fresh app', !!N && N.insured === 'Tester Freight LLC' && N.fein === '74-9842109' && N.broker === 'Arora & Sons' && N.apiSourced === true);
     t('the new case is blank apart from the form', N.address === '' && N.vehicles.length === 0 && N.drivers.length === 0 && N.docs.length === 0 && N.exposureVal === 0 && N.losses.length === 0 && N.coverageRows.length === 0);

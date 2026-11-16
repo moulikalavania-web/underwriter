@@ -121,58 +121,42 @@ function proceedToCaseFromDocsModal() {
   }
 }
 
-// Modal: New Submission Creation
-function openNewIntakeModal() {
-  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
-  const modal = document.getElementById("newIntakeModal");
-  if (modal) modal.classList.add("active");
-}
-
-function closeNewIntakeModal() {
-  const modal = document.getElementById("newIntakeModal");
-  if (modal) modal.classList.remove("active");
-}
-
-function toggleModalBrokerField() {
-  const channelEl = document.getElementById("newIntakeChannel");
-  const brokerGroup = document.getElementById("modalBrokerFieldGroup");
-  if (channelEl && brokerGroup) {
-    brokerGroup.style.display = channelEl.value === "broker" ? "block" : "none";
-  }
-}
-
 /**
- * Create New Submission: a BLANK case holding only what the form asks for. Nothing is copied from another submission
- * (an earlier version cloned a template case, so a new customer arrived with someone else's address, vehicles and
- * documents) and nothing is invented: every other field stays empty and shows up as missing in the completeness check.
+ * Create New Submission: a BLANK case holding only what the Phase 1 form asks for (js/phase1-flow.js). Nothing is copied from
+ * another submission (an earlier version cloned a template case, so a new customer arrived with someone else's address,
+ * vehicles and documents) and nothing is invented: every other field stays empty and shows up as missing in the completeness check.
+ * Returns { ok: true, sub } or { ok: false, message }. The caller decides where to go next.
  */
-function handleCreateNewIntake(e) {
-  e.preventDefault();
-  if (!canCreateSubmissions()) { showToast("⛔ Only the Head of Underwriting can create or import submissions.", "danger"); return; }
-  const val = id => ((document.getElementById(id) || {}).value || "").trim();
-  const channel = val("newIntakeChannel") || "broker";
-  const lobKey = val("newIntakeLOB") || "trucking";
-  const insured = val("newIntakeInsured");
-  const feinRaw = val("newIntakeFEIN");
-  const brokerIn = val("newIntakeBroker");
-
-  if (!insured) { showToast("⛔ Enter the named insured.", "danger"); return; }
-  const digits = feinRaw.replace(/\D/g, "");
-  if (digits.length !== 9) { showToast("⛔ The FEIN must have 9 digits (for example 74-9842109).", "danger"); return; }
-  if (channel === "broker" && !brokerIn) { showToast("⛔ Enter the broker or agency that sent this.", "danger"); return; }
+function createSubmissionRecord(f, existing) {
+  if (!canCreateSubmissions()) return { ok: false, message: "⛔ Only the Head of Underwriting can create or import submissions." };
+  const channel = f.channel || "broker";
+  const lobKey = f.lobKey || "trucking";
+  const insured = String(f.insured || "").trim();
+  const brokerIn = String(f.broker || "").trim();
+  if (!insured) return { ok: false, message: "⛔ Enter the named insured." };
+  const digits = String(f.fein || "").replace(/\D/g, "");
+  if (digits.length !== 9) return { ok: false, message: "⛔ The FEIN must have 9 digits (for example 74-9842109)." };
+  if (channel === "broker" && !brokerIn) return { ok: false, message: "⛔ Enter the broker or agency that sent this." };
   const fein = digits.slice(0, 2) + "-" + digits.slice(2);
 
+  const lobEntry = typeof LOB_CATALOG !== "undefined" ? LOB_CATALOG.find(l => l.key === lobKey) : null;
+  const broker = channel === "broker" ? brokerIn : "Direct Customer Portal";
+  if (existing) {
+    // Phase 1 correction: the same validation, then only the form's own fields on that case are replaced.
+    Object.assign(existing, { lobKey, lobName: lobEntry ? lobEntry.name : lobKey, insured, fein, channelType: channel, broker,
+      channelName: channel === "broker" ? `Broker Intake: ${broker}` : "Direct Customer Portal (Self-Service)", email: String(f.email || "").trim() });
+    persistAppState();
+    return { ok: true, sub: existing };
+  }
   let newId;
   do { newId = `SUB-${Math.floor(10000 + Math.random() * 90000)}-${digits.slice(0, 2)}`; } while (SUBMISSIONS_DATASET.some(s => s.id === newId));
 
   const sub = getBlankSubmissionSkeleton();
-  const lobEntry = typeof LOB_CATALOG !== "undefined" ? LOB_CATALOG.find(l => l.key === lobKey) : null;
-  const broker = channel === "broker" ? brokerIn : "Direct Customer Portal";
   Object.assign(sub, {
     id: newId, lobKey, lobName: lobEntry ? lobEntry.name : lobKey, apiSourced: true,
     insured, fein, channelType: channel, broker,
     channelName: channel === "broker" ? `Broker Intake: ${broker}` : "Direct Customer Portal (Self-Service)",
-    address: "", email: "", dot: null, mcNumber: null, exposureVal: 0, exposure: "Not provided",
+    address: "", email: String(f.email || "").trim(), dot: null, mcNumber: null, exposureVal: 0, exposure: "Not provided",
     docs: [], ocrFields: [],
     receivedAt: "Just Now", receivedTimestamp: Date.now(),
     assignedTo: null, assignedBy: null, assignedAt: null,
@@ -180,16 +164,11 @@ function handleCreateNewIntake(e) {
     priorityReason: "New manual intake — not yet analysed",
     statusText: "Intake Ingested", statusBadge: "badge-primary", currentStep: 1, completedSteps: []
   });
-
   SUBMISSIONS_DATASET.unshift(sub);
-  const form = document.getElementById("newIntakeForm");
-  if (form && typeof form.reset === "function") form.reset();
-  closeNewIntakeModal();
-  selectSubmission(newId, false);
-  renderSubmissionsTable();
-  showToast(`✅ New submission [${newId}] created. It is blank apart from what you entered; add the application, loss runs and other details.`, "success");
   persistAppState();
+  return { ok: true, sub };
 }
+
 // ============================================================================
 // 6. RENDERING ALL DOWNSTREAM SCREENS (SCREENS 2 TO 9)
 // ============================================================================

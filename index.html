@@ -577,43 +577,53 @@
         </div>
       </section>
 
-      <!-- Screen 3: Clearance, Appetite & Knockouts -->
+      <!-- Screen 3: Clearance (js/clearance-board.js draws the verdict, the gate lane and the to-do list) -->
       <section id="screen-3" class="screen-view">
         <div class="screen-header">
           <div>
-            <h2>Clearance, FEIN Duplicate Check & Appetite Knockouts</h2>
-            <p class="screen-desc">Checks run in this order: producer licence and sanctions screening (legal gates, run automatically once ingestion is confirmed), then market clearance and broker of record, then the FEIN duplicate check, and last the appetite knockouts. The case is held here until both legal gates pass.</p>
+            <h2>Clearance</h2>
+            <p class="screen-desc">Five gates, checked automatically: producer licence, sanctions, broker of record, FEIN duplicate and appetite. Click a card to see its detail.</p>
           </div>
         </div>
 
-        <!-- Triage: what kind of message this is, who sent it, and what it looks like (js/workflow-steps.js) -->
-        <div id="triageContainer" class="mb-3"></div>
-
-        <!-- Hold banner: shown while a legal check has not passed (js/clearance-gate.js) -->
+        <!-- The verdict, what needs a person, and the Phase 1 reviewer's note.
+             Also the hold banner that stops the case leaving this step (js/clearance-gate.js). -->
         <div id="clearanceHoldContainer" class="mb-3"></div>
 
-        <!-- 1. Producer licence & carrier appointment check (js/producer-licensing.js) -->
-        <div id="producerLicensingContainer" class="mt-3"></div>
+        <!-- The five gate cards. Clicking one shows its detail directly below; Producer licence is shown first (js/clearance-board.js). -->
+        <div id="clearanceLane"></div>
 
-        <!-- 2. Sanctions / watchlist screening (js/sanctions-screening.js) -->
-        <div id="sanctionsScreeningContainer" class="mt-3"></div>
+        <div id="clearanceGates">
+          <!-- Gate 1: producer licence & carrier appointment (js/producer-licensing.js) -->
+          <details class="cl-gate" id="clGate_producer">
+            <summary><span class="cl-sum" id="clSum_producer"></span></summary>
+            <div class="cl-body"><div id="producerLicensingContainer"></div></div>
+          </details>
 
-        <!-- 3. Market clearance and broker of record (js/broker-commission.js) -->
-        <div id="marketClearanceContainer" class="mt-3"></div>
+          <!-- Gate 2: sanctions / watchlist (js/sanctions-screening.js) -->
+          <details class="cl-gate" id="clGate_sanctions">
+            <summary><span class="cl-sum" id="clSum_sanctions"></span></summary>
+            <div class="cl-body"><div id="sanctionsScreeningContainer"></div></div>
+          </details>
 
-        <!-- 4. FEIN duplicate clearance -->
-        <div class="mt-3">
-          <!-- FEIN Duplicate Clearance -->
-          <div class="card">
-            <div class="card-header">
-              <h3><i class="ph ph-identification-badge"></i> 4. FEIN Clearance & Duplicate Detection</h3>
-              <span class="badge badge-success" id="feinStatusBadge"><i class="ph ph-check-circle"></i> Unique Entity Cleared</span>
-            </div>
-            <div class="card-body">
+          <!-- Gate 3: market clearance and broker of record (js/broker-commission.js) -->
+          <details class="cl-gate" id="clGate_market">
+            <summary><span class="cl-sum" id="clSum_market"></span></summary>
+            <div class="cl-body"><div id="marketClearanceContainer"></div></div>
+          </details>
+
+          <!-- Gate 4: FEIN duplicate -->
+          <details class="cl-gate" id="clGate_fein">
+            <summary><span class="cl-sum" id="clSum_fein"></span></summary>
+            <div class="cl-body">
               <div class="clearance-box">
                 <div class="clearance-row">
                   <span class="key">FEIN / Tax ID:</span>
                   <span class="val font-mono" id="checkFeinNumber">—</span>
+                </div>
+                <div class="clearance-row">
+                  <span class="key">Result:</span>
+                  <span class="val badge badge-success" id="feinStatusBadge"><i class="ph ph-check-circle"></i> Unique Entity Cleared</span>
                 </div>
                 <div class="clearance-row">
                   <span class="key">Active In-Flight Submissions:</span>
@@ -621,32 +631,23 @@
                 </div>
                 <div class="clearance-row">
                   <span class="key">Broker Priority Lock:</span>
-                  <span class="val text-primary" id="brokerLock">Marsh & McLennan (Authorized Direct Producer)</span>
+                  <span class="val text-primary" id="brokerLock">—</span>
                 </div>
                 <div class="clearance-row">
                   <span class="key">System Clearance Action:</span>
                   <span class="val badge badge-success" id="clearanceActionResult">Passed Clearance → Proceed to Appetite Evaluation</span>
                 </div>
               </div>
-
-              <!-- Interactive Duplicate Test Button -->
-              <div class="simulation-tool-box">
-                <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Duplicate Scenario</span>
-                <button class="btn btn-sm btn-outline-danger" onclick="triggerDuplicateExit()"><i class="ph ph-prohibit"></i> Decline</button>
-              </div>
+              <div id="feinMatchesContainer"></div>
             </div>
-          </div>
-        </div>
+          </details>
 
-        <!-- 5. Appetite rules and knockouts, last -->
-        <div class="mt-3">
-          <!-- Appetite Rules Knockout Engine -->
-          <div class="card">
-            <div class="card-header">
-              <h3><i class="ph ph-scales"></i> 5. Appetite Rules & Automated Knockouts</h3>
-              <span class="badge badge-success" id="appetiteStatusBadge"><i class="ph ph-check"></i> All Appetite Rules Met</span>
-            </div>
-            <div class="card-body">
+          <!-- Gate 5: appetite, last -->
+          <details class="cl-gate" id="clGate_appetite">
+            <summary><span class="cl-sum" id="clSum_appetite"></span></summary>
+            <div class="cl-body">
+              <div id="appetiteBasicContainer"></div>
+              <div class="cl-subhead">Product appetite rules <span class="badge badge-success" id="appetiteStatusBadge"><i class="ph ph-check"></i> All Appetite Rules Met</span></div>
               <div class="rules-table-container">
                 <table class="data-table">
                   <thead>
@@ -662,24 +663,16 @@
                   </tbody>
                 </table>
               </div>
-
               <div id="ruleRunContainer"></div>
-
-              <!-- Interactive Knockout Test Button -->
-              <div class="simulation-tool-box">
-                <span class="tool-label"><i class="ph ph-flask"></i> Test Exit Path: Appetite Failure</span>
-                <button class="btn btn-sm btn-outline-danger" onclick="triggerAppetiteFailureExit()"><i class="ph ph-warning"></i> Decline</button>
-              </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        <div class="step-guide-bar">
-          <i class="ph ph-lightbulb"></i>
-          <div>
-            <strong>Phase 2 Flow Logic:</strong> Submissions with duplicate FEINs are blocked to prevent conflicting quotes among competing brokers. If the risk violates hard appetite rules, the system triggers an <strong>Auto-Decline Notice</strong> instantly without wasting underwriter time.
-          </div>
-        </div>
+        <!-- What arrived: message kind, sender, documents (js/workflow-steps.js). Context, so it is last and folded. -->
+        <details class="cl-gate cl-context" id="clGate_triage">
+          <summary><span class="cl-sum"><i class="ph ph-envelope-open cl-ico"></i><span class="cl-title">What arrived</span><span class="cl-line">Message kind, sender and documents</span><i class="ph ph-caret-down cl-caret"></i></span></summary>
+          <div class="cl-body"><div id="triageContainer"></div></div>
+        </details>
       </section>
 
       <!-- Screen 4: Third-Party Data Enrichment & Smart Routing -->
@@ -1373,6 +1366,13 @@
       </div>
 
     </div> <!-- /archivePageView -->
+
+    <!-- ================================================================ -->
+    <!-- TOP-LEVEL PAGE: PHASE 1 — NEW SUBMISSION, AUTOMATIC CHECKS, HUMAN REVIEW (js/phase1-flow.js) -->
+    <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="phase1PageView">
+      <div id="phase1Root"></div>
+    </div>
 
     <!-- ================================================================ -->
     <!-- TOP-LEVEL PAGE: DECLINE CENTER (visible to all roles) -->
@@ -2483,68 +2483,6 @@
     </div>
   </div>
 
-    <!-- Modal: + New Submission Intake -->
-  <div class="modal-overlay" id="newIntakeModal" role="dialog" aria-modal="true">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3><i class="ph ph-file-plus text-primary"></i> Create / Ingest New Submission</h3>
-        <button class="btn-close" aria-label="Close" onclick="closeNewIntakeModal()"><i class="ph ph-x"></i></button>
-      </div>
-      <div class="modal-body">
-        <form id="newIntakeForm" onsubmit="handleCreateNewIntake(event)">
-          <div class="form-group">
-            <label>Intake Origin Channel</label>
-            <select class="form-control" id="newIntakeChannel" onchange="toggleModalBrokerField()">
-              <option value="broker" selected>🏢 Broker Intake (Email / Broker Portal)</option>
-              <option value="direct">👤 Direct Customer Portal (Self-Service Online Form)</option>
-            </select>
-          </div>
-
-          <div class="form-group mt-2">
-            <label>Line of Business (LOB)</label>
-            <select class="form-control" id="newIntakeLOB">
-              <option value="trucking">🚚 Commercial Auto / Trucking</option>
-              <option value="property">🏢 Commercial Property</option>
-              <option value="mpl">💼 MPL - Professional Liability</option>
-              <option value="gl_cpc">🏗️ GL CPC - Commercial Package & Contractors</option>
-              <option value="gl_cas">⚗️ GL CAS - High Hazard Casualty & Surplus</option>
-            </select>
-          </div>
-
-          <div class="form-grid mt-2">
-            <div class="form-group">
-              <label>Named Insured / Legal Entity</label>
-              <input type="text" class="form-control" id="newIntakeInsured" placeholder="e.g. Metro Freight Express LLC" required>
-            </div>
-            <div class="form-group">
-              <label>FEIN / Tax ID</label>
-              <input type="text" class="form-control" id="newIntakeFEIN" placeholder="e.g. 74-9842109" required>
-            </div>
-          </div>
-
-          <div class="form-group mt-2" id="modalBrokerFieldGroup">
-            <label>Broker / Producer Agency</label>
-            <input type="text" class="form-control" id="newIntakeBroker" value="Marsh & McLennan Commercial Brokerage">
-          </div>
-
-          <div class="form-group mt-2">
-            <label>Attached Required Underwriting Documents</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" checked disabled> ACORD Application Form (PDF)</label>
-              <label><input type="checkbox" checked disabled> Statement of Values / Asset Schedule (XLSX)</label>
-              <label><input type="checkbox" checked disabled> 3-Year Prior Loss Runs (PDF)</label>
-            </div>
-          </div>
-
-          <div class="modal-footer mt-4" style="margin: 0 -20px -20px -20px;">
-            <button type="button" class="btn btn-outline" onclick="closeNewIntakeModal()">Cancel</button>
-            <button type="submit" class="btn btn-primary"><i class="ph ph-cloud-arrow-up"></i> Submit & Ingest into Pipeline</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-
   <!-- Interactive Workflow Diagram Modal -->
   <div class="modal-overlay" id="diagramModal" role="dialog" aria-modal="true">
     <div class="modal-content modal-xl">
@@ -2913,5 +2851,7 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/distribution.js"></script>
   <script src="js/product-studio.js"></script>
   <script src="js/authorization.js"></script>
-  <script src="js/ai-governance.js"></script></body>
+  <script src="js/ai-governance.js"></script>
+  <script src="js/phase1-flow.js"></script>
+  <script src="js/clearance-board.js"></script></body>
 </html>

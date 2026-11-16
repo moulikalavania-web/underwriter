@@ -52,6 +52,18 @@ call functions from modules that were loaded **before** it in `index.html`.
 | **issue-quote-email.js** | Auto-generates the Issue Quote → broker email using the rating JSON + Post-Rating pricing override |
 | **golden-path-data.js** | **Loads last.** Golden Path Demo Mode: single-story seed data (Vikram & Sons / Vikas & Co / Arora & Sons / Ayushi), UI trimming, and the `ingestProductSchema()` override — this is what makes Appetite Rules, the Intake Questionnaire, and Attached Documents all dynamically rebuild from whatever product JSON you ingest via Integrating API (see below). Set `GOLDEN_PATH_MODE = false` at the top of this file to fall back to the original generic multi-submission demo. |
 
+## Phase 1 (new submission)
+
+`js/phase1-flow.js` is the guided entry: **Create → Received → four automatic checks (producer licence, FEIN duplicate,
+appetite, watchlist) → human review**. A failed check leads to the Decline screen; the assigned reviewer must comment before
+approving or declining. Appetite limits are placeholders in `P1_APPETITE`. Tests: `tests/suites/c39-phase1-flow.html`.
+
+## Clearance screen (Step 2)
+
+`js/clearance-board.js` draws one verdict, a five-gate lane (producer licence, sanctions, broker of record, FEIN duplicate,
+appetite) and a short "what needs you" list; the existing cards sit inside folded gates and only the gates that need a person
+open by themselves. The rules and the hold on leaving Step 2 are unchanged. Tests: `tests/suites/c40-clearance-board.html`.
+
 ## Add-on modules
 
 `risk-score.js`, `generate-final-json.js`, `issue-quote-email.js`,

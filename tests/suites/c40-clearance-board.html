@@ -1,0 +1,113 @@
+<!-- Suite C40: the Clearance screen as a board. One verdict; five gates in the order they are decided (producer, sanctions, broker of record,
+     FEIN duplicate, appetite); only gates that need a person open by themselves; each says who can fix it; a person's own open/close is kept;
+     the Phase 1 reviewer's note is shown; the hold on leaving Step 2 still comes from the legal checks alone. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  P1_ANIMATE = false; P1_ORIG_OPEN = function(){};
+  var F = { insured: 'p1_insured', fein: 'p1_fein', state: 'p1_state', years: 'p1_years', broker: 'p1_broker', channel: 'p1_channel' };
+  async function mk(o){
+    o = Object.assign({ insured: 'Lone Star Haulers LLC', fein: '74-1111111', state: 'TX', years: '6', broker: 'Arora & Sons' }, o || {});
+    openPhase1Flow(); for (var k in o) el(F[k]).value = o[k]; p1Submit(); await sleep(40); return p1Sub();
+  }
+  function show(sub){ activeSubmissionId = sub.id; clearanceAutoRun(sub, 'clearance'); renderMarketCard(sub); renderClearanceBoard(sub); }
+  function tile(k){ return el('clTile_' + k); }
+  function shown(k){ return !el('clGate_' + k).hidden; }
+  function onlyShown(k){ return ['producer','sanctions','market','fein','appetite'].every(function(g){ return shown(g) === (g === k); }); }
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- the page itself
+    var ids = ['clearanceHoldContainer', 'clearanceLane', 'clGate_producer', 'clGate_sanctions', 'clGate_market', 'clGate_fein', 'clGate_appetite', 'clGate_triage'], ordered = true;
+    for (var i = 1; i < ids.length; i++) if (!(el(ids[i-1]).compareDocumentPosition(el(ids[i])) & Node.DOCUMENT_POSITION_FOLLOWING)) ordered = false;
+    t('the verdict comes first, then the five cards, then their detail in decision order, then what arrived', ordered);
+    t('the existing cards live inside their gates', el('clGate_producer').contains(el('producerLicensingContainer')) && el('clGate_sanctions').contains(el('sanctionsScreeningContainer')) && el('clGate_market').contains(el('marketClearanceContainer')) && el('clGate_fein').contains(el('checkFeinNumber')) && el('clGate_appetite').contains(el('appetiteRulesTable')) && el('clGate_triage').contains(el('triageContainer')));
+    t('the "test exit path" scaffolding buttons are gone', !/Test Exit Path/.test(el('screen-3').innerHTML) && !/simulation-tool-box[^>]*>\s*<span class="tool-label"><i class="ph ph-flask"><\/i> Test Exit Path/.test(el('screen-3').innerHTML));
+    t('the gate list is the five gates, in order', CL_GATES.map(function(g){ return g.key; }).join() === 'producer,sanctions,market,fein,appetite');
+
+    // ---------- a clean case
+    var A = await mk(); A.phase1.review = { decision: 'approved', by: 'Priya Nair', at: '2026-11-14 09:00', comment: 'All four results clean; approving.' }; A.phase1.stage = 'done';
+    show(A);
+    var box = el('clearanceHoldContainer');
+    t('a clean case reads "Clear to continue" with the legal sentence', /Clear to continue/.test(box.textContent) && /Legal checks passed/.test(box.innerHTML) && box.querySelector('.cl-hero.ok'));
+    var lane = el('clearanceLane');
+    t('the five cards are in the lane, not in the verdict', lane.querySelectorAll('.cl-tile').length === 5 && !box.querySelector('.cl-tile'));
+    t('all five cards are clear and nothing says "Start here"', lane.querySelectorAll('.cl-tile.pass').length === 5 && !lane.querySelector('.cl-here'));
+    t('there is no to-do list', !box.querySelector('.cl-todo'));
+    t('by default only the Producer licence & appointment detail is shown', onlyShown('producer') && tile('producer').classList.contains('sel') && tile('producer').querySelector('button').getAttribute('aria-pressed') === 'true');
+    t('the shown detail is the producer card itself', /Producer is licensed and appointed/.test(el('clGate_producer').textContent) && el('clGate_sanctions').hidden && el('clGate_fein').hidden);
+    t('each gate\'s summary line carries the result', /Verified/.test(el('clSum_producer').textContent) && /Unique FEIN/.test(el('clSum_fein').textContent) && /Clear/.test(el('clSum_sanctions').textContent));
+    t('the Phase 1 reviewer\'s note is shown', /All four results clean/.test(box.textContent) && /Priya Nair/.test(box.textContent));
+    t('the legacy hold banner reads as before for a clean case', !/Held at Step 2/.test(box.innerHTML));
+
+    // ---------- a case with problems
+    var B = await mk({ insured: 'Copycat Freight', fein: '74-1111111', state: 'AK', years: '1', broker: 'Nobody Brokers' });
+    B.phase1.stage = 'done'; show(B);
+    t('legal failure holds the case: the verdict says so and names the reason', /Held at Step 2/.test(box.innerHTML) && /Producer licence and appointment/.test(box.innerHTML) && box.querySelector('.cl-hero.bad'));
+    t('the producer tile fails and is the place to start', tile('producer').classList.contains('fail') && tile('producer').classList.contains('here') && /Start here/.test(tile('producer').textContent));
+    t('sanctions is clear', tile('sanctions').classList.contains('pass'));
+    t('FEIN fails with the case it duplicates', tile('fein').classList.contains('fail') && new RegExp(A.id).test(tile('fein').textContent));
+    t('appetite fails', tile('appetite').classList.contains('fail') && /Outside appetite/.test(tile('appetite').textContent));
+    t('broker of record shows the conflict', tile('market').classList.contains('fail') && /Arora & Sons/.test(tile('market').textContent));
+    var items = box.querySelectorAll('.cl-todo li');
+    t('the to-do list has exactly the four gates that are not clear', items.length === 4 && !/Sanctions/.test(box.querySelector('.cl-todo').textContent));
+    t('each item says what to do', Array.prototype.every.call(items, function(li){ return li.querySelector('.cl-todo-fix'); }));
+    t('Producer licence is still the one shown on opening, even though it failed', onlyShown('producer'));
+    clSelectGate('fein');
+    t('clicking the FEIN card shows only its detail, which lists the case it collides with', onlyShown('fein') && tile('fein').classList.contains('sel') && !tile('producer').classList.contains('sel') && new RegExp(A.id).test(el('feinMatchesContainer').textContent));
+    t('the FEIN card status rows agree with the verdict (not "Unique Entity Cleared")', /Duplicate FEIN Detected/.test(el('feinStatusBadge').textContent) && /1 Conflicting/.test(el('activeSubCount').textContent) && /Failed Clearance/.test(el('clearanceActionResult').textContent));
+    clSelectGate('appetite');
+    t('clicking the appetite card shows only its detail, with the basic-fit lines', onlyShown('appetite') && /Years in business/.test(el('appetiteBasicContainer').textContent) && /State: AK/.test(el('appetiteBasicContainer').textContent));
+    clSelectGate('market');
+    t('clicking the broker-of-record card shows only that card', onlyShown('market') && /Market conflict/.test(el('marketClearanceContainer').textContent));
+    clSelectGate('sanctions');
+    t('clicking the sanctions card shows only that card', onlyShown('sanctions') && /Sanctions|screened|Clear/i.test(el('sanctionsScreeningContainer').textContent));
+
+    // ---------- the selection is kept, and the to-do list uses it
+    clSelectGate('fein'); renderClearanceBoard(B);
+    t('a redraw keeps the card the person chose', onlyShown('fein') && tile('fein').classList.contains('sel'));
+    box.querySelector('.cl-todo li button').click();
+    t('"Open" in the to-do list selects that gate card', onlyShown('producer') && tile('producer').classList.contains('sel'));
+    t('only one card is selected at a time', el('clearanceLane').querySelectorAll('.cl-tile.sel').length === 1);
+    t('another case starts on Producer licence again', (function(){ var X = { id: 'SUB-NEW-X' }; return clSelected(X) === 'producer'; })());
+    clSelectGate('nonsense');
+    t('an unknown card is ignored', onlyShown('producer'));
+
+    // ---------- legal passes, something else needs a person: not held
+    var C = await mk({ insured: 'Sibling Haulers', fein: '74-1111111', state: 'TX' });
+    C.phase1.stage = 'done'; show(C);
+    t('legal checks pass, so the case is not held; the verdict counts what is left', /Legal checks passed/.test(box.innerHTML) && !/Held at Step 2/.test(box.innerHTML) && box.querySelector('.cl-hero.warn') && /to decide|One thing/.test(box.textContent));
+    var firstBad = el('clearanceLane').querySelector('.cl-tile.fail, .cl-tile.warn'), heres = el('clearanceLane').querySelectorAll('.cl-tile.here');
+    t('Producer licence is shown first, and "Start here" marks the first card that needs a person', onlyShown('producer') && heres.length === 1 && heres[0] === firstBad);
+    t('and the hold still comes only from the legal checks', clearanceChecks(C).ok === true && clearanceHoldReasons(C).length === 0);
+
+    // ---------- a case that did not come through Phase 1 (imported): nothing breaks, nothing is invented
+    var D = { id: 'SUB-IMP-1', receivedAt: 'Just Now', slaText: 'x', slaCountdown: 'x', priority: 'P3', channelType: 'broker', lobKey: 'trucking', lobName: 'Commercial Auto / Trucking', apiSourced: true, insured: '(Pending)', fein: 'PENDING', broker: 'Arora & Sons', address: '1 Main St, Dallas, TX 75201', decisionLog: [], currentStep: 2, completedSteps: [], docs: [], vehicles: [], appetiteRules: [] };
+    SUBMISSIONS_DATASET.push(D); var e0 = errs.length; show(D);
+    t('an unconfirmed FEIN is "waiting", not a duplicate of every other blank FEIN', tile('fein').classList.contains('wait') && /not confirmed/.test(tile('fein').textContent));
+    t('with no appetite rules the gate says so instead of passing', tile('appetite').classList.contains('wait'));
+    t('no Phase 1 note and no error', !/Phase 1 approval/.test(box.textContent) && errs.length === e0);
+
+    // ---------- who can fix it
+    currentUserRole = 'junior'; show(B);
+    t('a user without the right rights is told who can fix it', /needs a user with producer-licensing approval/.test(box.textContent));
+    currentUserRole = 'senior'; show(B);
+    t('a user with the right rights is not told that', !/needs a user with producer-licensing approval/.test(box.textContent));
+    currentUserRole = 'admin';
+
+    // ---------- re-check, and what outsiders see
+    toasts.length = 0; clRecheck();
+    t('Check again re-runs the checks and says so', /checked again/i.test(toasts[toasts.length - 1] || ''));
+    t('the board and gates are hidden from external users', /clearanceHoldContainer/.test(EXT_HIDDEN_PANELS.join()) && /clearanceGates/.test(EXT_HIDDEN_PANELS.join()));
+    t('no page errors', errs.length === 0, errs.join(' | '));
+  } catch (e) { out.push('FAIL exception: ' + e.message + ' ' + (e.stack||'').split('\n').slice(0,3).join(' / ')); }
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  })();
+})();
+</script>

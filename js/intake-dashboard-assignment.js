@@ -14,7 +14,7 @@
 function intakeToolbarHtml() {
   if (!canCreateSubmissions()) return "";
   return `<div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
-      <button class="btn btn-primary" id="btnCreateSubmission" onclick="openNewIntakeModal()"><i class="ph ph-file-plus"></i> Create New Submission</button>
+      <button class="btn btn-primary" id="btnCreateSubmission" onclick="openPhase1Flow()"><i class="ph ph-file-plus"></i> Create New Submission</button>
       <button class="btn btn-outline" id="btnImportEmail" onclick="openEmailDigestModal()"><i class="ph ph-envelope-open"></i> Import from Email</button>
     </div>`;
 }
