@@ -106,3 +106,7 @@ to the golden-path default rather than showing nothing/breaking.
 
 - The Claude API calls in `email-intake-ingestion.js` (`fetch("https://api.anthropic.com/v1/messages", ...)`) only work inside the claude.ai artifact runtime, which proxies/authenticates the request. They will not work if this app is hosted elsewhere without wiring up your own API key/backend.
 - No npm dependencies. Phosphor Icons are loaded from a CDN (`unpkg.com`) in `index.html` — requires internet access for icons to render.
+
+## Automatic intake (js/auto-intake.js)
+
+Once a reviewer approves Phase 1, the system does Ingest, Clearance (already decided in Phase 1), Extract, Confirm and Enrich itself, and the underwriter opens the case at Step 6, the Underwriting Workbench with its Appetite match. The case stops at the step that needs a person only when Phase 1 was not approved, the message is not new business, or a critical field could not be read. Each automatic step is written to the decision log by "System (automatic)", and the Workbench shows what was done and anything flagged, with a link back to the intake details.

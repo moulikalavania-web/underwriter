@@ -1,0 +1,82 @@
+<!-- Suite C47: automatic intake. After Phase 1 is approved, ingest / clearance / extract / confirm / enrich are done by the system and the
+     case opens at the Underwriting Workbench (Step 6). It stops at the step that needs a person: a case that did not pass Phase 1
+     (the human clearance decision), a message that is not new business, or a critical field the reader could not find. Every automatic
+     step is in the decision log, and the Workbench says what was done and what is flagged. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.confirm = function(){ return true; };
+  P1_ANIMATE = false;
+  var F = { channel: 'p1_channel', lob: 'p1_lob', insured: 'p1_insured', fein: 'p1_fein', state: 'p1_state', years: 'p1_years', broker: 'p1_broker', reviewer: 'p1_reviewer' };
+  async function mk(o){
+    o = Object.assign({ channel: 'broker', lob: 'trucking', insured: 'Auto Intake Haulers LLC', fein: '74-2020202', state: 'TX', years: '6', broker: 'Arora & Sons', reviewer: 'senior_uw' }, o || {});
+    openPhase1Flow();
+    for (var k in o) el(F[k]).value = o[k];
+    p1Submit(); await sleep(40);
+    return p1Sub();
+  }
+  function approve(){ el('p1_comment').value = 'Reviewed the four results; all clear and in appetite.'; p1Approve(); }
+
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- a Phase 1 approved case with no email opens at the Workbench
+    var a = await mk();
+    currentUserRole = 'senior_uw'; p1Render();
+    approve();
+    t('Phase 1 approval is done', a.phase1.stage === 'done');
+    t('the case moved to the Workbench step by itself', a.currentStep === SCORE_STEP && currentWorkflowStep === SCORE_STEP, 'step ' + a.currentStep + '/' + currentWorkflowStep);
+    t('steps 1 to 5 are complete', [1,2,3,4,5].every(function(n){ return a.completedSteps.indexOf(n) > -1; }));
+    t('the Workbench page is the one showing', el('screen-5').classList.contains('active'));
+    t('the status reads UW Review', a.statusText === 'UW Review');
+    t('the automatic record says done', a.autoIntake.status === 'done' && a.autoIntake.done.length === 5);
+    var log = a.decisionLog.filter(function(d){ return d.decision === 'auto_intake'; });
+    t('every automatic step is in the decision log, by the system', log.length === 5 && log.every(function(d){ return /System/.test(d.by) && /^Automatic:/.test(d.notes); }));
+    t('the clearance entry names the Phase 1 reviewer', /cleared at Phase 1 by/.test(log[1].notes));
+    t('a case entered by hand says there was nothing to read', /Nothing to read/.test(log[2].notes));
+    t('the audit log knows the entry', !!AUDIT_ACTION_META.auto_intake);
+    t('the Workbench shows the strip with the count', /Intake was handled automatically/.test(el('autoIntakeStrip').textContent) && /5 steps/.test(el('autoIntakeStrip').textContent));
+    t('the detail list starts hidden and opens on request', !el('aiStrip').querySelector('.ai-list')); aiToggle();
+    t('and then lists each step', el('aiStrip').querySelectorAll('.ai-list li').length === 5); aiToggle();
+    t('the toast says the intake was automatic', toasts.some(function(m){ return /Intake done automatically/.test(m); }));
+
+    // ---------- opening it again does not repeat the work
+    var before = a.decisionLog.length;
+    showIntakePage(); openCaseAtCurrentStep(a.id);
+    t('opening again does not run it twice', a.decisionLog.length === before && currentWorkflowStep === SCORE_STEP);
+
+    // ---------- a case that did not pass Phase 1 stops at clearance
+    var b = SUBMISSIONS_DATASET.find(function(s){ return s.id !== a.id && !s.phase1 && (s.currentStep || 1) === 1 && caseIsOpen(s); });
+    if (!b) { b = JSON.parse(JSON.stringify(a)); b.id = 'SUB-47001-XX'; b.phase1 = undefined; b.autoIntake = undefined; b.currentStep = 1; b.completedSteps = []; b.decisionLog = []; b.assignedTo = 'senior_uw'; SUBMISSIONS_DATASET.unshift(b); }
+    currentUserRole = 'senior_uw';
+    var r = autoIntakeRun(b);
+    t('a case without a Phase 1 approval stops at Clearance', r.stoppedAt === CLEARANCE_STEP && b.currentStep === CLEARANCE_STEP, JSON.stringify(r));
+    t('and says why', /Phase 1/.test(r.reason) && b.autoIntake.status === 'stopped');
+    t('only the first step was done', b.completedSteps.join() === '1');
+    var again = b.decisionLog.length; autoIntakeRun(b);
+    t('an unchanged stopped case is not re-run', b.decisionLog.length === again);
+
+    // ---------- an email case: critical fields missing stop at Confirm; complete ones go through
+    var c = JSON.parse(JSON.stringify(a)); c.id = 'SUB-47002-XX'; c.autoIntake = undefined; c.currentStep = 1; c.completedSteps = []; c.decisionLog = []; c.normalizationStatus = 'pending';
+    c.rawEmailText = 'Hello, please quote a new policy. Thanks.'; c.rawAttachments = []; c.assignedTo = 'senior_uw';
+    SUBMISSIONS_DATASET.unshift(c);
+    var rc = autoIntakeRun(c);
+    t('an email with the critical fields missing stops at Confirm', rc.stoppedAt === CONFIRM_STEP && /Could not find/.test(rc.reason), JSON.stringify(rc));
+    t('the extract step was done and the flags name what is missing', c.completedSteps.indexOf(EXTRACT_STEP) > -1 && c.autoIntake.flags.length > 0 && c.normalizationStatus === 'pending');
+
+    // ---------- permissions: someone who cannot edit the case does not trigger it
+    var d = JSON.parse(JSON.stringify(a)); d.id = 'SUB-47003-XX'; d.autoIntake = undefined; d.currentStep = 1; d.completedSteps = []; d.decisionLog = []; SUBMISSIONS_DATASET.unshift(d);
+    currentUserRole = 'admin'; showIntakePage(); openCaseAtCurrentStep(d.id);
+    t('the Head of Underwriting (view only) opening a case does not write to it', !d.autoIntake && d.currentStep === 1);
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  })();
+})();
+</script>

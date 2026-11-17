@@ -8445,3 +8445,15 @@ body.has-bottom-footer .app-layout {
 .tw-msg-h { font-size: 11px; }
 .tw-at { color: var(--color-brand-dark); font-weight: 700; }
 @media (max-width: 900px) { .rp-layout { grid-template-columns: 1fr; } .rp-list { position: static; flex-direction: row; flex-wrap: wrap; } }
+
+/* Automatic intake strip on the Workbench (js/auto-intake.js) */
+.ai-strip{border:1px solid var(--color-border);border-left:4px solid var(--color-success,#16a34a);border-radius:8px;padding:10px 14px;background:var(--color-surface,#fff);font-size:13px}
+.ai-strip-flag{border-left-color:var(--color-warning,#d97706)}
+.ai-strip-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.ai-strip-actions{display:flex;gap:6px}
+.ai-flags{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.ai-list{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:4px}
+.ai-list li i{color:var(--color-success,#16a34a)}
+.ai-read{margin-top:10px;overflow-x:auto}
+.ai-reader{margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ai-reader .form-control{width:auto;min-width:200px}

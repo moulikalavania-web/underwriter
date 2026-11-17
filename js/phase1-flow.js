@@ -318,8 +318,8 @@ function p1ConfirmDecline() {
 }
 
 function p1EnterWorkflow(id) {
-  const open = P1_ORIG_OPEN || window.openCaseAtCurrentStep;
-  open(id);
+  // Goes through the current opener (which also runs the automatic intake steps once Phase 1 is done).
+  (window.openCaseAtCurrentStep || P1_ORIG_OPEN)(id);
 }
 
 function p1OpenDeclineCenter() { showDeclinePage(); if (typeof renderDeclineCenter === "function") renderDeclineCenter(); }

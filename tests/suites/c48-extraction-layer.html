@@ -1,0 +1,116 @@
+<!-- Suite C48: extraction layer. Any reader answers in one format; each field carries confidence and source; a field or answer that breaks the
+     format is dropped or refused; an outside reader (HTTP endpoint) is called only when an administrator has set one, and its failure stops
+     the case at Extract instead of quietly using another reader. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function el(id){ return document.getElementById(id); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.confirm = function(){ return true; };
+  P1_ANIMATE = false;
+  var F = { channel: 'p1_channel', lob: 'p1_lob', insured: 'p1_insured', fein: 'p1_fein', state: 'p1_state', years: 'p1_years', broker: 'p1_broker', reviewer: 'p1_reviewer' };
+  var EMAIL = 'From: Pat Broker <pat@arorasons.com>\nHello underwriting,\nInsured legal entity is Read Me Haulers LLC\nFEIN: 74-3030303\nUS DOT: 3456789\nMC 445566\nBroker: Arora & Sons\nPlease quote trucking liability.\n';
+  var seq = 0;
+  async function approvedCase(email){
+    seq++;
+    currentUserRole = 'admin';
+    openPhase1Flow();
+    var o = { channel: 'broker', lob: 'trucking', insured: 'Read Me Haulers ' + seq + ' LLC', fein: '74-30303' + (10 + seq), state: 'TX', years: '6', broker: 'Arora & Sons', reviewer: 'senior_uw' };
+    for (var k in o) el(F[k]).value = o[k];
+    p1Submit(); await sleep(40);
+    var s = p1Sub();
+    currentUserRole = 'senior_uw'; p1Render();
+    s.rawEmailText = email; s.rawAttachments = [{ name: 'acord125.pdf', type: 'application/pdf' }]; s.normalizationStatus = 'pending';
+    el('p1_comment').value = 'Reviewed the four results; all clear.';
+    // approve without opening, so the opener can be driven by the test
+    var keep = window.openCaseAtCurrentStep; window.openCaseAtCurrentStep = function(){}; p1Approve(); window.openCaseAtCurrentStep = keep;
+    s.currentStep = 1; s.completedSteps = []; s.autoIntake = undefined; s.extraction = undefined;
+    return s;
+  }
+  function good(extra){ return Object.assign({ provider: 'acme-ai', fields: {
+      insured: { value: 'Acme Haulers LLC', confidence: 0.93, source: 'ACORD 125, page 1' },
+      fein: { value: '74-1234567', confidence: 'high', source: 'ACORD 125, page 1' },
+      dot: { value: '1234567', confidence: 0.9, source: 'Cover email' },
+      address: { value: 'Austin, TX', confidence: 0.4, source: 'Loss run, page 2' } } }, extra || {}); }
+
+  (async function(){
+  try {
+    document.getElementById('loginUserSelect').value = 'admin'; document.getElementById('loginPasswordInput').value = 'x'; submitLogin();
+
+    // ---------- the format
+    var v = exlValidate(good());
+    t('a good answer is accepted with all four fields', v.ok && Object.keys(v.fields).length === 4 && !v.errors.length);
+    t('numbers become high / medium / low', v.fields.insured.confidence === 'high' && v.fields.address.confidence === 'low' && exlBucket(0.6) === 'medium' && exlBucket(0.85) === 'high' && exlBucket(0.59) === 'low');
+    t('a number out of range or a wrong word is not a confidence', exlBucket(1.2) === null && exlBucket('sure') === null && exlBucket(undefined) === null);
+    var bad = exlValidate({ provider: 'x', fields: { insured: { value: 'A', confidence: 0.9 }, fein: { value: '1', confidence: 'certain', source: 's' }, colour: { value: 'red', confidence: 1, source: 's' }, dot: { value: '', confidence: 1, source: 's' }, exposureVal: { value: 'lots', confidence: 1, source: 's' } } });
+    t('a field with no source is dropped and named', !bad.fields.insured && bad.errors.some(function(e){ return /^insured: the source/.test(e); }));
+    t('a bad confidence, unknown field and non-number are dropped', !bad.fields.fein && !bad.fields.colour && !bad.fields.exposureVal && bad.errors.length === 4, bad.errors.join(' | '));
+    t('an empty value is simply not a field (left blank, not an error)', !bad.fields.dot);
+    t('an answer that is not an object with fields is refused whole', !exlValidate(null).ok && !exlValidate({ provider: 'x' }).ok && !exlValidate({ fields: {} }).ok && !exlValidate({ provider: 'x', fields: [] }).ok);
+    var draft = exlToDraft({ lobKey: 'trucking' }, exlValidate(good()));
+    t('the draft carries values, confidence and the critical-field check', draft.insured === 'Acme Haulers LLC' && draft.fields_confidence.address === 'low' && !draft.missing_critical_fields.length && draft.needs_review === true);
+    var d2 = exlToDraft({ lobKey: 'trucking' }, exlValidate({ provider: 'x', fields: { insured: { value: 'A', confidence: 1, source: 's' } } }));
+    t('a missing FEIN and USDOT (trucking) are named as missing', d2.missing_critical_fields.join() === 'fein,dot');
+
+    // ---------- the built-in reader: stores confidence and source per field
+    var calls = 0; var realFetch = window.fetch; window.fetch = function(){ calls++; return Promise.reject(new Error('no network in tests')); };
+    var a = await approvedCase(EMAIL);
+    t('the default reader is the built-in rules and an endpoint is not set', EXL_CFG.provider === 'local-rules' && EXL_CFG.endpoint === '' && exlIsLocal());
+    showIntakePage(); openCaseAtCurrentStep(a.id);
+    t('the case goes through to the Workbench', a.currentStep === SCORE_STEP && a.autoIntake.status === 'done', JSON.stringify(a.autoIntake && a.autoIntake.reason));
+    t('every field read is stored with confidence and source', a.extraction.provider === 'local-rules' && a.extraction.fields.fein && a.extraction.fields.fein.value === '74-3030303' && a.extraction.fields.fein.confidence === 'medium' && /Email text/.test(a.extraction.fields.fein.source));
+    t('the values were applied to the case', a.fein === '74-3030303' && a.dot === '3456789');
+    t('nothing was sent anywhere', calls === 0);
+    t('the log names the reader', a.decisionLog.some(function(d){ return /read by local-rules/.test(d.notes); }));
+    aiToggle();
+    var strip = el('autoIntakeStrip').textContent;
+    t('the Workbench lists each field with its confidence and source', /FEIN/.test(strip) && /74-3030303/.test(strip) && /medium/.test(strip) && /Email text/.test(strip));
+    t('and who read it', /Read by local-rules/.test(strip)); aiToggle();
+
+    // ---------- an outside reader (HTTP endpoint)
+    currentUserRole = 'admin';
+    el('autoIntakeStrip').innerHTML = ''; aiToggle();
+    t('the reader setting is offered to those who may edit rules (the Head of UW here)', !!el('exl_provider'));
+    el('exl_provider').value = 'http'; el('exl_endpoint').value = 'not a url'; exlApplySettings();
+    t('a setting without a proper address is refused', EXL_CFG.provider === 'local-rules' && /http/.test(toasts[toasts.length - 1]));
+    el('exl_endpoint').value = 'https://extract.example.test/read'; exlApplySettings();
+    t('a proper address is saved', EXL_CFG.provider === 'http' && EXL_CFG.endpoint === 'https://extract.example.test/read' && !exlIsLocal());
+    t('and it is kept for next time', JSON.parse(localStorage.getItem('FUT_EXTRACTION_V1')).endpoint === 'https://extract.example.test/read'); aiToggle();
+
+    var sent = null;
+    window.fetch = function(url, init){ calls++; sent = { url: url, body: JSON.parse(init.body) }; return Promise.resolve({ ok: true, status: 200, json: function(){ return Promise.resolve(good()); } }); };
+    currentUserRole = 'senior_uw';
+    var b = await approvedCase(EMAIL);
+    showIntakePage(); openCaseAtCurrentStep(b.id); await sleep(60);
+    t('the endpoint was called once with the id, text and file names only', calls === 1 && sent.url === 'https://extract.example.test/read' && sent.body.submissionId === b.id && sent.body.emailText === EMAIL && sent.body.files[0].name === 'acord125.pdf' && Object.keys(sent.body).sort().join() === 'emailText,files,submissionId');
+    t('its answer was applied and the case reached the Workbench', b.currentStep === SCORE_STEP && b.insured === 'Acme Haulers LLC' && b.fein === '74-1234567', b.insured + ' step ' + b.currentStep);
+    t('the source it gave is kept', b.extraction.provider === 'http' && b.extraction.fields.insured.source === 'ACORD 125, page 1' && b.extraction.fields.insured.confidence === 'high');
+    t('a low-confidence field is flagged on the Workbench', b.autoIntake.flags.indexOf('Low confidence: address') > -1);
+
+    // ---------- an outside answer that is unusable, or an outage, stops at Extract
+    window.fetch = function(){ return Promise.resolve({ ok: true, status: 200, json: function(){ return Promise.resolve({ nonsense: true }); } }); };
+    var c = await approvedCase(EMAIL); openCaseAtCurrentStep(c.id); await sleep(60);
+    t('an unusable answer stops the case at Extract with the reason', c.currentStep === EXTRACT_STEP && /unusable answer/.test(c.autoIntake.reason), c.autoIntake && c.autoIntake.reason);
+    t('and the built-in reader was NOT quietly used instead', c.fein !== '74-3030303' && c.normalizationStatus === 'pending');
+    window.fetch = function(){ return Promise.resolve({ ok: false, status: 503, json: function(){ return Promise.resolve({}); } }); };
+    var d = await approvedCase(EMAIL); openCaseAtCurrentStep(d.id); await sleep(60);
+    t('an outage stops it at Extract and says what happened', d.currentStep === EXTRACT_STEP && /failed: the service answered 503/.test(d.autoIntake.reason), d.autoIntake && d.autoIntake.reason);
+    window.fetch = function(){ return Promise.resolve({ ok: true, status: 200, json: function(){ return Promise.resolve({ provider: 'acme-ai', fields: { insured: { value: 'Only Name LLC', confidence: 0.95, source: 'Email' } } }); } }); };
+    var e2 = await approvedCase(EMAIL); openCaseAtCurrentStep(e2.id); await sleep(60);
+    t('missing critical fields from an outside reader stop it at Confirm', e2.currentStep === CONFIRM_STEP && /Could not find: fein, dot/.test(e2.autoIntake.reason), e2.autoIntake && e2.autoIntake.reason);
+
+    // ---------- back to the built-in reader
+    window.fetch = realFetch;
+    EXL_CFG.provider = 'local-rules'; EXL_CFG.endpoint = ''; exlSave();
+    t('switching back works', exlIsLocal());
+    currentUserRole = 'junior'; aiRenderStrip();
+    t('people without edit rights on rules see the setting as read-only text', !el('exl_provider'));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+  })();
+})();
+</script>
