@@ -1,0 +1,162 @@
+<!-- Suite C50: the underwriting record. A referral keeps a governed reason code, the named person it went to, the exact limit that was breached and when it was resolved;
+     the decision is its own record that the outcome and the notice point at; every authority test is a row; the underwriting case has its own record (assignment,
+     priority, opened and closed, links to a transaction or renewal, a Veridex id or an outside reference but not both); approvals follow a chain of ordered steps taken
+     by different people, with a default of one approver, and the override of a knockout goes through the chain once one is in force. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'gl_cpc' && x.broker === 'Gallagher Commercial Brokers'; })[0];
+  function mk(id, over){
+    var s = clone(seedG); s.id = id; s.apiSourced = true; s.lobKey = 'gl_cpc'; s.channelType = 'broker'; s.address = '9 Elm Road, Dallas, TX 75201';
+    ['pasSync', 'authorityRef', 'specialtyRef', 'carrierApproval', 'authPreparedBy', 'carrier', 'insuredInfo', 'uwReferrals', 'uwDecisions', 'authorityChecks', 'uwCase', 'approvals', 'outcomes', 'notices', 'lifecycleStatus'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 6; s.completedSteps = [1,2,3,4,5]; s.assignedTo = 'junior'; s.exposureVal = 1000000; s.discretionaryPricing = { finalPremium: 300000 };
+    s.importedRatingData = { quote: { finalPremium: 300000, tax: 0, countyTax: 0, fees: [] } }; s.priority = 'P2';
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function setf(map){ Object.keys(map).forEach(function(id){ var e = el(id); if (!e) { e = document.createElement('input'); e.id = id; document.body.appendChild(e); } e.value = map[id]; }); }
+  try {
+    // ---------- the underwriting case
+    var Q = mk('SUB-C50-Q'); use(Q); login('junior');
+    var c = urSync(Q);
+    t('a case at the workbench has its underwriting case record', c && c.id === 'UWC-SUB-C50-Q' && c.status === 'Received' && c.assignedTo === 'junior' && c.priority === 'P2' && !!c.openedAt && !c.closedAt);
+    var early = mk('SUB-C50-EARLY', { currentStep: 2 });
+    t('a submission that has not reached the underwriter has none', urSync(early) === null && !early.uwCase);
+    t('rendering the screens creates it', (function(){ var z = mk('SUB-C50-Z'); use(z); renderAllDownstreamScreens(z); return !!z.uwCase; })());
+    use(Q);
+
+    // ---------- a referral keeps its reason, person and breached limit
+    login('junior'); setf({ auth_note: 'Strong account, requesting senior line approval' }); authRaise();
+    var rf = Q.uwReferrals && Q.uwReferrals[0];
+    t('raising a referral writes a referral record', !!rf && rf.id === 'REF-1' && rf.kind === 'authority' && rf.status === 'pending');
+    t('with a governed reason code', rf.reasonCode === 'PREMIUM' && UR_REFERRAL_REASONS.some(function(x){ return x.code === rf.reasonCode; }) && /ceiling/.test(rf.reasonLabel));
+    t('the named person it went to, and their role', rf.referredToRole === 'senior_uw' && /\w/.test(rf.referredToName) && rf.referredToName !== 'senior_uw');
+    t('the exact limit that was breached: measure, figure, ceiling and rule', rf.limitsBreached.length >= 1 && rf.limitsBreached[0].measure === 'premium' && rf.limitsBreached[0].value === 300000 && rf.limitsBreached[0].limit === 250000 && rf.limitsBreached[0].source === 'authority_rule' && /JR-ALL/.test(rf.limitsBreached[0].id), JSON.stringify(rf.limitsBreached));
+    t('who raised it and when', /Junior|Assistant|\(/.test(rf.raisedBy) && !!rf.raisedAt && rf.resolvedAt === null);
+    t('and the referral check is a row', Q.authorityChecks.some(function(k){ return k.subjectType === 'referral' && k.result === 'referred'; }));
+
+    // ---------- the decision is its own record
+    login('senior_uw');
+    var dr = authDecideCore(Q, 'approve', '', true);
+    t('approving resolves the referral with when and by whom', dr.ok && rf.status === 'approved' && !!rf.resolvedAt && /\(/.test(rf.resolvedBy) && Q.authorityRef.resolvedAt === rf.resolvedAt);
+    var dc = Q.uwDecisions[0];
+    t('and writes a decision record that the referral points at', dc && dc.type === 'referral_approved' && dc.referralId === 'REF-1' && rf.decisionId === dc.id && !!dc.decidedBy && !!dc.at);
+    t('an approval check is a row', Q.authorityChecks.some(function(k){ return k.subjectType === 'referral' && k.result === 'approved'; }));
+
+    // ---------- every authority test is a row
+    login('junior'); var n0 = Q.authorityChecks.length;
+    t('a quote test within the approved figures passes', authGuardQuote('test') === true);
+    var rows = Q.authorityChecks.slice(n0);
+    t('a quote test writes a row for the premium and limit ceilings and one for the carrier', rows.filter(function(k){ return k.subjectType === 'quote'; }).length === 3 && rows.some(function(k){ return k.measure === 'premium' && k.checkedValue === 300000 && k.limitValue === 250000; }) && rows.some(function(k){ return k.source === 'carrier'; }));
+    t('the row says approved where an approval covers it, with the currency on money measures', rows.some(function(k){ return k.measure === 'premium' && k.result === 'approved'; }) && rows.filter(function(k){ return k.measure === 'premium'; })[0].currency === 'USD');
+    var n1 = Q.authorityChecks.length; authGuardBind('test', Q.id);
+    t('a bind test writes its own rows', Q.authorityChecks.length > n1 && Q.authorityChecks.slice(n1).every(function(k){ return k.subjectType === 'bind_request'; }));
+    var big = mk('SUB-C50-BIG', { discretionaryPricing: { finalPremium: 900000 }, importedRatingData: { quote: { finalPremium: 900000, tax: 0, countyTax: 0, fees: [] } } }); use(big);
+    t('an exceeded test is a row with the result exceeded', authGuardQuote('test') === false && big.authorityChecks.some(function(k){ return k.measure === 'premium' && k.result === 'exceeded' && k.checkedValue === 900000; }));
+    t('each row says who checked and when', big.authorityChecks.every(function(k){ return !!k.checkedBy && !!k.checkedAt && /^AC-\d+$/.test(k.id); }));
+    t('an unknown result is refused', urCheck(big, { subjectType: 'quote', source: 'x', measure: 'premium', result: 'maybe' }) === null);
+
+    // ---------- a returned or declined referral
+    var R = mk('SUB-C50-R'); use(R); login('junior'); setf({ auth_note: 'Please look at this one for me' }); authRaise();
+    login('senior_uw'); var rr = authDecideCore(R, 'return', 'Needs the loss runs first, please resubmit.', true);
+    t('a returned referral is resolved and its decision says returned', rr.ok && R.uwReferrals[0].status === 'returned' && R.uwDecisions[0].type === 'referral_returned' && R.uwDecisions[0].reasonText === 'Needs the loss runs first, please resubmit.');
+
+    // ---------- a limit that is a state/line withheld, and a speciality referral
+    var L = mk('SUB-C50-L', { lobKey: 'property', lobName: 'Commercial Property', riskStateSet: { state: 'FL' }, discretionaryPricing: { finalPremium: 1000 } }); use(L); login('junior');
+    var facts = urReferralFacts(L);
+    t('a withheld line and state is a LINE_STATE referral', facts.code === 'LINE_STATE' && facts.breached[0].measure === 'line_state');
+
+    // ---------- decline: the decision, the outcome and the notice agree
+    var D = mk('SUB-C50-D'); use(D); login('senior_uw');
+    logDecision(D, 6, 'declined', 'Declined by the underwriter.', 'Test Underwriter');
+    var ro = outRecord(D, { type: 'declined_by_underwriter', reasonCode: 'LOSS_HISTORY', reasonText: 'Three large losses in two years.' });
+    t('a decline writes a decision record', ro.ok && D.uwDecisions.length === 1 && D.uwDecisions[0].type === 'decline' && D.uwDecisions[0].reasonCode === 'LOSS_HISTORY');
+    t('the outcome points at the decision and the decision at the outcome', ro.outcome.decisionId === D.uwDecisions[0].id && D.uwDecisions[0].outcomeId === ro.outcome.id);
+    t('a declined case closes the underwriting case', urSync(D).closedAt && D.uwCase.closedReason === 'Declined' && D.uwCase.status === 'Declined');
+    var nrec = { id: 'NTC-X', type: 'declination', status: 'issued' };
+    t('the latest decline decision is found for a notice', urLatestDecision(D, ['decline', 'auto_decline']).id === D.uwDecisions[0].id && urLatestDecision(D, ['referral_approved']) === null);
+    var A2 = mk('SUB-C50-A2'); use(A2);
+    var ra = outRecord(A2, { type: 'auto_declined', reasonCode: 'APPETITE', reasonText: 'A knockout rule failed.' }, { system: true });
+    t('an automatic decline is a decision by the system', !ra.ok ? true : A2.uwDecisions[0].type === 'auto_decline' && /System/.test(A2.uwDecisions[0].decidedBy));
+
+    // ---------- the case record's links
+    login('junior'); use(Q);
+    t('a Veridex id and an outside reference for the same item are refused', !urSetLinks(Q, { policyTransactionId: 'PT-1', externalPolicyTransaction: 'X-9', externalSystem: 'Guidewire' }).ok);
+    t('an outside reference needs the system named', !urSetLinks(Q, { externalRenewal: 'R-7' }).ok);
+    var lk = urSetLinks(Q, { policyTransactionId: 'PT-1', externalRenewal: 'R-7', externalSystem: 'Guidewire' });
+    t('a Veridex transaction and an outside renewal may be linked', lk.ok && Q.uwCase.links.policyTransactionId === 'PT-1' && Q.uwCase.links.externalRenewal === 'R-7');
+    var rn = mk('SUB-C50-RN', { renewalOf: 'POL-5' }); urSync(rn);
+    t('a renewal case links to its expiring policy', rn.uwCase.links.renewalCaseId === 'POL-5');
+    Q.pasSync = { status: 'success', policyNumber: 'P-1' };
+    t('binding closes the underwriting case', urSync(Q).closedAt && Q.uwCase.status === 'Bound');
+    delete Q.pasSync; t('a case that is reopened has no closing time', !urSync(Q).closedAt);
+
+    // ---------- the Case File tab
+    use(Q); login('admin'); showCaseFilePage();
+    cfTab('uwrecord');
+    var html = el('caseFileRoot').textContent;
+    t('the Case File has an Underwriting record tab with the case, referral, decision and checks', /Underwriting record/.test(html) && /UWC-SUB-C50-Q/.test(html) && /REF-1/.test(html) && /DEC-1/.test(html) && /AC-1/.test(html) && /JR-ALL/.test(html));
+
+    // ---------- approval chains: default, then a chain
+    var P = mk('SUB-C50-P'); use(P); login('junior');
+    var q1 = apRequest(P, { type: 'pricing_adjustment', entityType: 'adjustment', entityId: 'PA-1', amount: 5, note: 'A 5% credit.' }).request;
+    t('with no chain, a request has one step that anyone who may approve can take', q1.steps.length === 1 && q1.steps[0].role === '*' && q1.chainId === null);
+    var dj = apDecide(P, q1.id, 'approve', ''); t('the requester cannot approve it', !dj.ok && /made this request/.test(dj.why));
+    login('assistant'); t('someone without the right to approve cannot', !apDecide(P, q1.id, 'approve', '').ok);
+    login('senior_uw'); t('rejecting needs a reason', apDecide(P, q1.id, 'reject', 'no').error === 'reason');
+    t('a different approver approves, and the request is approved', apDecide(P, q1.id, 'approve', 'Fine.').ok && q1.status === 'approved' && q1.steps[0].by !== q1.requestedBy);
+    t('the decision is in the log', P.decisionLog.some(function(x){ return x.decision === 'approval_decided'; }) && P.decisionLog.some(function(x){ return x.decision === 'approval_requested'; }));
+
+    login('admin');
+    t('the chain register starts empty and the tab exists', AP.chains.length === 0 && UC_TABS.some(function(x){ return x.key === 'approvals'; }));
+    t('a chain needs a code, a type, a step and a start', !apAddChain({ code: 'x', type: 'nope', steps: [], effectiveFrom: '' }).ok);
+    var ch = apAddChain({ code: 'PRICE2', name: 'Two steps over 10', type: 'pricing_adjustment', effectiveFrom: '2020-01-01', steps: [{ role: 'senior_uw', minAmount: '' }, { role: 'senior', minAmount: '10' }] });
+    t('a chain is created as a draft', ch.ok && ch.chain.status === 'draft');
+    t('and a draft chain is not used', apChainFor('pricing_adjustment') === null);
+    t('it is sent for approval and the proposer cannot put it in force', apChainAct(ch.chain.id, 'submit') === undefined && ch.chain.status === 'pending');
+    apChainAct(ch.chain.id, 'approve'); t('the proposer cannot put it in force', ch.chain.status === 'pending');
+    login('senior'); apChainAct(ch.chain.id, 'approve'); login('admin');
+    t('a different person puts it in force', ch.chain.status === 'active' && apChainFor('pricing_adjustment').id === ch.chain.id);
+    var st5 = apStepsFor('pricing_adjustment', 5), st20 = apStepsFor('pricing_adjustment', 20);
+    t('a small amount follows only the steps that apply to it', st5.steps.length === 1 && st5.steps[0].role === 'senior_uw');
+    t('a large amount follows every step', st20.steps.length === 2 && st20.steps[1].role === 'senior');
+
+    var W = mk('SUB-C50-W'); use(W); login('junior');
+    var q2 = apRequest(W, { type: 'pricing_adjustment', entityType: 'adjustment', entityId: 'PA-2', amount: 20, note: 'A 20% debit.' }).request;
+    t('a request records the chain and its version', q2.chainCode === 'PRICE2' && q2.chainVersion === 1 && q2.steps.length === 2);
+    login('senior_uw'); t('the first step is taken by the role it names', apDecide(W, q2.id, 'approve', 'Step one is fine.').ok && q2.status === 'pending' && q2.steps[0].status === 'approved');
+    t('the same person cannot take the next step', !apMayDecide(q2).ok && /already took/.test(apMayDecide(q2).why));
+    login('senior_uw2');
+    login('senior'); t('the second step needs the higher role and a different person', apMayDecide(q2).ok && apDecide(W, q2.id, 'approve', 'Agreed.').ok && q2.status === 'approved');
+    login('junior'); var q3 = apRequest(W, { type: 'pricing_adjustment', entityType: 'adjustment', entityId: 'PA-3', amount: 20, note: 'Another.' }).request;
+    login('senior_uw'); apDecide(W, q3.id, 'approve', 'ok');
+    t('a rejection ends the request and skips the rest', (function(){ login('senior'); var r = apDecide(W, q3.id, 'reject', 'This is too much for the account.'); return r.ok && q3.status === 'rejected' && q3.steps[1].status === 'rejected'; })());
+    t('an approved request can be found for the thing it approves, once', apApprovedFor(W, 'pricing_adjustment', 'adjustment', 'PA-2') === q2 && apApprovedFor(W, 'pricing_adjustment', 'adjustment', 'PA-3') === null);
+
+    // ---------- the override of a knockout follows a chain when one is in force
+    var rule = { ruleId: 'KO-1', id: 'KO-1', factor: 'Radius', name: 'Radius', ruleType: 'Knockout', val: '900', baseValue: 500, operator: '<=', unit: 'mi', guardrail: '<= 500', pass: false, canOverride: false };
+    var K = mk('SUB-C50-K', { appetiteRules: [rule], lobKey: 'trucking' }); use(K);
+    login('admin');
+    var ch2 = apAddChain({ code: 'OVR1', name: 'Override approval', type: 'uw_override', effectiveFrom: '2020-01-01', steps: [{ role: 'senior', minAmount: '' }] });
+    apChainAct(ch2.chain.id, 'submit'); login('senior'); apChainAct(ch2.chain.id, 'approve'); login('senior_uw');
+    var o1 = uwApplyRuleOverride(K, 'KO-1', 'The insured has a signed exception from the carrier.');
+    t('with a chain in force, overriding a knockout waits for approval', !o1.ok && o1.error === 'approval_pending' && !rule.manualPassOverride && K.approvals.length === 1);
+    var o1b = uwApplyRuleOverride(K, 'KO-1', 'The insured has a signed exception from the carrier.');
+    t('asking again does not make a second request', o1b.error === 'approval_pending' && K.approvals.length === 1);
+    t('the override is not applied while it is pending', K.uwOverrides === undefined || K.uwOverrides.length === 0);
+    login('senior'); t('the chain approver approves', apDecide(K, 'APR-1', 'approve', 'Signed exception seen.').ok);
+    login('senior_uw'); var o2 = uwApplyRuleOverride(K, 'KO-1', 'The insured has a signed exception from the carrier.');
+    t('then the override applies and names the approval', o2.ok && rule.manualPassOverride && o2.record.approvalRequestId === 'APR-1' && K.approvals[0].consumed === true);
+    t('the Underwriting record tab shows the approval', (function(){ use(K); login('admin'); showCaseFilePage(); cfTab('uwrecord'); return /APR-1/.test(el('caseFileRoot').textContent) && /OVR1/.test(el('caseFileRoot').textContent); })());
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

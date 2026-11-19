@@ -69,7 +69,14 @@ function uwRuleOutcome(r) { return r.outcomeOnFail || UW_SEVERITY[uwRuleSeverity
 
 function uwStageFor(sub) {
   const s = sub.currentStep || 1;
+  if (sub.transactionType === "endorse") return "endorsement";
+  if (sub.renewalOf && s > CONFIRM_STEP && s <= BRIEF_STEP) return "renewal";
   return s <= CONFIRM_STEP ? "triage" : s <= BRIEF_STEP ? "quote" : "bind";
+}
+/** The outcome (decline, refer or warn) of a carrier rule on the open case, so an administration rule can be checked against it. */
+function uwBaseRuleOutcome(ruleId) {
+  const sub = uwActive(), r = sub && (sub.appetiteRules || []).find(x => (x.ruleId || x.id || x.code) === ruleId);
+  return r ? uwRuleOutcome(r) : null;
 }
 
 /** Evaluates the case's rules now. Pure: reads the case, writes nothing. */
@@ -87,16 +94,32 @@ function uwEvaluateRules(sub, stage) {
     } else pass++;
     results.push({ ruleId: r.ruleId || r.id || r.code || "", factor: r.factor || r.name || r.desc || "", severity: sev, onFail: onFail, result: result, val: r.val, required: r.guardrail || r.threshold || r.baseValue || "", baseEdited: !!r.overridden });
   });
+  // Rule sets (js/uw-rulesets.js): the rules that run at this stage, with the figure each was tested against.
+  const st = stage || uwStageFor(sub);
+  let setEv = { sets: [], results: [], inputs: {} }, unknown = 0;
+  if (typeof rsEvaluate === "function") {
+    setEv = rsEvaluate(sub, st);
+    setEv.results.forEach(r => {
+      let result = r.result;
+      if (result === "pass") pass++;
+      else if (result === "fail") { if (r.onFail === "decline") knockout++; else if (r.onFail === "refer") refer++; else warning++; }
+      else unknown++;
+      results.push({ ruleId: r.ruleId, factor: (r.message || r.code) + " [" + r.setCode + " v" + r.setVersion + ", " + r.code + "]", severity: r.severity, onFail: r.onFail, result: result, val: r.actual === null ? "not on the case" : r.actual, required: (RS_FIELDS[r.field] || r.field) + " " + RS_OPS[r.op] + " " + ucListText(r.value), baseEdited: false,
+        setId: r.setId, setCode: r.setCode, setVersion: r.setVersion, code: r.code, autoDecline: r.autoDecline, message: r.message });
+    });
+  }
+  const limit = typeof rsWarningLimit === "function" ? rsWarningLimit(setEv, UW_WARNINGS_BEFORE_REFER) : UW_WARNINGS_BEFORE_REFER;
   let outcome = "proceed";
   if (knockout > 0) outcome = "auto_declined";
-  else if (refer > 0 || warning >= UW_WARNINGS_BEFORE_REFER) outcome = "refer";
-  return { stage: stage || uwStageFor(sub), baseEditedCount: results.filter(x => x.baseEdited).length, passCount: pass, overriddenCount: overridden, warningCount: warning, referCount: refer, knockoutCount: knockout, outcome: outcome, results: results };
+  else if (refer > 0 || warning >= limit) outcome = "refer";
+  return { stage: st, baseEditedCount: results.filter(x => x.baseEdited).length, passCount: pass, overriddenCount: overridden, warningCount: warning, referCount: refer, knockoutCount: knockout, unknownCount: unknown, warningLimit: limit,
+    outcome: outcome, results: results, inputs: setEv.inputs, ruleSets: setEv.sets.map(x => ({ id: x.id, code: x.code, version: x.version })), productRef: typeof rsProductRef === "function" ? rsProductRef() : null };
 }
 
 /** Evaluates and keeps the run, unless nothing changed since the last one. Returns the run. */
 function uwRunRules(sub, stage) {
   const ev = uwEvaluateRules(sub, stage);
-  const sig = ev.stage + "|" + ev.outcome + "|" + ev.results.map(r => r.ruleId + ":" + r.result + (r.baseEdited ? "*" : "")).join(",");
+  const sig = ev.stage + "|" + ev.outcome + "|" + ev.results.map(r => r.ruleId + ":" + r.result + (r.baseEdited ? "*" : "") + (r.setId ? "@" + r.setId + ":" + JSON.stringify(r.val) : "")).join(",");
   if (!sub.ruleRuns) sub.ruleRuns = [];
   const last = sub.ruleRuns[sub.ruleRuns.length - 1];
   if (last && last.sig === sig) return last;
@@ -104,6 +127,7 @@ function uwRunRules(sub, stage) {
   sub.ruleRuns.push(run);
   if (sub.ruleRuns.length > 20) sub.ruleRuns = sub.ruleRuns.slice(-20);
   uwSave();
+  if (typeof rsAutoDecline === "function") { try { rsAutoDecline(sub, run); } catch (e) { console.warn("Automatic decline failed:", e); } }
   return run;
 }
 
@@ -112,13 +136,13 @@ function uwRuleAction(onFail) { return { decline: "Recommend decline", refer: "R
 function renderRuleRun(sub) {
   const box = document.getElementById("ruleRunContainer");
   if (!box) return;
-  if (!sub || !(sub.appetiteRules || []).length) { box.innerHTML = ""; return; }
+  if (!sub || !uwEvaluateRules(sub).results.length) { box.innerHTML = ""; return; }
   const run = uwRunRules(sub);
   const tone = { proceed: ["badge-success", "Proceed"], refer: ["badge-warning", "Refer"], auto_declined: ["badge-danger", "Knockout: decline"] }[run.outcome];
   const failed = run.results.filter(r => r.result === "fail");
   const why = run.outcome === "auto_declined" ? "A knockout rule failed. The decline is recommended; it is recorded when a person confirms it."
-    : run.outcome === "refer" ? (run.referCount ? run.referCount + " major rule(s) failed, so the case goes to an approver." : run.warningCount + " warnings together reach the limit of " + UW_WARNINGS_BEFORE_REFER + ", so the case goes to an approver.")
-      : failed.length ? "Only warnings (" + run.warningCount + "), fewer than " + UW_WARNINGS_BEFORE_REFER + "." : "Every rule passed or was overridden with a recorded reason.";
+    : run.outcome === "refer" ? (run.referCount ? run.referCount + " major rule(s) failed, so the case goes to an approver." : run.warningCount + " warnings together reach the limit of " + run.warningLimit + ", so the case goes to an approver.")
+      : failed.length ? "Only warnings (" + run.warningCount + "), fewer than " + run.warningLimit + "." : "Every rule passed or was overridden with a recorded reason.";
   const canDecline = run.outcome === "auto_declined" && sub.lifecycleStatus !== "declined";
   box.innerHTML = `
   <div class="card" style="margin-top:12px;">
@@ -127,7 +151,7 @@ function renderRuleRun(sub) {
       <div class="ws-small" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
         <span><strong>${run.passCount}</strong> passed</span><span><strong>${run.overriddenCount}</strong> overridden</span>
         <span><strong>${run.warningCount}</strong> warning(s)</span><span><strong>${run.referCount}</strong> major</span><span><strong>${run.knockoutCount}</strong> knockout</span>${run.baseEditedCount ? `<span class="text-muted">${run.baseEditedCount} rule(s) with an edited threshold, judged against the edited value</span>` : ""}
-        <span class="text-muted">${escHtml(run.runId)} at the ${escHtml(run.stage)} stage, ${escHtml(run.at)}</span>
+        <span class="text-muted">${escHtml(run.runId)} at the ${escHtml(run.stage)} stage, ${escHtml(run.at)}</span>${run.unknownCount ? `<span class="text-muted">${run.unknownCount} rule(s) could not be tested: the figure is not on the case</span>` : ""}${(run.ruleSets || []).length ? `<span class="text-muted">Rule sets: ${run.ruleSets.map(x => escHtml(x.code + " v" + x.version)).join(", ")}</span>` : ""}
       </div>
       <p class="ws-small" style="margin:0 0 8px;">${escHtml(why)}</p>
       ${failed.length ? `<table class="data-table"><thead><tr><th>Rule</th><th>Severity</th><th>Submitted</th><th>Required</th><th>What happens</th></tr></thead><tbody>${failed.map(r => `<tr><td>${escHtml(r.factor)}</td><td><span class="badge ${UW_SEVERITY[r.severity].badge}">${UW_SEVERITY[r.severity].label}</span></td><td>${escHtml(r.val)}</td><td>${escHtml(r.required)}${r.baseEdited ? '<div class="text-xs text-muted">threshold edited by the MGA</div>' : ""}</td><td>${uwRuleAction(r.onFail)}</td></tr>`).join("")}</tbody></table>` : ""}
@@ -210,6 +234,7 @@ window.toggleAppetiteRuleOverride = function (ruleId) {
   const res = uwApplyRuleOverride(sub, ruleId, reason);
   if (res.ok) return;
   if (res.error === "reason") showToast("A written reason of at least " + UW_OVERRIDE_MIN_REASON + " characters is required to override a rule.", "warning");
+  else if (res.error === "approval_pending") showToast("A chain of approvers must approve this override first (" + res.approvalId + "). Ask them to decide it on the case's Underwriting record, then apply the override again.", "warning");
   else if (res.error === "authority") {
     uwLog(sub, "uw_override_blocked", "Override of " + (rule.factor || ruleId) + " refused: a knockout needs " + authRoleLabel(res.needRole) + " or above.");
     showToast("A knockout rule can be overridden only by " + authRoleLabel(res.needRole) + " or above.", "danger");

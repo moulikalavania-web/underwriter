@@ -1,0 +1,192 @@
+<!-- Suite C52: compliance requirements, product filings and the notices they govern. Requirements are configured by state, line and placement with their settings checked per
+     type, proposed by one person and put in force by another; each run at bind writes a row per requirement with its evidence; a failing requirement that blocks stops the
+     bind and one that warns does not; a waiver is a recorded decision. Filings answer "can this product be sold here today with these rates and forms". Notices gain the
+     triggers surcharge, tier change, non-renewal and cancellation (each needs its record), a reason limit and a due date from the state, ranked reasons, and a delivery
+     record per recipient with proof. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.lobName = 'Commercial Trucking'; s.channelType = 'broker';
+    ['pasSync', 'quoteIssued', 'authorityRef', 'uwReferrals', 'uwDecisions', 'authorityChecks', 'uwCase', 'approvals', 'pricingAdjustments', 'complianceChecks', 'notices', 'outcomes', 'lifecycleStatus', 'renewal', 'cancellation', 'diligentSearch'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 12; s.assignedTo = 'senior_uw'; s.riskStateSet = { state: 'TX' }; s.address = '9 Elm Road, Dallas, TX 75201'; s.placementType = 'admitted';
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function liveReq(code, over){
+    login('admin');
+    var r = cqAdd(Object.assign({ code: code, name: 'Req ' + code, type: 'license_check', effectiveFrom: '2020-01-01' }, over || {}));
+    if (!r.ok) throw new Error(code + ': ' + JSON.stringify(r));
+    cqAct(r.req.id, 'submit'); login('senior'); cqAct(r.req.id, 'approve'); login('admin');
+    return r.req;
+  }
+  function filing(over){
+    login('admin'); var r = filAdd(Object.assign({ productId: 'PRD-T', productVersion: '*', state: 'TX', filingType: 'rate', serffNo: 'SERFF-1001' }, over || {}));
+    if (!r.ok) throw new Error('filing ' + JSON.stringify(r)); return r.filing;
+  }
+  function baseForm(over){ var f = { type: 'surcharge', reasons: ['LOSS_HISTORY'], reasonDetail: '', adverseTermsText: 'A 10 percent debit was applied for adverse losses.', consumerUsed: false, reports: [], recipients: { insured: true, producer: true }, deliveryMethod: 'Email to producer and insured', deliveryRef: 'MSG-77', stateAck: true }; for (var k in (over || {})) f[k] = over[k]; return f; }
+  try {
+    login('admin');
+    t('no requirement or filing is built in, and the tabs exist', CQ.reqs.length === 0 && CQ.filings.length === 0 && UC_TABS.some(function(x){ return x.key === 'compliance'; }) && UC_TABS.some(function(x){ return x.key === 'filings'; }));
+
+    // ---------- settings are checked per type
+    t('a notice requirement may leave the reason limit empty (no limit)', cqValidateRule('adverse_action_notice', {}).length === 0 && cqValidateRule('adverse_action_notice', { max_reason_count: 4, notice_due_days: 10 }).length === 0);
+    t('a reason limit below one is refused', cqValidateRule('adverse_action_notice', { max_reason_count: 0 }).length === 1 && cqValidateRule('adverse_action_notice', { notice_due_days: -1 }).length === 1);
+    t('a cancellation requirement needs its notice days', cqValidateRule('cancel_notice', {}).length === 1 && cqValidateRule('cancel_notice', { notice_days: 30 }).length === 0);
+    t('a filing requirement may name only rate, rule or form', cqValidateRule('filing_approved', { kinds: ['rate', 'tax'] }).length === 1 && cqValidateRule('filing_approved', { kinds: ['rate', 'form'] }).length === 0);
+    var bad = cqAdd({ code: 'x', type: 'nope', state: ['ZZ'], enforcement: 'maybe', admittedStatus: 'nope', effectiveFrom: '' });
+    t('a requirement with a bad code, type, state, placement, enforcement or date is refused', !bad.ok && bad.errors.length >= 5, bad.errors && bad.errors.join(' | '));
+    login('junior'); t('someone without edit rights cannot add one', cqAdd({ code: 'JR', type: 'license_check', effectiveFrom: '2020-01-01' }).error === 'permission'); login('admin');
+
+    // ---------- proposed by one person, put in force by another
+    var d = cqAdd({ code: 'LIC-TX', name: 'Licence check in Texas', type: 'license_check', state: ['TX'], enforcement: 'block', admittedStatus: 'any', effectiveFrom: '2020-01-01' });
+    t('a requirement is created as a draft', d.ok && d.req.status === 'draft' && d.req.version === 1);
+    cqAct(d.req.id, 'submit'); cqAct(d.req.id, 'approve');
+    t('the proposer cannot put it in force', d.req.status === 'pending');
+    login('senior'); cqAct(d.req.id, 'approve');
+    t('a different person puts it in force', d.req.status === 'active' && d.req.approvedBy !== d.req.submittedBy); login('admin');
+    var nv = ucNextVersionRec(CQ.reqs, d.req, cqNew('CQ'));
+    t('a new version is a draft; putting it in force retires the old one', nv.ok && nv.rec.version === 2 && (function(){ cqAct(nv.rec.id, 'submit'); login('senior'); cqAct(nv.rec.id, 'approve'); login('admin'); return nv.rec.status === 'active' && d.req.status === 'retired'; })());
+
+    // ---------- scope: the most specific requirement wins
+    var all = liveReq('ADV-ALL', { type: 'adverse_action_notice', state: '*', rule: { max_reason_count: 3 } });
+    var tx = liveReq('ADV-TX', { type: 'adverse_action_notice', state: ['TX'], rule: { max_reason_count: 2, notice_due_days: 5 } });
+    t('a requirement for the state beats one for all states', cqFor('adverse_action_notice', 'TX', 'trucking', false).code === 'ADV-TX' && cqFor('adverse_action_notice', 'FL', 'trucking', false).code === 'ADV-ALL');
+    t('a requirement for surplus lines does not apply to an admitted placement', (function(){ liveReq('ADV-SL', { type: 'adverse_action_notice', state: ['TX'], admittedStatus: 'surplus_lines', rule: { max_reason_count: 1 } }); return cqFor('adverse_action_notice', 'TX', 'trucking', false).code === 'ADV-TX' && cqFor('adverse_action_notice', 'TX', 'trucking', true).code === 'ADV-SL'; })());
+
+    // ---------- filings: can this product be sold here
+    var f1 = filing();
+    t('a filing starts as a draft and is not counted', f1.status === 'draft' && !filingCanSell({ productId: 'PRD-T', productVersion: '1', state: 'TX', lob: 'trucking' }).ok);
+    t('a filing needs a product, state, type and a number', !filAdd({ productId: '', state: '', filingType: 'x', serffNo: '' }).ok);
+    t('an approval needs its date; an objection needs its notes', !filEvent(f1.id, { status: 'approved', date: '' }).ok && !filEvent(f1.id, { status: 'objection', date: '2026-01-05', notes: '' }).ok);
+    t('a filing is recorded as submitted, then approved with its effective dates', filEvent(f1.id, { status: 'submitted', date: '2026-01-02' }).ok && filEvent(f1.id, { status: 'approved', date: '2026-02-01', nbEffective: '2026-03-01', renewalEffective: '2026-06-01' }).ok && f1.events.length === 2);
+    var q = { productId: 'PRD-T', productVersion: '1', state: 'TX', lob: 'trucking', kinds: ['rate'] };
+    t('an approved rate filing covers the product from its new-business date', filingCanSell(Object.assign({ date: '2026-03-02' }, q)).ok && !filingCanSell(Object.assign({ date: '2026-02-15' }, q)).ok);
+    t('a renewal uses the renewal effective date', !filingCanSell(Object.assign({ date: '2026-04-01', businessType: 'renewal' }, q)).ok && filingCanSell(Object.assign({ date: '2026-06-02', businessType: 'renewal' }, q)).ok);
+    var both = filingCanSell({ productId: 'PRD-T', productVersion: '1', state: 'TX', lob: 'trucking', date: '2026-03-02' });
+    t('by default both a rate and a form filing are needed, and the missing one is named', !both.ok && both.missing.join() === 'form' && /form/.test(both.reasons[0]));
+    var f2 = filing({ filingType: 'form', serffNo: 'SERFF-1002' }); filEvent(f2.id, { status: 'approved', date: '2026-02-01' });
+    t('with a form filing too the product can be sold', filingCanSell({ productId: 'PRD-T', productVersion: '1', state: 'TX', lob: 'trucking', date: '2026-03-02' }).ok);
+    t('another state is not covered', !filingCanSell({ productId: 'PRD-T', productVersion: '1', state: 'FL', lob: 'trucking', date: '2026-03-02' }).ok);
+    filEvent(f2.id, { status: 'withdrawn', date: '2026-04-01', notes: 'Withdrawn by the carrier.' });
+    t('a withdrawn filing no longer covers it', !filingCanSell({ productId: 'PRD-T', productVersion: '1', state: 'TX', lob: 'trucking', date: '2026-05-01' }).ok);
+    var f3 = filing({ productId: '*', state: 'CA', filingType: 'combined', serffNo: 'SERFF-1003' }); filEvent(f3.id, { status: 'approved', date: '2026-01-01' });
+    t('a combined filing for every product covers rate, rule and form', filingCanSell({ productId: 'ANY', productVersion: '9', state: 'CA', lob: 'trucking', date: '2026-05-01', kinds: ['rate', 'rule', 'form'] }).ok && !filingCanSell({ productId: 'ANY', productVersion: '9', state: 'TX', lob: 'trucking', date: '2026-05-01', kinds: ['rate', 'rule', 'form'] }).ok);
+    t('a case that names no product cannot be shown to be sellable', !filingCanSell({ productId: null, state: 'TX', lob: 'trucking' }).ok);
+
+    // ---------- checks at bind
+    var fr = liveReq('FIL-TX', { type: 'filing_approved', state: ['TX'], enforcement: 'block', rule: { kinds: ['rate', 'form'] } });
+    var wr = liveReq('LIC-WARN', { type: 'license_check', state: ['TX'], enforcement: 'warn' });
+    window.ACTIVE_INSURANCE_PRODUCT = { productId: 'PRD-NOFILE', productName: 'No filing', version: '1' };
+    var B = mk('SUB-C52-B'); use(B); login('senior_uw');
+    var rows = cqRun(B, 'bind_request', { entityId: B.id });
+    var fl = rows.filter(function(r){ return r.type === 'filing_approved'; })[0];
+    t('a run writes a row per requirement that applies, with its evidence', rows.length >= 2 && fl && fl.result === 'fail' && fl.evidence.reasons.length >= 1 && fl.requirementVersion === 1 && fl.checkedBy === 'System (automatic)');
+    t('a licence check that cannot be shown fails and is a warning, not a block', rows.some(function(r){ return r.type === 'license_check' && r.enforcement === 'warn'; }));
+    toasts.length = 0;
+    t('a failing blocking requirement stops the bind', cqBindGuard([B.id]) === false && /Bind blocked \(compliance\)/.test(toasts.join(' ')) && B.decisionLog.some(function(x){ return x.decision === 'compliance_bind_blocked'; }));
+    t('the bind guard is registered', listGuards('bind').some(function(g){ return /compliance requirements/.test(g.name || g); }));
+    window.ACTIVE_INSURANCE_PRODUCT = { productId: 'PRD-T', productName: 'Filed', version: '1' };
+    filEvent(f1.id, { status: 'approved', date: '2026-02-01' }); // already approved: a repeat approval is allowed history
+    var f4 = filing({ filingType: 'form', serffNo: 'SERFF-1004' }); filEvent(f4.id, { status: 'approved', date: '2020-01-01' });
+    var B2 = mk('SUB-C52-B2'); use(B2); login('senior_uw');
+    var r2 = cqRun(B2, 'bind_request', {});
+    t('with the filings in place the filing requirement passes', r2.filter(function(r){ return r.type === 'filing_approved'; })[0].result === 'pass');
+
+    // waiver
+    var B3 = mk('SUB-C52-B3'); use(B3); window.ACTIVE_INSURANCE_PRODUCT = { productId: 'PRD-NOFILE', productName: 'x', version: '1' }; login('senior_uw');
+    var rr = cqRun(B3, 'bind_request', {}), fail3 = rr.filter(function(r){ return r.type === 'filing_approved'; })[0];
+    t('a waiver needs the right to override authority', cqWaive(B3, fail3.id, 'The carrier confirmed the filing is pending.').error === 'permission');
+    login('senior'); t('and a reason', cqWaive(B3, fail3.id, 'x').error === 'reason');
+    var wv = cqWaive(B3, fail3.id, 'The carrier confirmed in writing that the filing is approved and pending in the system.');
+    t('a waiver is a recorded decision', wv.ok && wv.check.result === 'waived' && wv.check.waivedBy && B3.decisionLog.some(function(x){ return x.decision === 'compliance_waived'; }));
+    var rr2 = cqRun(B3, 'bind_request', {});
+    t('a waiver stands while the requirement is unchanged', rr2.filter(function(r){ return r.type === 'filing_approved'; })[0].result === 'waived');
+    rr2.filter(function(r){ return r.result === 'fail' && r.enforcement === 'block'; }).forEach(function(r){ cqWaive(B3, r.id, 'The carrier confirmed this in writing for the test.'); });
+    t('and once every blocking failure is waived, the bind goes ahead', cqBindGuard([B3.id]) === true);
+
+    // diligent search and cancellation
+    liveReq('SEARCH-TX', { type: 'diligent_search', state: ['TX'], enforcement: 'block', admittedStatus: 'surplus_lines' });
+    var S = mk('SUB-C52-S', { placementType: 'surplus' }); use(S);
+    t('a surplus lines case with no declinations fails the diligent search', cqRun(S, 'bind_request', {}).filter(function(r){ return r.type === 'diligent_search'; })[0].result === 'fail');
+    var A = mk('SUB-C52-A'); use(A);
+    t('an admitted case is not subject to it', cqRun(A, 'bind_request', {}).filter(function(r){ return r.type === 'diligent_search'; }).length === 0);
+    liveReq('CAN-TX', { type: 'cancel_notice', state: ['TX'], enforcement: 'block', rule: { notice_days: 30 } });
+    var C = mk('SUB-C52-C'); use(C);
+    t('a cancellation needs enough notice days and a delivered notice', cqRun(C, 'policy_transaction', { noticeDays: 10 }).filter(function(r){ return r.type === 'cancel_notice'; })[0].result === 'fail');
+    t('a requirement that is not for this checkpoint is not applicable', cqRun(C, 'bind_request', {}).filter(function(r){ return r.type === 'cancel_notice'; })[0].result === 'not_applicable');
+
+    // ---------- notices: triggers
+    var N = mk('SUB-C52-N'); use(N); login('senior');
+    t('the new notice types exist', ['surcharge', 'tier_change', 'nonrenewal', 'cancellation'].every(function(k){ return !!NOTICE_TYPES[k]; }));
+    var p1 = noticeValidate(N, baseForm({ type: 'surcharge' }), false);
+    t('a surcharge notice needs an applied debit on the case', p1.some(function(x){ return /nothing on the case triggers/.test(x); }), p1.join(' | '));
+    N.pricingAdjustments = [{ id: 'PA-1', type: 'uw_debit', pct: 10, status: 'applied', sequence: 1 }];
+    t('and has it once one is applied', !noticeValidate(N, baseForm({ type: 'surcharge', reasons: ['LOSS_HISTORY'] }), false).some(function(x){ return /nothing on the case triggers/.test(x); }) && compTrigger(N, 'surcharge').id === 'PA-1');
+    t('a tier change needs a schedule rating or experience modification', compTrigger(N, 'tier_change') === null);
+    N.pricingAdjustments.push({ id: 'PA-2', type: 'schedule_rating', pct: 4, status: 'applied', sequence: 2 });
+    t('and has it once applied', compTrigger(N, 'tier_change').id === 'PA-2');
+    t('a non-renewal needs the renewal decision', compTrigger(N, 'nonrenewal') === null); N.renewal = { decision: 'non_renew' };
+    t('and has it once made', compTrigger(N, 'nonrenewal').type === 'renewal_decision');
+    t('a cancellation needs a cancellation transaction', compTrigger(N, 'cancellation') === null); N.cancellation = { transactionId: 'TXN-9' };
+    t('and has it once recorded', compTrigger(N, 'cancellation').id === 'TXN-9');
+    t('a declination follows a decline decision', compTrigger(N, 'declination') === null && (function(){ N.uwDecisions = [{ id: 'DEC-1', type: 'decline', at: '2026-11-01 10:00' }]; return compTrigger(N, 'declination').id === 'DEC-1'; })());
+
+    // ---------- notices: the state's reason limit and due date
+    t('the state requirement limits the reasons (Texas: two)', noticeValidate(N, baseForm({ type: 'surcharge', reasons: ['LOSS_HISTORY', 'APPETITE', 'OTHER'], reasonDetail: 'more' }), false).some(function(x){ return /at most 2 reasons/.test(x); }));
+    t('within the limit it passes', noticeValidate(N, baseForm({ type: 'surcharge', reasons: ['LOSS_HISTORY', 'APPETITE'] }), true).length === 0, noticeValidate(N, baseForm({ type: 'surcharge', reasons: ['LOSS_HISTORY', 'APPETITE'] }), true).join(' | '));
+    t('the key-factor limit follows the requirement', compFactorLimit(N) === 2);
+    var FL = mk('SUB-C52-FL', { riskStateSet: { state: 'FL' } });
+    t('a state with no requirement of its own uses the all-states one', compFactorLimit(FL) === 3);
+    var NS = mk('SUB-C52-NS', { riskStateSet: { state: 'CA' }, lobKey: 'property' });
+    t('the statutory four stands where no requirement is registered', (function(){ var saved = CQ.reqs.slice(); CQ.reqs = []; var n = compFactorLimit(NS); CQ.reqs = saved; return n === 4; })());
+
+    // ---------- notices: issue, ranked reasons, due date, deliveries
+    use(N); noticeStudio = { subId: N.id, editingId: null, form: baseForm({ type: 'surcharge', reasons: ['LOSS_HISTORY', 'APPETITE'] }), previewHtml: '' };
+    noticeIssue();
+    var n1 = (N.notices || [])[0];
+    t('the notice is issued', !!n1 && n1.status === 'issued', toasts[toasts.length - 1]);
+    t('it records its trigger type and the record that caused it', n1.triggerType === 'surcharge' && n1.trigger.type === 'pricing_adjustment' && n1.trigger.id === 'PA-2');
+    t('it names the requirement it followed', n1.complianceRequirementCode === 'ADV-TX' && /^CQ-/.test(n1.complianceRequirementId));
+    t('its reasons are ranked, one each', n1.reasonRanks.length === 2 && n1.reasonRanks[0].rank === 1 && n1.reasonRanks[0].code === 'LOSS_HISTORY' && n1.reasonRanks[1].rank === 2);
+    t('its due date follows the requirement (five days)', /^\d{4}-\d{2}-\d{2}$/.test(n1.dueDate) && typeof n1.late === 'boolean');
+    t('a delivery is created for each recipient, dispatched, with the method and reference', n1.deliveries.length === 2 && n1.deliveries.every(function(d){ return d.status === 'dispatched' && d.method && d.reference === 'MSG-77'; }) && n1.deliveryStatus === 'dispatched');
+    t('the text uses the surcharge wording', /includes a surcharge/.test(n1.text));
+    login('assistant'); t('someone without the right to edit notices cannot record a delivery', noticeRecordDelivery(N, n1.id, 'insured', 'delivered', 'PROOF-1').error === 'permission'); login('senior');
+    t('delivered needs proof', noticeRecordDelivery(N, n1.id, 'insured', 'delivered', '').error === 'proof');
+    t('one recipient delivered does not make the notice delivered', noticeRecordDelivery(N, n1.id, 'insured', 'delivered', 'PROOF-1').ok && n1.deliveryStatus === 'dispatched' && n1.deliveries[0].deliveredAt);
+    t('a failed delivery is shown', noticeRecordDelivery(N, n1.id, 'producer', 'failed', '').ok && n1.deliveryStatus === 'failed');
+    t('when every recipient has it, the notice is delivered', noticeRecordDelivery(N, n1.id, 'producer', 'delivered', 'PROOF-2').ok && n1.deliveryStatus === 'delivered' && compNoticeDelivered(N, 'surcharge'));
+    t('an unknown recipient or status is refused', noticeRecordDelivery(N, n1.id, 'nobody', 'delivered', 'X-1').error === 'recipient' && noticeRecordDelivery(N, n1.id, 'insured', 'maybe', '').error === 'status');
+    t('the delivery is in the decision log', N.decisionLog.some(function(x){ return x.decision === 'notice_delivery_recorded'; }) && !!AUDIT_ACTION_META.notice_delivery_recorded);
+
+    // a declination points at the decision
+    var Dn = mk('SUB-C52-D'); use(Dn); login('senior');
+    var ro = outRecord(Dn, { type: 'declined_by_underwriter', reasonCode: 'LOSS_HISTORY', reasonText: 'Three large losses in two years.' }, {});
+    logDecision(Dn, 6, 'declined', 'Declined.', 'Test');
+    var ro2 = outRecord(Dn, { type: 'declined_by_underwriter', reasonCode: 'LOSS_HISTORY', reasonText: 'Three large losses in two years.' }, { supersede: true });
+    noticeCloseStudio(); noticeStudio = { subId: Dn.id, editingId: null, form: baseForm({ type: 'declination', reasons: ['LOSS_HISTORY'], adverseTermsText: '' }), previewHtml: '' }; noticeIssue();
+    var dn = (Dn.notices || [])[0];
+    t('a declination notice points at the decision and records it as the trigger', !!dn && dn.decisionId === Dn.uwDecisions[Dn.uwDecisions.length - 1].id && dn.trigger.type === 'uw_decision' && dn.triggerType === 'decline', JSON.stringify(dn && dn.trigger) + ' | ' + toasts[toasts.length - 1] + ' | ' + JSON.stringify(Dn.uwDecisions));
+
+    // ---------- screens
+    login('admin'); showUcPage(); ucTab('compliance');
+    t('the compliance tab lists the requirements with their settings and status', /LIC-TX/.test(el('ucRoot').textContent) && /ADV-TX/.test(el('ucRoot').textContent) && /max_reason_count: 2/.test(el('ucRoot').textContent) && /In force/.test(el('ucRoot').textContent));
+    ucTab('filings');
+    t('the filings tab lists the filings with their history', /SERFF-1001/.test(el('ucRoot').textContent) && /Approved/.test(el('ucRoot').textContent) && /Withdrawn/.test(el('ucRoot').textContent));
+    use(N); showCaseFilePage(); cfTab('uwrecord');
+    var txt = el('caseFileRoot').textContent;
+    t('the Underwriting record shows the compliance answer and the notice with its trigger, due date and delivery', /Can this product be sold/.test(txt) && /NTC-/.test(txt) && /ADV-TX/.test(txt) && /PROOF-1/.test(txt) && /pricing_adjustment/.test(txt));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

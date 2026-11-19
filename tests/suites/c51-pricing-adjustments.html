@@ -1,0 +1,140 @@
+<!-- Suite C51: pricing adjustments. A rule (type, filed minimum and maximum, technical or running basis, filing reference, line and state, dates) is proposed by one person and put in
+     in force by another; an adjustment on a case follows the rule in force, is refused outside the filed range, applies at once within the person's own debit or credit ceiling
+     and otherwise needs an approval from someone whose ceiling covers it; adjustments apply in order, each on the technical or the running premium; a type with no rule in force
+     keeps the earlier single credit or debit and records it as an adjustment. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedG = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'gl_cpc' && x.broker === 'Gallagher Commercial Brokers'; })[0];
+  function mk(id, over){
+    var s = clone(seedG); s.id = id; s.apiSourced = true; s.lobKey = 'gl_cpc'; s.channelType = 'direct'; s.address = '9 Elm Road, Dallas, TX 75201';
+    ['pasSync', 'authorityRef', 'specialtyRef', 'uwReferrals', 'uwDecisions', 'authorityChecks', 'uwCase', 'approvals', 'pricingAdjustments', 'quoteIssued'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 11; s.assignedTo = 'junior'; s.exposureVal = 1000000; s.riskStateSet = { state: 'TX' };
+    s.discretionaryPricing = { basePremium: 100000, adjustmentType: null, adjustmentPercent: 0, reason: null, appliedBy: null, appliedAt: null, finalPremium: 100000, commissionRate: 0 };
+    s.importedRatingData = { quote: { finalPremium: 100000, tax: 0, countyTax: 0, fees: [] } };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function live(code, over){
+    login('admin');
+    var r = paAddRule(Object.assign({ code: code, name: 'Rule ' + code, type: 'uw_debit', basis: 'technical', minPct: 0, maxPct: 25, effectiveFrom: '2020-01-01' }, over || {}));
+    if (!r.ok) throw new Error(code + ': ' + JSON.stringify(r));
+    paRuleAct(r.rule.id, 'submit'); login('senior'); paRuleAct(r.rule.id, 'approve'); login('admin');
+    return r.rule;
+  }
+  try {
+    login('admin');
+    t('no pricing rule is built in and the tab exists', PA.rules.length === 0 && UC_TABS.some(function(x){ return x.key === 'pricing'; }));
+
+    // ---------- validation of a rule
+    var bad = paAddRule({ code: 'x', type: 'nope', basis: 'x', minPct: '', maxPct: '', effectiveFrom: '' });
+    t('a rule with no code, type, range, basis or date is refused', !bad.ok && bad.errors.length >= 5, bad.errors && bad.errors.join(' | '));
+    t('a credit range above zero is refused', !paAddRule({ code: 'CRED-BAD', type: 'uw_credit', basis: 'technical', minPct: -5, maxPct: 5, effectiveFrom: '2020-01-01' }).ok);
+    t('a debit range below zero is refused', !paAddRule({ code: 'DEB-BAD', type: 'uw_debit', basis: 'technical', minPct: -5, maxPct: 5, effectiveFrom: '2020-01-01' }).ok);
+    t('a rule that must be filed needs the filing reference', !paAddRule({ code: 'FILE-BAD', type: 'schedule_rating', basis: 'technical', minPct: -10, maxPct: 10, requiresFiling: true, effectiveFrom: '2020-01-01' }).ok);
+    t('a minimum above the maximum is refused', !paAddRule({ code: 'MM-BAD', type: 'uw_debit', basis: 'technical', minPct: 10, maxPct: 5, effectiveFrom: '2020-01-01' }).ok);
+
+    // ---------- no rule: the earlier single credit or debit works as before and is recorded
+    var A = mk('SUB-C51-A'); use(A); login('junior');
+    t('with no rule in force the new path refuses ("no filed rule")', paPropose(A, { type: 'uw_debit', pct: 5, reason: 'Driver turnover is high.' }).error === 'no_rule');
+    openDiscretionaryPricingModal(A.id);
+    el('dpAdjustmentType').value = 'debit'; el('dpPercentInput').value = '8'; el('dpReason').value = 'Driver turnover and adverse losses.';
+    saveDiscretionaryPricing();
+    t('the earlier dialog still applies a debit', A.discretionaryPricing.adjustmentType === 'debit' && A.discretionaryPricing.adjustmentPercent === 8 && A.discretionaryPricing.finalPremium === 108000);
+    t('and records it as an adjustment', A.pricingAdjustments.length === 1 && A.pricingAdjustments[0].legacy === true && A.pricingAdjustments[0].status === 'applied' && A.pricingAdjustments[0].pct === 8 && A.pricingAdjustments[0].amount === 8000);
+
+    // ---------- a rule in force
+    var r1 = live('DEBIT1', { type: 'uw_debit', minPct: 0, maxPct: 25, basis: 'technical' });
+    var r2 = live('SCHED1', { type: 'schedule_rating', minPct: -10, maxPct: 10, basis: 'running', requiresFiling: true, filingRef: 'SERFF-TX-2026-001' });
+    var r3 = live('CRED1', { type: 'uw_credit', minPct: -15, maxPct: 0, basis: 'running' });
+    t('a rule needs a second person to put it in force', r1.status === 'active' && r1.approvedBy !== r1.submittedBy);
+    var B = mk('SUB-C51-B'); use(B); login('junior');
+
+    t('a percentage of zero or none is refused', paPropose(B, { type: 'uw_debit', pct: 0, reason: 'A long enough reason.' }).error === 'pct');
+    t('a reason is required', paPropose(B, { type: 'uw_debit', pct: 4, reason: 'short' }).error === 'reason');
+    var out1 = paPropose(B, { type: 'uw_debit', pct: 30, reason: 'More than the filed maximum.' });
+    t('a percentage outside the filed range is refused and the range is named', out1.error === 'range' && out1.min === 0 && out1.max === 25);
+    t('a type with no rule is refused', paPropose(B, { type: 'negotiated', pct: 2, reason: 'A negotiated change.' }).error === 'no_rule');
+
+    // within the person's own ceiling: applies at once
+    var a1 = paPropose(B, { type: 'uw_debit', pct: 8, reason: 'Driver turnover is high this year.' });
+    t('within the junior underwriter\'s own debit ceiling, it applies at once', a1.ok && a1.applied && a1.adjustment.status === 'applied' && a1.adjustment.ruleCode === 'DEBIT1' && a1.adjustment.ruleVersion === 1);
+    t('it moved the technical premium and the quote follows', a1.adjustment.amount === 8000 && B.discretionaryPricing.adjustedPremium === 108000 && B.discretionaryPricing.finalPremium === 108000 && B.discretionaryPricing.adjustmentType === 'debit' && B.discretionaryPricing.adjustmentPercent === 8);
+    t('the authority test is a row: within authority', B.authorityChecks.some(function(k){ return k.subjectType === 'pricing_adjustment' && k.measure === 'debit_pct' && k.checkedValue === 8 && k.limitValue === 10 && k.result === 'within_authority'; }));
+    t('the decision log has it', B.decisionLog.some(function(x){ return x.decision === 'pricing_adjustment_applied'; }) && !!AUDIT_ACTION_META.pricing_adjustment_applied);
+
+    // order and basis: a running-basis credit after the technical debit
+    var a2 = paPropose(B, { type: 'uw_credit', pct: -5, reason: 'Telematics installed fleet-wide.' });
+    t('a second adjustment takes the next place in the order', a2.ok && a2.adjustment.sequence === 2 && a2.applied);
+    t('a running-basis adjustment applies to the premium after the one before it', a2.adjustment.amount === Math.round(108000 * -5 / 100) && B.discretionaryPricing.adjustedPremium === 108000 + a2.adjustment.amount, JSON.stringify(B.discretionaryPricing.adjustments));
+    t('the quote\'s credit or debit is the net of them', B.discretionaryPricing.finalPremium === B.discretionaryPricing.adjustedPremium && B.discretionaryPricing.adjustmentType === 'debit');
+    var tech = paPropose(B, { type: 'uw_debit', pct: 2, reason: 'A second technical debit for the test.' });
+    t('a technical-basis adjustment applies to the technical premium, not the running one', tech.ok && tech.adjustment.amount === 2000);
+
+    // above the person's ceiling: approval
+    var C = mk('SUB-C51-C'); use(C); login('junior');
+    var big = paPropose(C, { type: 'uw_debit', pct: 15, reason: 'Adverse loss development on two units.' });
+    t('above the junior\'s own debit ceiling it goes to an approval request and is not applied', big.ok && !big.applied && big.adjustment.status === 'pending_approval' && /^APR-/.test(big.approvalRequestId) && C.discretionaryPricing.finalPremium === 100000);
+    t('the authority test is a row: referred', C.authorityChecks.some(function(k){ return k.subjectType === 'pricing_adjustment' && k.result === 'referred' && k.checkedValue === 15 && k.limitValue === 10; }));
+    t('the request carries the amount in percent', C.approvals[0].type === 'pricing_adjustment' && C.approvals[0].amount === 15 && C.approvals[0].entityId === big.adjustment.id);
+    t('applying before it is approved is refused', paApplyApproved(C, big.adjustment.id).error === 'not_approved' || paApplyApproved(C, big.adjustment.id).ok === false);
+    login('assistant'); t('an assistant (ceiling zero) cannot approve it', !apMayDecide(C.approvals[0], C).ok);
+    login('junior'); t('the person who asked cannot approve it', !apMayDecide(C.approvals[0], C).ok);
+    login('senior_uw'); t('a senior underwriter whose ceiling covers 15% can', apMayDecide(C.approvals[0], C).ok && apDecide(C, C.approvals[0].id, 'approve', 'Loss development confirmed.').ok);
+    login('junior'); var ap = paApplyApproved(C, big.adjustment.id);
+    t('once approved it is applied, in the order', ap.ok && big.adjustment.status === 'applied' && C.discretionaryPricing.finalPremium === 115000);
+    t('the approval row is kept', C.authorityChecks.some(function(k){ return k.subjectType === 'pricing_adjustment' && k.result === 'approved' && k.approvalRequestId === C.approvals[0].id; }) && C.approvals[0].consumed === true);
+
+    // an approver whose own ceiling is below the percentage cannot take it
+    var D = mk('SUB-C51-D'); use(D); login('junior');
+    var huge = paPropose(D, { type: 'uw_debit', pct: 22, reason: 'A very large debit for the test.' });
+    login('senior_uw'); t('a senior underwriter with a 20% ceiling cannot approve 22%', !apMayDecide(D.approvals[0], D).ok && /ceiling/.test(apMayDecide(D.approvals[0], D).why), apMayDecide(D.approvals[0], D).why);
+    login('senior'); t('the chief underwriter (25%) can', apMayDecide(D.approvals[0], D).ok);
+    // rejection
+    apDecide(D, D.approvals[0].id, 'reject', 'Too much for this account.'); login('junior');
+    var rj = paApplyApproved(D, huge.adjustment.id);
+    t('a rejected request closes the adjustment', rj.ok && rj.rejected && huge.adjustment.status === 'rejected' && D.discretionaryPricing.finalPremium === 100000);
+
+    // filing
+    var E = mk('SUB-C51-E'); use(E); login('senior');
+    var sc = paPropose(E, { type: 'schedule_rating', pct: 6, reason: 'Fleet condition is above average.' });
+    t('an adjustment under a filed rule names the filing', sc.ok && sc.adjustment.filedUnder === 'SERFF-TX-2026-001' && sc.adjustment.basis === 'running');
+    t('a credit type takes a negative percentage within its filed range', paPropose(E, { type: 'uw_credit', pct: -20, reason: 'Beyond the filed credit range.' }).error === 'range' && paPropose(E, { type: 'uw_credit', pct: -4, reason: 'Within the filed credit range.' }).ok);
+
+    // state and line scope
+    live('FLONLY', { type: 'negotiated', minPct: -5, maxPct: 5, basis: 'technical', state: ['FL'] });
+    var F = mk('SUB-C51-F'); use(F); login('senior');
+    t('a rule for another state does not apply', paPropose(F, { type: 'negotiated', pct: 2, reason: 'A negotiated change in Texas.' }).error === 'no_rule');
+    F.riskStateSet = { state: 'FL' }; t('and applies in its state', paPropose(F, { type: 'negotiated', pct: 2, reason: 'A negotiated change in Florida.' }).ok);
+
+    // withdrawal and bind
+    var G = mk('SUB-C51-G'); use(G); login('junior');
+    var w = paPropose(G, { type: 'uw_debit', pct: 5, reason: 'Driver turnover is high.' });
+    t('a withdrawal needs a reason', paWithdraw(G, w.adjustment.id, 'x').error === 'reason');
+    t('a withdrawn adjustment comes off the premium', paWithdraw(G, w.adjustment.id, 'The broker supplied new loss runs.').ok && G.discretionaryPricing.finalPremium === 100000 && G.discretionaryPricing.adjustmentType === null);
+    G.pasSync = { status: 'success', policyNumber: 'P-9' };
+    t('nothing can be adjusted once the policy is bound', paPropose(G, { type: 'uw_debit', pct: 5, reason: 'After the bind.' }).error === 'bound');
+
+    // the dialog with a rule in force
+    var H = mk('SUB-C51-H'); use(H); login('junior');
+    openDiscretionaryPricingModal(H.id); el('dpAdjustmentType').value = 'debit'; el('dpPercentInput').value = '9'; el('dpReason').value = 'Adverse losses on two units.';
+    saveDiscretionaryPricing();
+    t('with a rule in force the dialog proposes through the rule', H.pricingAdjustments.length === 1 && H.pricingAdjustments[0].ruleCode === 'DEBIT1' && H.discretionaryPricing.finalPremium === 109000);
+
+    // screens
+    login('admin'); showUcPage(); ucTab('pricing');
+    t('the tab lists the rules with their filed range, filing and status', /DEBIT1/.test(el('ucRoot').textContent) && /SERFF-TX-2026-001/.test(el('ucRoot').textContent) && /In force/.test(el('ucRoot').textContent));
+    use(C); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record tab lists the adjustments with their rule, percent and status', /PA-1/.test(el('caseFileRoot').textContent) && /DEBIT1/.test(el('caseFileRoot').textContent) && /applied/.test(el('caseFileRoot').textContent));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

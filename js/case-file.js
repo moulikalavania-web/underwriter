@@ -285,7 +285,10 @@ function showCaseFilePage() {
   cfRender();
 }
 function cfTab(t) { CF.tab = t; cfRender(); }
-function cfExtraTabs() { return (typeof cmTabs === "function" ? cmTabs() : []).concat(typeof twCaseTabs === "function" ? twCaseTabs() : []); }
+/** Other modules add a tab to the Case File with cfRegisterTab(key, label, icon, html) where html(sub) returns the tab's markup. */
+var CF_REG = [];
+function cfRegisterTab(key, label, icon, html) { CF_REG = CF_REG.filter(t => t.key !== key); CF_REG.push({ key: key, label: label, icon: icon, html: html }); }
+function cfExtraTabs() { return (typeof cmTabs === "function" ? cmTabs() : []).concat(typeof twCaseTabs === "function" ? twCaseTabs() : []).concat(CF_REG.map(t => [t.key, t.label, t.icon])); }
 function cfRender() {
   const root = document.getElementById("caseFileRoot"), sub = cfSub(); if (!root || !sub) return;
   const tabs = CF_TABS.concat(cfExtraTabs());
@@ -293,7 +296,8 @@ function cfRender() {
   const counts = { notes: (sub.notes || []).length, emails: cfEmails(sub).length, telematics: (sub.telematics || []).length, forms: cfSelectedForms(sub).length };
   const bodies = { notes: cfNotesHtml, emails: cfEmailsHtml, telematics: cfTelematicsHtml, forms: cfFormsHtml };
   const money = typeof cmTabs === "function" && cmTabs().some(t => t[0] === CF.tab);
-  const body = bodies[CF.tab] ? bodies[CF.tab](sub) : money ? cmBody(CF.tab, sub) : (typeof twCaseBody === "function" ? twCaseBody(CF.tab, sub) : "");
+  const reg = CF_REG.find(t => t.key === CF.tab);
+  const body = bodies[CF.tab] ? bodies[CF.tab](sub) : money ? cmBody(CF.tab, sub) : reg ? reg.html(sub) : (typeof twCaseBody === "function" ? twCaseBody(CF.tab, sub) : "");
   root.innerHTML = `<div class="p1-head"><div><h2 class="p1-h" style="margin:0;">${escHtml(sub.insured)}</h2><div class="p1-id">${escHtml(sub.id)} · ${escHtml(sub.lobName || "")} · ${typeof caseStatus === "function" ? caseStatus(sub) : ""}</div></div><button class="btn btn-sm btn-outline" style="width:auto;" onclick="resumeActiveCaseWorkflow()"><i class="ph ph-arrow-left"></i> Back to workflow</button></div>
     <div class="mw-tabs">${tabs.map(t => `<button class="tab-btn${CF.tab === t[0] ? " active" : ""}" onclick="cfTab('${t[0]}')"><i class="ph ${t[2]}"></i> ${t[1]}${counts[t[0]] ? ` <span class="badge badge-light">${counts[t[0]]}</span>` : ""}</button>`).join("")}</div>${body}`;
 }

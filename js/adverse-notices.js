@@ -41,7 +41,11 @@ var NOTICE_STATE_RULES = {};    // e.g. { TX: { text: "…state-required wording
 
 var NOTICE_TYPES = {
   declination:  { label: "Declination notice" },
-  adverse_terms: { label: "Adverse-terms notice (higher premium, exclusion or restricted cover)" }
+  adverse_terms: { label: "Adverse-terms notice (higher premium, exclusion or restricted cover)" },
+  surcharge: { label: "Surcharge notice (a debit or surcharge was applied)" },
+  tier_change: { label: "Tier-change notice (placed in a less favourable rating tier)" },
+  nonrenewal: { label: "Non-renewal notice" },
+  cancellation: { label: "Cancellation notice" }
 };
 
 var NOTICE_REASON_CODES = [
@@ -72,7 +76,8 @@ function noticeValidate(sub, f, forIssue) {
   if (!f.type || !NOTICE_TYPES[f.type]) p.push("choose the notice type");
   if (!(f.reasons || []).length) p.push("select at least one reason");
   if ((f.reasons || []).includes("OTHER") && String(f.reasonDetail || "").trim().length < 5) p.push("explain the other reason");
-  if (f.type === "adverse_terms" && String(f.adverseTermsText || "").trim().length < 10) p.push("describe the adverse terms (premium change, exclusion or restriction)");
+  if (f.type && f.type !== "declination" && NOTICE_TYPES[f.type] && String(f.adverseTermsText || "").trim().length < 10) p.push(f.type === "adverse_terms" ? "describe the adverse terms (premium change, exclusion or restriction)" : "describe what the notice is about (at least 10 characters)");
+  if (typeof compNoticeProblems === "function") compNoticeProblems(sub, f).forEach(x => p.push(x));   // the state requirement's reason limit, and the record that triggers the notice (js/uw-compliance.js)
   if (!f.recipients || (!f.recipients.insured && !f.recipients.producer)) p.push("choose at least one recipient");
 
   if (noticeNeedsConsumerSection(f)) {
@@ -94,7 +99,8 @@ function noticeValidate(sub, f, forIssue) {
         if (String(r.scoreCreator || "").trim().length < 2) p.push(`${tag}: enter who created the score`);
         const fac = noticeFactorList(r.factors);
         if (fac.length < 1) p.push(`${tag}: list at least one key factor`);
-        if (fac.length > 4) p.push(`${tag}: list no more than four key factors`);
+        const facMax = typeof compFactorLimit === "function" ? compFactorLimit(sub) : 4;
+        if (fac.length > facMax) p.push(`${tag}: list no more than ${facMax === 4 ? "four" : facMax} key factors`);
       }
     });
   }
@@ -132,8 +138,10 @@ function noticeBuildBlocks(sub, f, ctx) {
   if (isDecl) {
     push("p", `We have reviewed your request for ${sub.lobName || "commercial insurance"} and we are unable to offer coverage at this time.`);
   } else {
-    push("p", `We can offer coverage only on terms that are less favorable than those you requested or than our standard terms.`);
-    push("h", "The terms we are able to offer");
+    const lead = { surcharge: "The premium we are able to offer includes a surcharge.", tier_change: "Your account has been placed in a less favorable rating tier.", nonrenewal: "We will not renew your policy.", cancellation: "We are cancelling your policy." }[f.type]
+      || "We can offer coverage only on terms that are less favorable than those you requested or than our standard terms.";
+    push("p", lead);
+    push("h", f.type === "nonrenewal" || f.type === "cancellation" ? "What this means for you" : "The terms we are able to offer");
     push("p", String(f.adverseTermsText || "").trim());
   }
 
@@ -479,6 +487,9 @@ function noticeIssue() {
   n.riskState = typeof deriveRiskState === "function" ? deriveRiskState(sub) : null;
   n.templateVersion = NOTICE_TEMPLATE_META.version;
   n.templateApproved = NOTICE_TEMPLATE_META.approved;
+  // the notice points at the decision it follows from (js/uw-records.js), so the decision, the outcome and the notice cannot disagree
+  if (typeof urLatestDecision === "function" && n.type === "declination") { const dd = urLatestDecision(sub, ["decline", "auto_decline"]); if (dd) n.decisionId = dd.id; }
+  if (typeof compNoticeIssued === "function") compNoticeIssued(sub, n);   // trigger, requirement, ranked reasons, due date, delivery per recipient
   const doc = noticeBuildBlocks(sub, n, { issuedAt: n.issuedAt });
   n.text = noticeBlocksToText(doc);
   n.html = noticeBlocksToHtml(doc);

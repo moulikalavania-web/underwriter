@@ -142,7 +142,7 @@
     t('a recommendation can be marked done and closes its task', twRecDone(A, s1.id, 'REC-1') && s1.recommendations[0].status === 'Done' && mwTask(s1.recommendations[0].taskId).status === 'done' && !twRecDone(A, s1.id, 'REC-1'));
     cfTab('audit');
     t('the Audit & loss control tab shows both, with the findings and the adjustment', /Premium audit/.test(el('caseFileRoot').innerHTML) && /Loss control survey/.test(el('caseFileRoot').innerHTML) && /Install ELDs/.test(el('caseFileRoot').innerHTML) && /additional \$1,200.46/.test(el('caseFileRoot').innerHTML) && /return \$500/.test(el('caseFileRoot').innerHTML));
-    t('the case file now has twelve tabs', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 12);
+    t('the case file now has thirteen tabs', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 13);
 
     // ---------- calculator
     var rp = tcReturn({ premium: '12000', start: '2026-01-01', end: '2027-01-01', cancel: '2026-07-02', method: 'prorata' });

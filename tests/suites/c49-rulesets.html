@@ -1,0 +1,178 @@
+<!-- Suite C49: underwriting rule sets. A rule set has a code, version, kind, source, period and where it applies; it is proposed by one person and put
+     in force by a different one; a version in force is never edited (a new version replaces it). Each rule runs at one stage (triage, quote, bind, endorsement, renewal)
+     and a figure that is not on the case does not fail it. An administration set can only tighten. Triage rules run on the new submission in Phase 1. Automatic decline
+     is off until a person turns it on with a reason, and then only rule sets that allow it record the decline. Each run keeps the figures it used, the product and the
+     rule set versions. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.decisionLog = []; s.currentStep = 6; s.completedSteps = [1,2,3,4,5];
+    ['pasSync', 'quoteIssued', 'authorityRef', 'lifecycleStatus', 'uwOverrides', 'ruleRuns', 'outcomes', 'transactionType', 'renewalOf', 'riskScoreOverridden'].forEach(function(k){ delete s[k]; });
+    s.assignedTo = 'senior_uw'; s.appetiteRules = []; s.exposureVal = 4000000; s.operationsProfile = { years_in_business: 2 }; s.riskStateSet = { state: 'TX' };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  var R1 = { stage: 'quote', field: 'limit', op: 'lte', value: '3000000', severity: 'knockout', outcomeOnFail: 'decline', message: 'The limit is above what we write.' };
+  function newSet(code, over){ var r = rsAddSet(Object.assign({ code: code, name: 'Set ' + code, kind: 'eligibility', source: 'uw_admin', effectiveFrom: '2020-01-01' }, over || {})); return r; }
+  function live(code, rules, over){
+    var r = newSet(code, over); if (!r.ok) throw new Error('set ' + code + ': ' + JSON.stringify(r));
+    rules.forEach(function(x, i){ var a = rsAddRule(r.set.id, Object.assign({ code: 'R' + (i + 1) }, x)); if (!a.ok) throw new Error('rule: ' + JSON.stringify(a)); });
+    login('admin'); rsSubmit(r.set.id); login('senior'); var ap = rsApprove(r.set.id); if (!ap.ok) throw new Error('approve: ' + JSON.stringify(ap)); login('admin');
+    return r.set;
+  }
+  try {
+    login('admin');
+    // ---------- registers start empty; the page and tab exist
+    t('no rule set is built in and automatic decline is off', RS.sets.length === 0 && RS.cfg.autoDecline === false);
+    showUcPage();
+    t('the UW Controls page opens with the Rule sets tab', el('ucPageView').style.display === 'block' && /Rule sets/.test(el('ucRoot').textContent) && /No rule set is recorded/.test(el('ucRoot').textContent));
+
+    // ---------- rights
+    login('junior'); var r0 = rsAddSet({ code: 'JR', name: 'Junior set', kind: 'eligibility', source: 'uw_admin', effectiveFrom: '2020-01-01' });
+    t('someone without edit rights on review rules cannot create a rule set', !r0.ok && r0.error === 'permission' && RS.sets.length === 0);
+    login('admin');
+
+    // ---------- validation
+    var bad = rsAddSet({ code: 'x', name: 'ab', kind: 'nope', source: 'x', effectiveFrom: 'soon' });
+    t('a set with a bad code, name, kind, source or date is refused with each reason', !bad.ok && bad.errors.length >= 5, bad.errors && bad.errors.join(' | '));
+    t('an administration set cannot raise warnings before referral above the engine limit', !rsAddSet({ code: 'WARNHI', name: 'Too lax', kind: 'guideline', source: 'uw_admin', effectiveFrom: '2020-01-01', warningsBeforeRefer: 5 }).ok);
+    var d = newSet('DRAFT1'); t('a valid draft is created', d.ok && d.set.status === 'draft' && d.set.version === 1);
+    t('a second set with the same code is refused (use a new version)', !newSet('DRAFT1').ok);
+    t('a rule needs a stage, figure, comparison, value, severity, outcome and message', !rsAddRule(d.set.id, {}).ok && rsAddRule(d.set.id, {}).errors.length >= 6);
+    t('a knockout must lead to a decline', !rsAddRule(d.set.id, Object.assign({}, R1, { outcomeOnFail: 'refer' })).ok);
+    t('an administration rule cannot be information only', !rsAddRule(d.set.id, Object.assign({}, R1, { severity: 'info', outcomeOnFail: 'warn' })).ok);
+    t('a number figure needs a number', !rsAddRule(d.set.id, Object.assign({}, R1, { value: 'many' })).ok);
+    t('a rule set with no rules cannot be sent for approval', !rsSubmit(d.set.id).ok);
+    t('a good rule is added to the draft', rsAddRule(d.set.id, R1).ok && d.set.rules.length === 1);
+    t('a rule code is unique in its set', !rsAddRule(d.set.id, Object.assign({}, R1, { code: 'R1' })).ok);
+
+    // ---------- proposed by one person, put in force by another
+    t('the proposer is not allowed to put it in force', rsSubmit(d.set.id).ok && d.set.status === 'pending' && rsApprove(d.set.id).error === 'self');
+    login('junior'); t('someone without the right cannot put it in force', rsApprove(d.set.id).error === 'permission'); login('senior');
+    var ap = rsApprove(d.set.id); t('a different person with the right puts it in force', ap.ok && d.set.status === 'active' && d.set.approvedBy !== d.set.submittedBy);
+    login('admin');
+    t('a set in force cannot be edited', rsAddRule(d.set.id, Object.assign({}, R1, { code: 'R2' })).error === 'locked');
+
+    // ---------- the rules apply, at their stage
+    var C = mk('SUB-C49-A'); use(C);
+    var q = uwEvaluateRules(C, 'quote'), tri = uwEvaluateRules(C, 'triage'), bi = uwEvaluateRules(C, 'bind');
+    t('a quote-stage rule runs at the quote stage and fails a limit over its value', q.results.length === 1 && q.results[0].result === 'fail' && q.knockoutCount === 1 && q.outcome === 'auto_declined', JSON.stringify(q.results));
+    t('and does not run at another stage', tri.results.length === 0 && bi.results.length === 0);
+    t('a result names the set and version and the figure it used', q.results[0].setCode === 'DRAFT1' && q.results[0].setVersion === 1 && q.results[0].val === 4000000);
+    C.exposureVal = 2500000; t('a limit within the value passes', uwEvaluateRules(C, 'quote').results[0].result === 'pass');
+    C.exposureVal = 0; var unk = uwEvaluateRules(C, 'quote');
+    t('a figure that is not on the case does not fail the rule, and the run counts it as untestable', unk.results[0].result === 'unknown' && unk.knockoutCount === 0 && unk.unknownCount === 1 && unk.outcome === 'proceed');
+    C.exposureVal = 4000000;
+
+    // ---------- scope and period
+    var S = live('STATEONLY', [Object.assign({}, R1, { stage: 'bind', code: 'R1' })], { state: ['FL'] });
+    t('a set for another state does not apply', uwEvaluateRules(C, 'bind').results.length === 0);
+    C.riskStateSet = { state: 'FL' }; t('and applies in its state', uwEvaluateRules(C, 'bind').results.length === 1);
+    C.riskStateSet = { state: 'TX' };
+    live('FUTURE', [Object.assign({}, R1, { stage: 'renewal', code: 'R1' })], { effectiveFrom: '2999-01-01' });
+    t('a set that has not started does not apply', rsEvaluate(mk('X', { renewalOf: 'POL-1' }), 'renewal').results.length === 0);
+    live('LOBONLY', [Object.assign({}, R1, { stage: 'renewal', code: 'R1' })], { lob: 'property' });
+    t('a set for another line does not apply', rsEvaluate(mk('Y'), 'renewal').results.length === 0);
+    live('PRODONLY', [Object.assign({}, R1, { stage: 'renewal', code: 'R1' })], { product: 'PRD-NOT-THIS' });
+    t('a set for another product does not apply', rsEvaluate(mk('Z'), 'renewal').results.length === 0);
+
+    // ---------- stages: endorsement and renewal
+    live('ENDO', [{ stage: 'endorsement', field: 'vehicles', op: 'lte', value: '1', severity: 'major', outcomeOnFail: 'refer', message: 'More than one vehicle on an endorsement goes to a senior.' }]);
+    var E = mk('SUB-C49-E', { transactionType: 'endorse' }); use(E);
+    t('a case that is an endorsement runs at the endorsement stage', uwStageFor(E) === 'endorsement' && uwEvaluateRules(E).stage === 'endorsement' && uwEvaluateRules(E).results.some(function(r){ return r.setCode === 'ENDO'; }));
+    live('RENEW', [{ stage: 'renewal', field: 'drivers', op: 'lte', value: '50', severity: 'minor', outcomeOnFail: 'warn', message: 'A large driver pool at renewal.' }]);
+    var N = mk('SUB-C49-N', { renewalOf: 'POL-1' }); use(N);
+    t('a renewal case runs at the renewal stage during review', uwStageFor(N) === 'renewal' && uwEvaluateRules(N).results.some(function(r){ return r.setCode === 'RENEW'; }));
+
+    // ---------- warnings before referral from the set
+    live('WARN1', [{ stage: 'quote', field: 'riskScore', op: 'lte', value: '0', severity: 'minor', outcomeOnFail: 'warn', message: 'Any risk score at all is a warning.' }], { warningsBeforeRefer: 1 });
+    var W = mk('SUB-C49-W'); W.exposureVal = 1000; use(W);
+    var wv = uwEvaluateRules(W, 'quote');
+    t('a set can lower the number of warnings that lead to a referral', wv.warningLimit === 1 && wv.warningCount === 1 && wv.outcome === 'refer', JSON.stringify([wv.warningLimit, wv.warningCount, wv.outcome]));
+
+    // ---------- tighten only
+    var base = { ruleId: 'BR-1', id: 'BR-1', factor: 'Vehicle age', name: 'Vehicle age', ruleType: 'Eligibility', val: '12', baseValue: 10, pass: false, canOverride: true };
+    var T = mk('SUB-C49-T', { appetiteRules: [base] }); use(T);
+    var tg = newSet('TIGHT');
+    t('a rule cannot be less strict than the carrier rule it names', !rsAddRule(tg.set.id, { stage: 'quote', field: 'drivers', op: 'lte', value: '5', severity: 'minor', outcomeOnFail: 'warn', message: 'Weaker than the carrier rule.', tightens: 'BR-1' }).ok);
+    t('and may be as strict or stricter', rsAddRule(tg.set.id, { stage: 'quote', field: 'drivers', op: 'lte', value: '5', severity: 'major', outcomeOnFail: 'refer', message: 'As strict as the carrier rule.', tightens: 'BR-1' }).ok);
+
+    // ---------- a new version replaces the old one
+    var v1 = rsFind(d.set.id);
+    var nv = rsNewVersion(v1.id);
+    t('a new version is a draft with the next number and fresh rule ids', nv.ok && nv.set.version === 2 && nv.set.status === 'draft' && nv.set.supersedes === v1.id && nv.set.rules[0].id !== v1.rules[0].id);
+    t('only one version of a code can be prepared at a time', rsNewVersion(v1.id).error === 'open');
+    nv.set.rules[0].value = '3500000'; nv.set.rules[0].message = 'Raised to 3.5 million.';
+    rsSubmit(nv.set.id); login('senior'); rsApprove(nv.set.id); login('admin');
+    t('putting version 2 in force retires version 1', nv.set.status === 'active' && v1.status === 'retired' && v1.supersededBy === nv.set.id);
+    C.exposureVal = 3200000; use(C);
+    var dr = uwEvaluateRules(C, 'quote').results.filter(function(r){ return r.setCode === 'DRAFT1'; });
+    t('the rules of version 2 apply, not version 1', dr.length === 1 && dr[0].setVersion === 2 && dr[0].result === 'pass');
+    C.exposureVal = 4000000;
+    t('retiring needs a reason', rsRetire(nv.set.id, 'x').error === 'reason');
+
+    // ---------- reproducible runs
+    window.ACTIVE_INSURANCE_PRODUCT = { productId: 'PRD-TEST', productName: 'Test product', version: '3' };
+    var run = uwRunRules(C, 'quote');
+    t('a run keeps the figures each rule was tested against', run.inputs && run.inputs.limit === 4000000);
+    t('a run keeps the product it ran on and the rule set versions used', run.productRef && run.productRef.id === 'PRD-TEST' && run.productRef.version === '3' && run.ruleSets.some(function(x){ return x.code === 'DRAFT1' && x.version === 2; }));
+    C.exposureVal = 5000000; var run2 = uwRunRules(C, 'quote');
+    t('a different figure makes a new run, not a copy of the old one', run2.runId !== run.runId && run2.inputs.limit === 5000000);
+    C.exposureVal = 4000000;
+    window.ACTIVE_INSURANCE_PRODUCT = null;
+
+    // ---------- the run card shows set results
+    use(C); renderRuleRun(C);
+    t('the rule evaluation card shows a failed set rule with its set and version', /DRAFT1 v2/.test(el('ruleRunContainer').textContent));
+
+    // ---------- automatic decline
+    var AD = live('AUTOD', [Object.assign({}, R1, { stage: 'bind', code: 'R1', value: '1000000' })], { autoDecline: true });
+    var AN = live('NOAUTO', [Object.assign({}, R1, { stage: 'bind', code: 'R1', value: '1000000' })], { autoDecline: false });
+    var D1 = mk('SUB-C49-D1', { currentStep: 12 }); use(D1);
+    var r1 = uwRunRules(D1, 'bind');
+    t('with automatic decline off, a knockout only recommends the decline', r1.outcome === 'auto_declined' && caseStatus(D1) !== 'Declined' && !(D1.outcomes || []).length);
+    t('turning it on needs a reason', rsSetAutoDecline(true, 'x').error === 'reason');
+    login('junior'); t('and the right', rsSetAutoDecline(true, 'the head approved it in writing').error === 'permission'); login('admin');
+    t('a person with the right can turn it on with a reason', rsSetAutoDecline(true, 'The Head of Underwriting approved it in writing on 2026-11-01.').ok && RS.cfg.autoDecline && /Head of Underwriting/.test(RS.cfg.reason));
+    var D2 = mk('SUB-C49-D2', { currentStep: 12 }); SUBMISSIONS_DATASET.push(D2); activeSubmissionId = D2.id;
+    var r2 = uwRunRules(D2, 'bind');
+    t('with it on, the knockout from a set that allows it records the decline', caseStatus(D2) === 'Declined' && D2.outcomes && D2.outcomes.length === 1 && D2.outcomes[0].type === 'auto_declined');
+    t('the outcome names the rule run and says the system decided', D2.outcomes[0].ruleRunId === r2.runId && /System/.test(D2.outcomes[0].decidedBy) && D2.declinedBy === 'System (automatic)');
+    t('the decision log and Decline Center show it', D2.decisionLog.some(function(x){ return x.decision === 'declined' && /System/.test(x.by) && /AUTOD/.test(x.notes); }) && DECLINE_LOG.some(function(x){ return x.subId === D2.id; }));
+    rsRetire(AD.id, 'no longer needed for the test');
+    var D3 = mk('SUB-C49-D3', { currentStep: 12 }); SUBMISSIONS_DATASET.push(D3); activeSubmissionId = D3.id; uwRunRules(D3, 'bind');
+    t('a knockout from a set that does not allow it is only recommended', caseStatus(D3) !== 'Declined' && !(D3.outcomes || []).length);
+
+    // ---------- triage rules run on the new submission (Phase 1)
+    live('TRIAGEY', [
+      { stage: 'triage', field: 'yearsInBusiness', op: 'gte', value: '3', severity: 'knockout', outcomeOnFail: 'decline', message: 'We need three years in business.' },
+      { stage: 'triage', field: 'vehicles', op: 'lte', value: '5', severity: 'major', outcomeOnFail: 'refer', message: 'More than five vehicles goes to a senior.' }
+    ]);
+    var P = mk('SUB-C49-P', { vehicles: [{}, {}, {}, {}, {}, {}] }); P.operationsProfile = { years_in_business: 2 }; P.lobName = 'Commercial Trucking';
+    var lines = rsTriageLines(P);
+    t('triage rules give lines in the shape Phase 1 uses', lines.length === 2 && lines.every(function(l){ return typeof l.ok === 'boolean' && l.text; }));
+    t('a triage knockout is a failing line; a triage refer is only a note', lines[0].ok === false && lines[1].ok === true && /senior underwriter/i.test(lines[1].text), JSON.stringify(lines));
+    var ap1 = p1CheckAppetite(P);
+    t("Phase 1's appetite check includes the triage rules and fails on the knockout", ap1.status === 'fail' && /three years in business/.test(ap1.summary));
+    P.operationsProfile = { years_in_business: 6 };
+    t('and passes when the knockout is cleared', p1CheckAppetite(P).status === 'pass');
+
+    // ---------- the tab
+    showUcPage(); rsToggle(nv.set.id);
+    t('the tab lists the sets with their versions and status', /DRAFT1/.test(el('ucRoot').textContent) && /In force/.test(el('ucRoot').textContent) && /Retired/.test(el('ucRoot').textContent));
+    login('junior'); ucRender();
+    t('someone without edit rights sees the register but no buttons to change it', /DRAFT1/.test(el('ucRoot').textContent) && !/New rule set/.test(el('ucRoot').textContent) && !/Put in force/.test(el('ucRoot').textContent));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

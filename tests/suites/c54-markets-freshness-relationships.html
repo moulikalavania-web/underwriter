@@ -1,0 +1,159 @@
+<!-- Suite C54: market placements, data freshness and coverage relationships. A submission can go to several markets, each with its status, response date, declines with a
+     governed reason and quotes with the market's own reference; quotes are compared, accepting one withdraws the other open placements, and an overdue placement is shown.
+     Freshness rules (attribute, most days old, stage, stale action) warn, open a refresh request or block the quote or bind, and a block can be waived by an approver. Coverage
+     relationships (requires, allows, excludes, defaults on, constrains) are checked against the case's coverage rows and a blocking failure stops the quote. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.channelType = 'broker';
+    ['pasSync', 'quoteIssued', 'placements', 'freshnessWaivers', 'refreshRequests', 'dataObservations', 'enrichmentResponses', 'renewalOf', 'lifecycleStatus', 'losses'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 11; s.riskStateSet = { state: 'TX' }; s.assignedTo = 'senior_uw';
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function day(n){ return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); }
+  function liveFR(code, over){ login('admin'); var r = frAdd(Object.assign({ code: code, attribute: 'loss_run', maxAgeDays: 90, refreshAtStage: 'quote', staleAction: 'warn', effectiveFrom: '2020-01-01' }, over || {})); if (!r.ok) throw new Error(JSON.stringify(r)); frAct(r.rule.id, 'submit'); login('senior'); frAct(r.rule.id, 'approve'); login('admin'); return r.rule; }
+  function liveCR(code, over){ login('admin'); var r = crAdd(Object.assign({ code: code, source: 'Physical Damage', relation: 'requires', target: 'Liability', severity: 'block', message: 'Physical damage needs liability.', effectiveFrom: '2020-01-01' }, over || {})); if (!r.ok) throw new Error(JSON.stringify(r)); crAct(r.rule.id, 'submit'); login('senior'); crAct(r.rule.id, 'approve'); login('admin'); return r.rule; }
+  try {
+    // ================= MARKETS
+    login('senior_uw'); var M = mk('SUB-C54-M'); use(M);
+    t('a submission starts with no placement', plList(M).length === 0);
+    login('admin'); t('adding a market needs the right to edit case data', plAdd(M, { marketName: 'Carrier A', marketKind: 'carrier' }).error === 'permission'); login('senior_uw');
+    t('a market needs a name and a kind', plAdd(M, { marketName: 'x', marketKind: 'nope' }).errors.length === 2);
+    var a = plAdd(M, { marketName: 'Carrier A', marketKind: 'carrier' }).placement, b = plAdd(M, { marketName: 'MGA B', marketKind: 'mga', programRef: 'PRG-7' }).placement, c = plAdd(M, { marketName: 'Wholesaler C', marketKind: 'wholesaler' }).placement;
+    t('markets are added as drafts, each with its own id', a.id === 'PL-1' && b.id === 'PL-2' && c.id === 'PL-3' && a.status === 'draft');
+    t('the same market cannot be open twice', plAdd(M, { marketName: 'carrier a', marketKind: 'carrier' }).errors.some(function(x){ return /already has a placement/.test(x); }));
+    t('sending needs a response date that is not before the day it was sent', plSend(M, a.id, day(-1)).error === 'due' && plSend(M, a.id, 'soon').error === 'due');
+    t('a placement is sent with its response date', plSend(M, a.id, day(5)).ok && a.status === 'sent' && a.responseDueAt === day(5) && a.sentAt === day(0));
+    plSend(M, b.id, day(5)); plSend(M, c.id, day(-0));
+    t('a draft cannot be sent twice', plSend(M, a.id, day(7)).error === 'state');
+    t('a quote needs a reference, how it arrived, a premium and a validity date', plRecordQuote(M, a.id, {}).errors.length >= 4);
+    t('a draft or declined placement cannot take a quote', plRecordQuote(M, 'PL-9', { reference: 'Q-1', via: 'email', premium: 1, validUntil: day(3) }).error === 'state');
+    var qa = plRecordQuote(M, a.id, { reference: 'CA-1001', via: 'api', premium: 52000, feesTaxes: 1500, currency: 'USD', validUntil: day(20), summary: '1M CSL' });
+    t('a market quote is kept with its own reference, channel and validity, and the placement becomes quoted', qa.ok && a.status === 'quoted' && qa.quote.reference === 'CA-1001' && qa.quote.status === 'received');
+    t('the same reference is not recorded twice', plRecordQuote(M, a.id, { reference: 'CA-1001', via: 'api', premium: 1, validUntil: day(20) }).error === 'duplicate');
+    var qb = plRecordQuote(M, b.id, { reference: 'MB-77', via: 'acord_xml', premium: 48000, feesTaxes: 6000, currency: 'USD', validUntil: day(15) });
+    t('a decline needs a reason from the list and what the market said', plDecline(M, c.id, 'NOPE', 'The market says no capacity.').error === 'reason_code' && plDecline(M, c.id, 'MARKET_CAPACITY', 'no').error === 'reason');
+    t('a market that declines keeps its reason', plDecline(M, c.id, 'MARKET_CAPACITY', 'The market has no capacity for this class this year.').ok && c.status === 'declined' && c.declinedReasonCode === 'MARKET_CAPACITY');
+    t('the governed list includes the market capacity reason and the notice reasons', plReasons().some(function(r){ return r.code === 'MARKET_CAPACITY'; }) && plReasons().some(function(r){ return r.code === 'APPETITE'; }));
+    var cmp = plCompare(M);
+    t('quotes are compared by total, lowest first (premium plus fees and taxes)', cmp.length === 2 && cmp[0].market === 'Carrier A' && cmp[0].total === 53500 && cmp[1].total === 54000, JSON.stringify(cmp.map(function(r){ return r.total; })));
+    t('a declined placement has no quote in the comparison', !cmp.some(function(r){ return r.market === 'Wholesaler C'; }));
+    t('presenting a quote to the insured is recorded', plSetQuote(M, a.id, qa.quote.id, 'presented').ok && qa.quote.status === 'presented');
+    t('an accepted quote cannot be changed back', (function(){ var d = mk('SUB-C54-D'); use(d); var p = plAdd(d, { marketName: 'Zed Carrier', marketKind: 'carrier' }).placement; plSend(d, p.id, day(3)); var q = plRecordQuote(d, p.id, { reference: 'Z-1', via: 'email', premium: 10, validUntil: day(9) }).quote; plAccept(d, p.id, q.id); var r = plSetQuote(d, p.id, q.id, 'expired'); use(M); return r.error === 'state'; })());
+    // accept
+    var late = mk('SUB-C54-X'); use(late); var lp = plAdd(late, { marketName: 'Old', marketKind: 'carrier' }).placement; plSend(late, lp.id, day(3)); var lq = plRecordQuote(late, lp.id, { reference: 'OLD-1', via: 'email', premium: 5, validUntil: day(-2) });
+    t('a quote past its validity cannot be accepted', plAccept(late, lp.id, lq.quote.id).error === 'expired'); use(M);
+    var acc = plAccept(M, b.id, qb.quote.id);
+    t('accepting a quote marks that placement accepted', acc.ok && b.status === 'accepted' && qb.quote.status === 'accepted' && !!b.acceptedBy);
+    t('the other open placements are withdrawn with the reason', a.status === 'withdrawn' && /Another market's quote was accepted \(PL-2\)/.test(a.withdrawnReason) && c.status === 'declined');
+    t('only one quote can be accepted on a submission', plAccept(M, a.id, qa.quote.id).error === 'state');
+    t('the log has each step', ['placement_added', 'placement_sent', 'placement_quote_recorded', 'placement_declined', 'placement_accepted'].every(function(k){ return M.decisionLog.some(function(x){ return x.decision === k; }) && !!AUDIT_ACTION_META[k]; }));
+    // overdue
+    var O = mk('SUB-C54-O'); use(O); var op = plAdd(O, { marketName: 'Slow Carrier', marketKind: 'carrier' }).placement; plSend(O, op.id, day(0), day(-10)); op.responseDueAt = day(-3);
+    t('a placement waiting past its response date is overdue', plOverdue(op) && !plOverdue(Object.assign({}, op, { responseDueAt: day(3) })));
+    t('it cannot be marked no response before it is overdue, and can after', (function(){ var p2 = plAdd(O, { marketName: 'Fresh Carrier', marketKind: 'carrier' }).placement; plSend(O, p2.id, day(4)); return plMarkNoResponse(O, p2.id).error === 'not_overdue'; })() && plMarkNoResponse(O, op.id).ok && op.status === 'no_response');
+    O.pasSync = { status: 'success', policyNumber: 'P-1' }; t('nothing is added once the policy is bound', plAdd(O, { marketName: 'Late', marketKind: 'carrier' }).error === 'bound');
+    use(M); login('admin'); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record shows the placements and the comparison', /Market placements/.test(el('caseFileRoot').textContent) && /MGA B/.test(el('caseFileRoot').textContent) && /Quotes side by side/.test(el('caseFileRoot').textContent) && /Accepted/.test(el('caseFileRoot').textContent));
+
+    // ================= FRESHNESS
+    login('admin');
+    t('no freshness rule or relationship is built in, and the tabs exist', FR.rules.length === 0 && FR.rels.length === 0 && UC_TABS.some(function(x){ return x.key === 'freshness'; }) && UC_TABS.some(function(x){ return x.key === 'relationships'; }));
+    var bad = frAdd({ code: 'x', attribute: 'nonsense', maxAgeDays: 0, refreshAtStage: 'x', staleAction: 'x', effectiveFrom: '' });
+    t('a rule needs a code, an attribute, a number of days, a stage, an action and a date', !bad.ok && bad.errors.length >= 5, bad.errors && bad.errors.join(' | '));
+    t('attributes are loss_run, obs:<field> or enrichment:<code>', frAttrOk('loss_run') && frAttrOk('obs:dot') && frAttrOk('enrichment:FMCSA') && !frAttrOk('mvr') && !frAttrOk('obs:'));
+    var warn = liveFR('LR-WARN', { attribute: 'loss_run', maxAgeDays: 90, refreshAtStage: 'quote', staleAction: 'warn' });
+    t('a rule is proposed by one person and put in force by another', warn.status === 'active' && warn.approvedBy !== warn.submittedBy);
+    var F = mk('SUB-C54-F', { losses: [{ year: '2025-2026', desc: 'Claim', incurred: '$10,000', status: 'Closed' }, { desc: 'Loss run valued as of 01/15/2026 by the prior carrier.', year: '2024-2025', incurred: '$5,000', status: 'Closed' }] }); use(F);
+    var asof = frAsOf(F, 'loss_run');
+    t('the loss run valuation date is read from the case', /^\d{4}-\d{2}-\d{2}$/.test(String(asof)) || asof === null, String(asof));
+    // use an observation for a controlled date
+    F.dataObservations = [{ id: 'OBS-1', path: 'dot', value: '1234567', status: 'current', asOf: day(-200) }];
+    var odot = liveFR('DOT-AGE', { attribute: 'obs:dot', maxAgeDays: 180, refreshAtStage: 'quote', staleAction: 'block' });
+    var rows = frCheck(F, 'quote').filter(function(x){ return x.rule.code === 'DOT-AGE'; });
+    t('a value older than the rule allows is stale, with its age', rows.length === 1 && rows[0].state === 'stale' && rows[0].ageDays === 200 && rows[0].asOf === day(-200));
+    t('a rule is checked only at its own stage', frCheck(F, 'bind').length === 0 && frCheck(F, 'renewal').length === 0);
+    F.dataObservations[0].asOf = day(-10);
+    t('a recent value is fresh', frCheck(F, 'quote').filter(function(x){ return x.rule.code === 'DOT-AGE'; })[0].state === 'fresh');
+    t('an attribute with no date on the case is unknown, never fresh', frCheck(mk('SUB-C54-NO'), 'quote').filter(function(x){ return x.rule.code === 'DOT-AGE'; })[0].state === 'unknown');
+    // warn
+    F.dataObservations[0].asOf = day(-200); toasts.length = 0;
+    var gate = frGate(F, 'quote');
+    t('a stale figure with a block action blocks and says why', !gate.ok && gate.blockers.length === 1 && /obs:dot is 200 days old \(at most 180\)/.test(gate.blockers[0]));
+    // the guard
+    login('senior_uw'); var guard = frGuard('quote'); toasts.length = 0;
+    t('the quote guard refuses and logs it', guard([]) === false && /Quote blocked \(stale data\)/.test(toasts.join(' ')) && F.decisionLog.some(function(x){ return x.decision === 'freshness_blocked'; }));
+    t('the guards are registered for the quote and the bind', listGuards('issueQuote').some(function(g){ return /data freshness/.test(g.name || g); }) && listGuards('bind').some(function(g){ return /data freshness/.test(g.name || g); }));
+    login('senior_uw'); t('a waiver needs the right to override authority', frWaive(F, odot.id, 'The broker sent the registry printout today.').error === 'permission');
+    login('senior'); t('and a reason', frWaive(F, odot.id, 'x').error === 'reason');
+    t('an approver waives it for that figure, with a reason', frWaive(F, odot.id, 'The broker confirmed the USDOT number by phone today; the printout follows.').ok && F.freshnessWaivers.length === 1 && F.decisionLog.some(function(x){ return x.decision === 'freshness_waived'; }));
+    t('the waiver lets the quote go on', frGuard('quote')([]) === true);
+    F.dataObservations[0].asOf = day(-300);
+    t('a waiver covers only the figure it was given for (a different as-of date is stale again)', !frGate(F, 'quote').ok);
+    // refresh action
+    var rf = liveFR('ENR-REFRESH', { attribute: 'enrichment:FMCSA', maxAgeDays: 30, refreshAtStage: 'bind', staleAction: 'refresh' });
+    F.enrichmentResponses = [{ id: 'RSP-1', productCode: 'FMCSA', receivedAt: day(-60) + ' 10:00' }];
+    var g2 = frGate(F, 'bind');
+    t('a stale figure with a refresh action opens a request and does not block', g2.ok && g2.opened.length === 1 && F.refreshRequests[0].status === 'open' && F.refreshRequests[0].attribute === 'enrichment:FMCSA');
+    t('asking again does not open a second request', frGate(F, 'bind').opened.length === 0 && F.refreshRequests.length === 1);
+    login('senior_uw');
+    t('a request cannot be closed while the figure is still stale', frCloseRefresh(F, 'RF-1', '').error === 'still_stale');
+    F.enrichmentResponses.push({ id: 'RSP-2', productCode: 'FMCSA', receivedAt: day(-2) + ' 09:00' });
+    t('once a current figure is on the case, the request is closed', frCloseRefresh(F, 'RF-1', 'New response received.').ok && F.refreshRequests[0].status === 'closed' && F.decisionLog.some(function(x){ return x.decision === 'freshness_refreshed'; }));
+    // renewal stage
+    liveFR('REN-OBS', { attribute: 'obs:address', maxAgeDays: 365, refreshAtStage: 'renewal', staleAction: 'warn' });
+    var RN = mk('SUB-C54-RN', { renewalOf: 'POL-1', dataObservations: [{ id: 'OBS-9', path: 'address', value: 'x', status: 'current', asOf: day(-500) }] });
+    t('a renewal-stage rule is checked on a renewal case at the quote guard', frCheck(RN, 'renewal')[0].state === 'stale');
+    t('a rule for another line does not apply', (function(){ liveFR('PROPONLY', { attribute: 'loss_run', maxAgeDays: 1, refreshAtStage: 'bind', staleAction: 'block', lob: 'property' }); return frCheck(F, 'bind').filter(function(x){ return x.rule.code === 'PROPONLY'; }).length === 0; })());
+
+    // ================= COVERAGE RELATIONSHIPS
+    var badr = crAdd({ code: 'x', source: 'a', relation: 'nope', target: 'a', severity: 'x', message: 'x', effectiveFrom: '' });
+    t('a relationship needs both coverages, a kind, a severity, a message and a date', !badr.ok && badr.errors.length >= 5, badr.errors && badr.errors.join(' | '));
+    t('a coverage cannot be related to itself and a constraint needs its kind', crAdd({ code: 'SELF', source: 'Cargo', relation: 'requires', target: 'cargo', severity: 'warn', message: 'self test', effectiveFrom: '2020-01-01' }).errors.some(function(x){ return /itself/.test(x); }) && crAdd({ code: 'CON', source: 'A1', relation: 'constrains', target: 'B1', severity: 'warn', message: 'constraint', effectiveFrom: '2020-01-01' }).errors.some(function(x){ return /constrained/.test(x); }));
+    var C = mk('SUB-C54-C', { coverageRows: [{ line: 'Commercial Auto Liability (Combined Single Limit)', limit: '$1,000,000 CSL', ded: '$0', prem: '$30,000' }, { line: 'Auto Physical Damage (Comp & Collision)', limit: '$900,000 Stated Value', ded: '$2,500', prem: '$9,000' }, { line: 'Motor Truck Cargo Legal Liability', limit: '$250,000 Per Occurrence', ded: '$1,000', prem: '$2,000' }, { line: 'Uninsured Motorist', limit: '$1,500,000', ded: '$0', prem: '$500' }] }); use(C);
+    liveCR('PD-REQ', { source: 'Physical Damage', relation: 'requires', target: 'Liability' });
+    liveCR('CARGO-EXC', { source: 'Cargo', relation: 'excludes', target: 'Reefer Breakdown', severity: 'warn', message: 'Cargo and reefer breakdown cannot both be written.' });
+    liveCR('UM-LIM', { source: 'Uninsured Motorist', relation: 'constrains', target: 'Liability', constraint: 'limit_lte', severity: 'block', message: 'The UM/UIM limit cannot exceed the liability limit.' });
+    liveCR('TOW-DEF', { source: 'Physical Damage', relation: 'defaults_on', target: 'Towing', severity: 'warn', message: 'Towing comes with physical damage.' });
+    liveCR('CARGO-ALLOW', { source: 'Cargo', relation: 'allows', target: 'Liability', severity: 'warn', message: 'Permitted pairing.' });
+    var rr = crCheck(C), by = function(code){ return rr.filter(function(x){ return x.rule.code === code; })[0]; };
+    t('a requirement passes when the other coverage is on the case', by('PD-REQ').result === 'pass');
+    t('an exclusion that does not apply because the source is absent or the target is, passes', by('CARGO-EXC').result === 'pass');
+    t('a constraint compares the limits: UM 1.5M above liability 1M fails', by('UM-LIM').result === 'fail' && /1500000 against 1000000/.test(by('UM-LIM').detail));
+    t('a default that is missing fails as a warning with the coverage named', by('TOW-DEF').result === 'fail' && /Towing/.test(by('TOW-DEF').detail));
+    t('an allows rule passes and says the pairing is permitted', by('CARGO-ALLOW').result === 'pass' && /permitted/.test(by('CARGO-ALLOW').detail));
+    C.coverageRows[3].limit = '$900,000';
+    t('a limit within the other passes', crCheck(C).filter(function(x){ return x.rule.code === 'UM-LIM'; })[0].result === 'pass');
+    C.coverageRows[3].limit = '$1,500,000';
+    t('a rule whose source coverage is not on the case is not applicable', crCheck(mk('SUB-C54-EMPTY', { coverageRows: [] })).every(function(x){ return x.result === 'not_applicable'; }));
+    t('a missing figure is unknown, not a pass', (function(){ var u = mk('SUB-C54-U', { coverageRows: [{ line: 'Uninsured Motorist', limit: 'Included', ded: '', prem: '$1' }, { line: 'Liability', limit: '$1,000,000 CSL', ded: '', prem: '$1' }] }); return crCheck(u).filter(function(x){ return x.rule.code === 'UM-LIM'; })[0].result === 'unknown'; })());
+    // exclusion fails
+    var E = mk('SUB-C54-E', { coverageRows: [{ line: 'Motor Truck Cargo', limit: '$100,000', ded: '$1,000', prem: '$1' }, { line: 'Reefer Breakdown', limit: '$50,000', ded: '$500', prem: '$1' }, { line: 'Liability', limit: '$1,000,000', ded: '', prem: '$1' }] });
+    t('an exclusion fails when both are on the case', crCheck(E).filter(function(x){ return x.rule.code === 'CARGO-EXC'; })[0].result === 'fail');
+    // guard
+    use(C); login('senior_uw'); toasts.length = 0;
+    var guardOk = crGuard();
+    t('a blocking failure stops the quote, logs it, and a warning is shown', guardOk === false && C.decisionLog.some(function(x){ return x.decision === 'coverage_relationship_blocked' && /UM-LIM/.test(x.notes); }) && /Quote blocked \(coverage relationship\)/.test(toasts.join(' ')));
+    t('the guard is registered for the quote', listGuards('issueQuote').some(function(g){ return /coverage relationships/.test(g.name || g); }));
+    C.coverageRows[3].limit = '$800,000'; toasts.length = 0;
+    t('with the limit fixed only warnings remain and the quote goes on', crGuard() === true && /Towing comes with physical damage/.test(toasts.join(' ')));
+    t('a rule for another state does not apply', (function(){ liveCR('FL-ONLY', { source: 'Physical Damage', relation: 'requires', target: 'Hired Auto', state: ['FL'] }); return crCheck(C).filter(function(x){ return x.rule.code === 'FL-ONLY'; }).length === 0; })());
+    login('admin'); use(C); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record shows the freshness rules, refresh requests and relationships', /Data freshness and coverage relationships/.test(el('caseFileRoot').textContent) && /PD-REQ/.test(el('caseFileRoot').textContent) && /DOT-AGE/.test(el('caseFileRoot').textContent));
+    showUcPage(); ucTab('freshness'); t('the freshness tab lists the rules', /LR-WARN/.test(el('ucRoot').textContent) && /obs:dot/.test(el('ucRoot').textContent));
+    ucTab('relationships'); t('the relationships tab lists the rules', /UM-LIM/.test(el('ucRoot').textContent) && /is limited by/.test(el('ucRoot').textContent));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n').slice(1, 4).join(' <- ')); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

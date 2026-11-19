@@ -286,6 +286,9 @@ function renderWorkerDashboardHtml() {
 
 window.renderRoleDashboard = renderRoleDashboard;
 
+var currentReadyFilter = "";
+/** Filters the queue on whether the file is ready for the underwriter ("ready", "notready" or all). */
+function setReadyFilter(v) { currentReadyFilter = v; renderSubmissionsTable(); }
 function renderSubmissionsTable() {
   const tbody = document.getElementById("submissionsTableBody");
   if (!tbody) return;
@@ -335,7 +338,7 @@ function renderSubmissionsTable() {
     const term = currentSearchTerm.toLowerCase();
     // the search box looks in the same fields as the header search (insured, FEIN, DOT, MC, VIN, driver, policy, quote, broker...)
     const matchSearch = term === "" || (typeof fdQueueSearch === "function" ? fdQueueSearch(sub, term) : [sub.insured, sub.id, sub.fein, sub.broker, sub.lobName].some(v => String(v || "").toLowerCase().includes(term)));
-    const matchFilters = typeof fdMatchQueue === "function" ? fdMatchQueue(sub) : true;
+    const matchFilters = (typeof fdMatchQueue === "function" ? fdMatchQueue(sub) : true) && (!currentReadyFilter || (typeof readinessOf === "function" && (currentReadyFilter === "ready") === !!readinessOf(sub).readyForUw));
 
     return matchChannel && matchSearch && matchFilters;
   });
@@ -484,6 +487,7 @@ function renderSubmissionsTable() {
         </td>
         <td onclick="event.stopPropagation();">
           <span class="badge ${sub.statusBadge || 'badge-light'}">${sub.statusText || '—'}</span>
+          ${typeof readinessOf === "function" ? (function () { const rd = readinessOf(sub); return `<div class="qi-sub"><span class="badge ${rd.readyForUw ? "badge-success" : "badge-warning"}" title="${rd.mandatoryMissingCount} required item(s) missing or invalid">${rd.readyForUw ? "Ready for UW" : "Not ready"} · ${rd.percent}%</span></div>`; })() : ""}
           <button class="btn btn-xs ${sub.quoteIssued ? 'btn-outline' : 'btn-outline disabled'}" style="margin-top:4px;"
             ${sub.quoteIssued ? `onclick="viewIssuedQuote('${sub.id}')"` : "disabled"}
             title="${sub.quoteIssued ? 'View the issued quote' : 'Quote has not been issued to the broker/customer yet'}">

@@ -620,7 +620,7 @@ function renderDiscretionaryPricingCard(sub) {
               <td><strong>2. Underwriter Credit / Debit</strong><br><span class="text-xs text-muted">${hasApplied ? (dp.reason || '—') : 'Not yet applied'}</span></td>
               <td class="font-mono text-right">
                 ${hasApplied
-                  ? `<strong style="color:${dp.adjustmentType === 'credit' ? 'var(--color-success)' : 'var(--color-danger)'};">${dp.adjustmentType === 'credit' ? '−' : '+'}${dp.adjustmentPercent}%</strong>`
+                  ? `<strong style="color:${dp.adjustmentType === 'credit' ? 'var(--color-success)' : 'var(--color-danger)'};">${dp.adjustmentType === 'credit' ? '−' : '+'}${Math.round(dp.adjustmentPercent * 100) / 100}%</strong>`
                   : `<span class="text-muted">—</span>`}
               </td>
             </tr>

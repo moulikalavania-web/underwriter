@@ -1,0 +1,107 @@
+<!-- Suite C55: structured loss history (per prior carrier and period, claims, metrics with a calculation version), scores per vehicle, driver, location or policy (source, version,
+     provider response), and third-party records as rows (type-checked attributes, unique source key, supersede not edit). Rule sets can test the loss ratio and the out-of-service rate. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking';
+    ['pasSync', 'lossHistories', 'lossMetrics', 'objectScores', 'externalRecords', 'enrichmentResponses'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 6; s.riskStateSet = { state: 'TX' };
+    s.vehicles = [{ vin: '1HGBH41JXMN109186', lineageKey: 'VEH-1' }, { vin: '2T1BURHE0JC034461', lineageKey: 'VEH-2' }]; s.drivers = [{ licenseNumber: 'TX-123456', lineageKey: 'DRV-1' }];
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(s){ SUBMISSIONS_DATASET.length = 0; SUBMISSIONS_DATASET.push(s); activeSubmissionId = s.id; }
+  function day(n){ return new Date(Date.now() + n * 86400000).toISOString().slice(0, 10); }
+  try {
+    login('senior_uw'); var S = mk('SUB-C55-S'); use(S);
+
+    // ================= LOSS HISTORY
+    login('admin'); t('adding a period needs the right to edit case data', lhAdd(S, { priorCarrier: 'Prior Mutual', periodFrom: '2023-01-01', periodTo: '2024-01-01', valuationDate: day(-30) }).error === 'permission'); login('senior_uw');
+    t('a period needs a carrier, an ordered period and a valuation date that is not in the future', lhAdd(S, {}).errors.length >= 2 && lhAdd(S, { priorCarrier: 'P', periodFrom: '2024-01-01', periodTo: '2023-01-01', valuationDate: '2999-01-01' }).errors.length >= 2);
+    var h1 = lhAdd(S, { priorCarrier: 'Prior Mutual', periodFrom: '2023-01-01', periodTo: '2024-01-01', valuationDate: day(-30), earnedPremium: 100000, sourceDocument: 'Loss_Runs_2023.pdf' }).history;
+    var h2 = lhAdd(S, { priorCarrier: 'Prior Mutual', periodFrom: '2024-01-01', periodTo: '2025-01-01', valuationDate: day(-30), earnedPremium: 120000 }).history;
+    var h3 = lhAdd(S, { priorCarrier: 'Older Insurance', periodFrom: '2022-01-01', periodTo: '2023-01-01', valuationDate: day(-30) }).history;
+    t('periods are kept per prior carrier with their valuation date and source document', h1.id === 'LH-1' && h1.priorCarrier === 'Prior Mutual' && h1.sourceDocument === 'Loss_Runs_2023.pdf' && h2.id === 'LH-2');
+    t('the same carrier, period and line is not entered twice', lhAdd(S, { priorCarrier: 'prior mutual', periodFrom: '2023-01-01', periodTo: '2024-01-01', valuationDate: day(-30) }).error === 'duplicate');
+    t('a claim needs a number, a loss date inside the period, a status and an amount', lhAddClaim(S, h1.id, {}).errors.length >= 3 && lhAddClaim(S, h1.id, { claimNo: 'C-1', lossDate: '2020-05-05', status: 'closed', paid: 10 }).errors.some(function(x){ return /inside the period/.test(x); }));
+    t('a closed claim carries no reserve', lhAddClaim(S, h1.id, { claimNo: 'C-1', lossDate: '2023-03-01', status: 'closed', paid: 20000, reserve: 5000, cause: 'Collision' }).claim.reserve === 0);
+    var big = lhAddClaim(S, h1.id, { claimNo: 'C-2', lossDate: '2023-08-01', status: 'open', paid: 60000, reserve: 80000, cause: 'Rollover' }).claim;
+    t('incurred is paid plus reserve and a large loss is flagged', big.incurred === 140000 && big.large === true && h1.claims[0].large === false);
+    t('a claim number is unique within the period', lhAddClaim(S, h1.id, { claimNo: 'C-2', lossDate: '2023-08-01', status: 'closed', paid: 1 }).error === 'duplicate');
+    lhAddClaim(S, h2.id, { claimNo: 'D-1', lossDate: '2024-04-01', status: 'closed', paid: 10000 }); lhAddClaim(S, h2.id, { claimNo: 'D-2', lossDate: '2024-06-01', status: 'closed', paid: 12000 }); lhAddClaim(S, h2.id, { claimNo: 'D-3', lossDate: '2024-09-01', status: 'closed', paid: 3000 });
+    var m = lhCalc(S);
+    t('metrics carry the calculation version and the date', m.calculationVersion === LM_VERSION && !!m.calculatedAt && S.lossMetrics === m);
+    var p1 = m.periods.filter(function(p){ return p.historyId === 'LH-1'; })[0], p2 = m.periods.filter(function(p){ return p.historyId === 'LH-2'; })[0], p3 = m.periods.filter(function(p){ return p.historyId === 'LH-3'; })[0];
+    t('per period: claims, open, large, paid, reserve and incurred', p1.claims === 2 && p1.open === 1 && p1.large === 1 && p1.paid === 80000 && p1.reserve === 80000 && p1.incurred === 160000);
+    t('loss ratio is incurred over earned premium; none when the premium is not known', p1.lossRatio === 1.6 && p2.lossRatio === 0.2083 && p3.lossRatio === null);
+    t('severity is incurred per claim', p1.severity === 80000 && p2.severity === 8333);
+    t('frequency is claims a year and the trend compares the last two periods', p1.frequency === 2 && p2.frequency === 3 && m.trend === 'rising', m.trend);
+    t('across periods: totals, a loss ratio over the periods that have premium, and an average frequency', m.claims === 5 && m.open === 1 && m.large === 1 && m.lossRatio === Math.round((160000 + 25000) / 220000 * 10000) / 10000 && m.frequency === Math.round((2 + 3 + 0) / 3 * 100) / 100, JSON.stringify([m.lossRatio, m.frequency]));
+    t('adding a claim recalculates the metrics', (function(){ lhAddClaim(S, h3.id, { claimNo: 'E-1', lossDate: '2022-05-01', status: 'closed', paid: 500 }); return S.lossMetrics.claims === 6; })());
+
+    // ================= SCORES PER OBJECT
+    var o1 = osRecord(S, { objectType: 'driver', objectRef: 'DRV-1', scoreType: 'mvr', score: 72, source: 'provider', modelVersion: 'v4', enrichmentResponseId: 'RSP-1' });
+    t('a provider score needs a response that is recorded on the case', !o1.ok && o1.errors.some(function(x){ return /provider response is not recorded/.test(x); }));
+    S.enrichmentResponses = [{ id: 'RSP-1', productCode: 'MVR', receivedAt: day(-3) + ' 10:00' }];
+    t('a provider score needs its version', osRecord(S, { objectType: 'driver', objectRef: 'DRV-1', scoreType: 'mvr', score: 72, source: 'provider', enrichmentResponseId: 'RSP-1' }).errors.some(function(x){ return /needs its version/.test(x); }));
+    var s1 = osRecord(S, { objectType: 'driver', objectRef: 'DRV-1', scoreType: 'mvr', score: 72, source: 'provider', modelVersion: 'v4', enrichmentResponseId: 'RSP-1' });
+    t('a provider score is kept with its type, source, version, response, time and who recorded it', s1.ok && s1.score.score === 72 && s1.score.modelVersion === 'v4' && s1.score.enrichmentResponseId === 'RSP-1' && !!s1.score.scoredAt && !!s1.score.scoredBy);
+    t('an object that is not on the case is refused', osRecord(S, { objectType: 'vehicle', objectRef: 'VEH-9', scoreType: 'age', score: 10, source: 'manual' }).errors.some(function(x){ return /not on the case/.test(x); }));
+    t('an object can be named by key, VIN, licence number or position', osRecord(S, { objectType: 'vehicle', objectRef: '1HGBH41JXMN109186', scoreType: 'age', score: 30, source: 'rule', modelVersion: '' }).ok === true && osRecord(S, { objectType: 'vehicle', objectRef: '#2', scoreType: 'age', score: 65, source: 'manual' }).ok && osRecord(S, { objectType: 'driver', objectRef: 'TX-123456', scoreType: 'experience', score: 40, source: 'manual' }).ok);
+    t('a score is from 0 to 100 and has a kind and a source', osRecord(S, { objectType: 'vehicle', objectRef: 'VEH-1', scoreType: 'x', score: 101, source: 'nope' }).errors.length >= 3);
+    t('a model score needs its version', osRecord(S, { objectType: 'vehicle', objectRef: 'VEH-1', scoreType: 'telematics', score: 50, source: 'model' }).errors.some(function(x){ return /needs its version/.test(x); }));
+    var s2 = osRecord(S, { objectType: 'driver', objectRef: 'DRV-1', scoreType: 'mvr', score: 81, source: 'provider', modelVersion: 'v5', enrichmentResponseId: 'RSP-1' });
+    t('a new score replaces the earlier one of the same kind and keeps it', s2.score.supersedes === s1.score.id && osLatest(S, 'DRV-1', 'mvr').score === 81 && osList(S).length >= 5);
+    var cur = osCurrent(S);
+    t('the current scores are the latest of each kind, highest first', cur[0].score === 81 && cur.filter(function(x){ return x.objectRef === 'DRV-1' && x.scoreType === 'mvr'; }).length === 1);
+    t('the policy can be scored', osRecord(S, { objectType: 'policy', objectRef: S.id, scoreType: 'overall', score: 55, source: 'manual' }).ok);
+
+    // ================= THIRD-PARTY RECORDS
+    t('type, source, key, date, severity and attributes are checked', erAdd(S, {}).errors.length >= 5);
+    t('attributes are checked against the type', erCheckAttrs('inspection', { level: 9 }).errors.length === 1 && erCheckAttrs('inspection', { level: 2, out_of_service: 'yes', violations: 3 }).ok && erCheckAttrs('crash', { colour: 'red' }).errors.length === 1 && erCheckAttrs('registration', { registered_state: 'ZZ' }).errors.length === 1 && erCheckAttrs('registration', { registered_state: 'tx', expires_on: '2027-01-01' }).ok);
+    t('"key=value; key=value" is read into attributes', erParse('out_of_service=yes; level=2')['out_of_service'] === 'yes' && erParse('level=2')['level'] === '2');
+    var r1 = erAdd(S, { recordType: 'inspection', source: 'FMCSA', providerKey: 'INSP-1001', recordDate: day(-100), severity: 'high', objectType: 'vehicle', objectRef: 'VEH-1', attributes: { level: 2, out_of_service: 'yes', violations: 4 } });
+    t('an inspection is one row with its source, the source\'s own key, the date, the vehicle and its attributes', r1.ok && r1.record.attributes.out_of_service === true && r1.record.attributes.level === 2 && r1.record.objectRef === 'VEH-1' && r1.record.status === 'active');
+    t('the same source and key is not entered twice', erAdd(S, { recordType: 'inspection', source: 'FMCSA', providerKey: 'INSP-1001', recordDate: day(-100), severity: 'low', attributes: {} }).error === 'duplicate');
+    t('another source may use the same key', erAdd(S, { recordType: 'inspection', source: 'Other', providerKey: 'INSP-1001', recordDate: day(-90), severity: 'low', attributes: { level: 1, out_of_service: 'no' } }).ok);
+    erAdd(S, { recordType: 'crash', source: 'FMCSA', providerKey: 'CR-1', recordDate: day(-200), severity: 'high', attributes: { fatalities: 1, injuries: 2, tow_away: 'yes' } });
+    erAdd(S, { recordType: 'crash', source: 'FMCSA', providerKey: 'CR-2', recordDate: day(-900), severity: 'medium', attributes: { injuries: 0 } });
+    erAdd(S, { recordType: 'violation', source: 'MVR', providerKey: 'V-1', recordDate: day(-300), severity: 'medium', objectType: 'driver', objectRef: 'DRV-1', attributes: { code: 'SPD', points: 3 } });
+    erAdd(S, { recordType: 'violation', source: 'MVR', providerKey: 'V-2', recordDate: day(-120), severity: 'medium', objectType: 'driver', objectRef: 'DRV-1', attributes: { code: 'LNE', points: 2 } });
+    erAdd(S, { recordType: 'recall', source: 'NHTSA', providerKey: 'RC-1', recordDate: day(-60), severity: 'low', objectType: 'vehicle', objectRef: 'VEH-2', attributes: { campaign: '24V-123', component: 'Brakes' } });
+    t('a record naming a vehicle or driver that is not on the case is refused', erAdd(S, { recordType: 'recall', source: 'NHTSA', providerKey: 'RC-9', recordDate: day(-1), severity: 'low', objectType: 'vehicle', objectRef: 'VEH-9', attributes: {} }).errors.some(function(x){ return /not on the case/.test(x); }));
+    t('a record can name a provider response, which must be on the case', erAdd(S, { recordType: 'crash', source: 'FMCSA', providerKey: 'CR-9', recordDate: day(-1), severity: 'low', attributes: {}, responseId: 'RSP-NO' }).error === 'invalid');
+    var sm = erSummary(S);
+    t('the summary: inspections, out-of-service rate, crashes in 24 months, fatal crashes, violation points, recalls', sm.inspections === 2 && sm.outOfService === 1 && sm.oosRate === 0.5 && sm.crashes24m === 1 && sm.fatalCrashes === 1 && sm.violationPoints['DRV-1'] === 5 && sm.recalls === 1 && sm.high === 2, JSON.stringify(sm));
+    t('a correction supersedes the row and keeps the old one', (function(){ var c = erSupersede(S, r1.record.id, { attributes: { level: 2, out_of_service: 'no', violations: 1 } }, 'The out-of-service order was withdrawn on review.'); return c.ok && r1.record.status === 'superseded' && c.record.supersedes === r1.record.id && r1.record.supersededBy === c.record.id && c.record.status === 'active' && r1.record.attributes.out_of_service === true; })());
+    t('a correction needs a reason, and a failed one leaves the row as it was', erSupersede(S, S.externalRecords[2].id, { attributes: {} }, 'x').error === 'reason' && S.externalRecords[2].status === 'active');
+    t('the summary follows the correction', erSummary(S).outOfService === 0);
+
+    // ================= RULE SETS CAN TEST THEM
+    login('admin');
+    var rs = rsAddSet({ code: 'RISKDATA', name: 'Risk data rules', kind: 'eligibility', source: 'uw_admin', effectiveFrom: '2020-01-01' }).set;
+    rsAddRule(rs.id, { code: 'LR', stage: 'quote', field: 'lossRatio', op: 'lte', value: '0.8', severity: 'major', outcomeOnFail: 'refer', message: 'Prior loss ratio above 80 percent.' });
+    rsAddRule(rs.id, { code: 'OOS', stage: 'quote', field: 'oosRate', op: 'lte', value: '0.2', severity: 'minor', outcomeOnFail: 'warn', message: 'High out-of-service rate.' });
+    rsSubmit(rs.id); login('senior'); rsApprove(rs.id); login('admin');
+    use(S); var ev = uwEvaluateRules(S, 'quote');
+    var lr = ev.results.filter(function(r){ return r.code === 'LR'; })[0], oos = ev.results.filter(function(r){ return r.code === 'OOS'; })[0];
+    t('a rule set can test the loss ratio on the case', lr && lr.result === 'fail' && lr.val === S.lossMetrics.lossRatio, JSON.stringify(lr));
+    t('and the out-of-service rate; a case with no inspections has no figure and the rule is untestable', oos && oos.result === 'pass' && uwEvaluateRules(mk('SUB-C55-N'), 'quote').results.filter(function(r){ return r.code === 'OOS'; })[0].result === 'unknown');
+
+    // ================= SCREEN
+    use(S); showCaseFilePage(); cfTab('uwrecord');
+    var txt = el('caseFileRoot').textContent;
+    t('the Underwriting record shows the loss history, the object scores and the third-party records', /Structured loss history/.test(txt) && /Prior Mutual/.test(txt) && /version 2026.1/.test(txt) && /Scores by vehicle, driver and location/.test(txt) && /Driver DRV-1/.test(txt) && /Third-party records/.test(txt) && /INSP-1001/.test(txt));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' <- ')); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

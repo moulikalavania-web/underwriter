@@ -176,6 +176,13 @@
               </div>
             </button>
 
+            <button class="sidebar-nav-item" id="navItemUc" onclick="showUcPage()" title="UW Controls: rule sets, pricing adjustments, approval chains, compliance checks and other registers">
+              <div class="nav-icon"><i class="ph ph-sliders"></i></div>
+              <div class="nav-text">
+                <span class="nav-title">UW Controls</span>
+              </div>
+            </button>
+
             <button class="sidebar-nav-item" id="navItemPolicies" onclick="showPoliciesPage()" title="Policies: expiring, claim renewals, endorsement requests, transfers, cancellations">
               <div class="nav-icon"><i class="ph ph-file-text"></i></div>
               <div class="nav-text">
@@ -397,6 +404,12 @@
                 <select id="queueStatusSelect" class="queue-sort-dropdown" onchange="fdSetQueueStatus(this.value)">
                   <option value="">All</option>
                   <option>Received</option><option>Pending UW Approval</option><option>Quoted</option><option>Pending Bind</option><option>Bound</option><option>Declined</option><option>Closed</option>
+                </select>
+              </div>
+              <div class="queue-sort-box">
+                <label for="queueReadySelect"><i class="ph ph-check-square"></i> Readiness:</label>
+                <select id="queueReadySelect" class="queue-sort-dropdown" onchange="setReadyFilter(this.value)">
+                  <option value="">All</option><option value="ready">Ready for UW</option><option value="notready">Not ready</option>
                 </select>
               </div>
               <div class="queue-sort-box">
@@ -1440,6 +1453,9 @@
     <!-- ================================================================ -->
     <!-- TOP-LEVEL PAGE: POLICIES, expiring, claim renewals, endorsement requests, transfers (js/policy-ops.js) -->
     <!-- ================================================================ -->
+    <div class="page-view u-hidden" id="ucPageView">
+      <div id="ucRoot"></div>
+    </div>
     <div class="page-view u-hidden" id="policiesPageView">
       <div id="policiesRoot"></div>
     </div>
@@ -2905,5 +2921,19 @@ Underwriting review is temporarily paused pending receipt of these items.</texta
   <script src="js/state-guidelines.js"></script>
   <script src="js/team-tools.js"></script>
   <script src="js/extraction-layer.js"></script>
+  <script src="js/uw-controls.js"></script>
+  <script src="js/uw-rulesets.js"></script>
+  <script src="js/uw-records.js"></script>
+  <script src="js/uw-approvals.js"></script>
+  <script src="js/uw-pricing.js"></script>
+  <script src="js/uw-compliance.js"></script>
+  <script src="js/uw-screening.js"></script>
+  <script src="js/uw-matching.js"></script>
+  <script src="js/uw-markets.js"></script>
+  <script src="js/uw-freshness.js"></script>
+  <script src="js/uw-riskdata.js"></script>
+  <script src="js/uw-capacity.js"></script>
+  <script src="js/uw-queues.js"></script>
+  <script src="js/uw-sharing.js"></script>
   <script src="js/auto-intake.js"></script></body>
 </html>

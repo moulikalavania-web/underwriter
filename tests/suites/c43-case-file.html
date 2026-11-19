@@ -21,7 +21,7 @@
     // ---------- the page
     showCaseFilePage();
     t('the Case File opens as a page, with a button in the workflow bar', el('caseFilePageView').style.display === 'block' && !!el('btnFooterCaseFile'));
-    t('it has twelve tabs, notes first', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 12 && /Notes/.test(el('caseFileRoot').querySelector('.tab-btn').textContent));
+    t('it has thirteen tabs (the underwriting record included), notes first', el('caseFileRoot').querySelectorAll('.mw-tabs .tab-btn').length === 13 && /Notes/.test(el('caseFileRoot').querySelector('.tab-btn').textContent));
     activeSubmissionId = null; var n0 = toasts.length; showCaseFilePage();
     t('with no case open it says so and does not open', toasts.length === n0 + 1 && /Open a case first/.test(toasts[toasts.length - 1])); activeSubmissionId = S.id;
 

@@ -110,3 +110,23 @@ to the golden-path default rather than showing nothing/breaking.
 ## Automatic intake (js/auto-intake.js)
 
 Once a reviewer approves Phase 1, the system does Ingest, Clearance (already decided in Phase 1), Extract, Confirm and Enrich itself, and the underwriter opens the case at Step 6, the Underwriting Workbench with its Appetite match. The case stops at the step that needs a person only when Phase 1 was not approved, the message is not new business, or a critical field could not be read. Each automatic step is written to the decision log by "System (automatic)", and the Workbench shows what was done and anything flagged, with a link back to the intake details.
+
+## UW Controls and the underwriting record
+
+Registers the underwriting rules run on live on the **UW Controls** page (sidebar). Every register starts empty, is proposed by one person and put in force by a different one, and is versioned (`js/uw-controls.js` has the shared maker-checker helpers):
+
+| Tab | File | What it holds |
+|---|---|---|
+| Rule sets | `uw-rulesets.js` | Versioned rule sets (kind, source, period, product/line/state/coverage), one stage per rule, tighten-only for administration sets, opt-in automatic decline, reproducible rule runs, triage rules in Phase 1 |
+| Approval chains | `uw-approvals.js` | Ordered approval steps by role and amount; distinct approvers; used by pricing adjustments and knockout overrides |
+| Pricing adjustments | `uw-pricing.js` | Filed percentage ranges, technical or running basis, order, filing reference, authority and approval |
+| Compliance checks / Product filings | `uw-compliance.js` | State requirements checked at bind, the filing register and "can this product be sold here today", notice triggers, reason limits, due dates and delivery proof |
+| Duplicate matching | `uw-matching.js` | Weighted score, review and automatic thresholds, merge and unmerge with survivorship |
+| Data freshness / Coverage relationships | `uw-freshness.js` | Maximum age by attribute with warn, refresh or block; requires, allows, excludes, defaults-on, constrains |
+| Accumulation limits | `uw-capacity.js` | Buckets by state, zip, county, cat zone, industry or fleet band; carrier capacity |
+| Queues and SLA | `uw-queues.js` | Queues with member capacity, business calendars, SLA policies, escalation |
+| Record shares | `uw-sharing.js` | A case visible to another agency, program or carrier by agreement, logged when used |
+
+The Case File has an **Underwriting record** tab (`uw-records.js`): the underwriting case, referrals (reason code, named person, limit breached), decisions, every authority check, approvals, pricing adjustments, compliance checks, notices and their deliveries, party screening (`uw-screening.js`), duplicate matches, market placements (`uw-markets.js`), freshness, accumulation, queue and SLA, structured loss history, scores per object and third-party records (`uw-riskdata.js`), and shares.
+
+No provider, model, registry or market is connected: screening results, scores, third-party rows and market quotes are recorded from what the underwriter obtained, with the reference needed to trace them.

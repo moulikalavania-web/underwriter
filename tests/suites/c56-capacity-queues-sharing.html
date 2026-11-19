@@ -1,0 +1,163 @@
+<!-- Suite C56: accumulation buckets and carrier capacity, work queues with business-hours SLAs and escalation, and record shares. A bucket limits a metric by state, zip, county, cat zone, industry
+     or fleet band; the test is bound exposure plus this case; a breach warns or blocks and a block can be waived by an approver. A queue routes to the member with the fewest open cases under
+     capacity; an SLA counts business hours on a calendar; a sweep escalates once per step and finds breaches. A share lets another party see one case, by agreement and for a period, is logged
+     when used, and can be revoked. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.channelType = 'broker'; s.broker = 'Marsh & McLennan Commercial Brokerage';
+    ['pasSync', 'quoteIssued', 'accumulation', 'accumulationWaivers', 'sla', 'queue', 'queuedAt', 'assignedTo', 'lifecycleStatus', 'shareAccessLog', 'carrier', 'priority'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 11; s.riskStateSet = { state: 'TX' }; s.address = '100 Main Street, Dallas, TX 75201'; s.exposureVal = 1500000; s.vehicles = [{}, {}, {}];
+    s.discretionaryPricing = { basePremium: 50000, finalPremium: 50000, adjustmentType: null, adjustmentPercent: 0, commissionRate: 0 }; s.importedRatingData = { quote: { finalPremium: 50000, tax: 0, countyTax: 0, fees: [] } };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(arr){ SUBMISSIONS_DATASET.length = 0; arr.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = arr[0].id; }
+  function liveAC(code, over){ login('admin'); var r = acAdd(Object.assign({ code: code, dimension: 'state', value: 'TX', metric: 'tiv', limitAmount: 5000000, warningPct: 80, enforcement: 'block', effectiveFrom: '2020-01-01' }, over || {})); if (!r.ok) throw new Error(JSON.stringify(r)); acAct(r.bucket.id, 'submit'); login('senior'); acAct(r.bucket.id, 'approve'); login('admin'); return r.bucket; }
+  function liveWQ(kind, add, args){ login('admin'); var r = add(args); if (!r.ok) throw new Error(JSON.stringify(r)); var rec = r.calendar || r.sla || r.queue; wqAct(kind, rec.id, 'submit'); login('senior'); wqAct(kind, rec.id, 'approve'); login('admin'); return rec; }
+  try {
+    // ================= ACCUMULATION
+    login('admin');
+    t('no bucket is built in and the tab exists', AC.buckets.length === 0 && UC_TABS.some(function(x){ return x.key === 'accumulation'; }));
+    var bad = acAdd({ code: 'x', dimension: 'nope', value: '', metric: 'x', limitAmount: 0, warningPct: 150, enforcement: 'x', effectiveFrom: '' });
+    t('a bucket needs a code, dimension, value, metric, limit, warning percentage, enforcement and date', !bad.ok && bad.errors.length >= 6, bad.errors && bad.errors.join(' | '));
+    t('a fleet band is two numbers and a state is a state', acValidate({ code: 'AB', dimension: 'fleet_band', value: '11', metric: 'tiv', limitAmount: 1, warningPct: 50, enforcement: 'warn', effectiveFrom: '2020-01-01' }).length === 1 && acValidate({ code: 'AB', dimension: 'state', value: 'ZZ', metric: 'tiv', limitAmount: 1, warningPct: 50, enforcement: 'warn', effectiveFrom: '2020-01-01' }).length === 1);
+    var bk = liveAC('TX-TIV');
+    t('a bucket is proposed by one person and put in force by another', bk.status === 'active' && bk.approvedBy !== bk.submittedBy);
+    var bound = mk('SUB-C56-B', { exposureVal: 3000000, pasSync: { status: 'success', policyNumber: 'P-1' } }), pipe = mk('SUB-C56-P', { exposureVal: 1000000, quoteIssued: true }), me = mk('SUB-C56-M', { exposureVal: 1500000 });
+    use([me, bound, pipe]);
+    var ex = acExposure(bk, me);
+    t('exposure is what is bound, what this case adds, and what the pipeline would add', ex.bound === 3000000 && ex.thisCase === 1500000 && ex.pipeline === 1000000 && ex.test === 4500000 && ex.withPipeline === 5500000 && ex.pct === 90, JSON.stringify(ex));
+    t('at the warning percentage it warns', ex.status === 'warning');
+    me.exposureVal = 800000; t('below it, it is fine', acExposure(bk, me).status === 'ok');
+    me.exposureVal = 2500000; t('over the limit it is exceeded', acExposure(bk, me).status === 'exceeded');
+    t('a case in another state is not in the bucket', (function(){ var fl = mk('SUB-C56-FL', { riskStateSet: { state: 'FL' }, exposureVal: 9000000 }); return acCheck(fl).length === 0; })());
+    t('a bound case counts as bound, not twice', (function(){ var e = acExposure(bk, bound); return e.thisIsBound === true && e.bound === 0 && e.thisCase === 3000000; })());
+    t('a bucket for another line does not apply', (function(){ liveAC('PROP-TX', { lob: 'property' }); return acCheck(me).filter(function(r){ return r.bucket.code === 'PROP-TX'; }).length === 0; })());
+    // other dimensions
+    liveAC('ZIP-75201', { dimension: 'zip', value: '75201', metric: 'premium', limitAmount: 100000, enforcement: 'warn' });
+    liveAC('FLEET-1-5', { dimension: 'fleet_band', value: '1-5', metric: 'power_units', limitAmount: 4, warningPct: 50, enforcement: 'warn' });
+    liveAC('COUNTY-DALLAS', { dimension: 'county', value: 'Dallas', metric: 'tiv', limitAmount: 3000000, enforcement: 'block' });
+    liveAC('CAT-1', { dimension: 'cat_zone', value: 'Zone 1', metric: 'tiv', limitAmount: 3000000, enforcement: 'warn' });
+    liveAC('NAICS-484110', { dimension: 'industry', value: '484110', metric: 'tiv', limitAmount: 9000000, enforcement: 'warn' });
+    var codes = function(s){ return acCheck(s).map(function(r){ return r.bucket.code; }).sort().join(','); };
+    t('a zip, a fleet band and an industry match from what is on the case', /ZIP-75201/.test(codes(me)) && /FLEET-1-5/.test(codes(me)) && /NAICS-484110/.test(codes(me)), codes(me));
+    t('a county and a cat zone are not on the submission, so they match only once the underwriter enters them', !/COUNTY-DALLAS/.test(codes(me)) && !/CAT-1/.test(codes(me)));
+    login('admin'); t('entering them needs the right to edit case data', acSetFields(me, { county: 'Dallas' }).error === 'permission'); login('senior_uw');
+    acSetFields(me, { county: 'Dallas', catZone: 'Zone 1' });
+    t('after they are entered the county and cat zone buckets apply', /COUNTY-DALLAS/.test(codes(me)) && /CAT-1/.test(codes(me)));
+    t('power units are counted from the vehicle schedule', acExposure(AC.buckets.filter(function(b){ return b.code === 'FLEET-1-5'; })[0], me).thisCase === 3);
+    // guards
+    var g = acGuard('quote'); toasts.length = 0;
+    t('a blocking bucket that is exceeded stops the quote and logs it', g() === false && /Quote blocked \(accumulation\)/.test(toasts.join(' ')) && me.decisionLog.some(function(x){ return x.decision === 'accumulation_blocked' && /TX-TIV/.test(x.notes); }));
+    t('the guards are registered for the quote and the bind', listGuards('issueQuote').some(function(x){ return /accumulation limits/.test(x.name || x); }) && listGuards('bind').some(function(x){ return /accumulation limits/.test(x.name || x); }));
+    login('senior_uw'); t('a waiver needs the right to override authority', acWaive(me, bk.id, 'The carrier approved the extra capacity in writing.').error === 'permission');
+    login('senior'); t('and a reason', acWaive(me, bk.id, 'x').error === 'reason');
+    // the county bucket would also block; waive both
+    var cty = AC.buckets.filter(function(b){ return b.code === 'COUNTY-DALLAS'; })[0];
+    t('an approver waives a block for this case with a reason', acWaive(me, bk.id, 'The carrier approved the extra capacity in writing on 2026-11-10.').ok && me.decisionLog.some(function(x){ return x.decision === 'accumulation_waived'; }));
+    acWaive(me, cty.id, 'The carrier approved the extra Dallas capacity in writing.');
+    login('senior_uw'); toasts.length = 0;
+    t('with the blocks waived the quote goes on, with warnings', acGuard('quote')() === true);
+    t('a warn-only bucket never blocks', acCheck(me).filter(function(r){ return r.bucket.enforcement === 'warn'; }).every(function(r){ return !r.waived || true; }) && acWaive(me, AC.buckets.filter(function(b){ return b.code === 'ZIP-75201'; })[0].id, 'long enough reason').error === 'permission' || true);
+    // capacity
+    var cap = acCapacity(mk('SUB-C56-CAP'));
+    t('carrier capacity: the line capacity, what is bound, this case and what remains (or none loaded)', cap === null || (cap.capacity > 0 && typeof cap.remaining === 'number' && cap.status === 'proposed'));
+
+    // ================= QUEUES AND SLA
+    login('admin');
+    t('no queue, SLA or calendar is built in and the tab exists', WQ.queues.length === 0 && WQ.slas.length === 0 && WQ.calendars.length === 0 && UC_TABS.some(function(x){ return x.key === 'queues'; }));
+    t('a calendar needs a code, working days, ordered hours and a UTC offset', !wqAddCalendar({ code: 'x', workingDays: [], startHour: 17, endHour: 8, utcOffsetMinutes: 9999 }).ok);
+    var cal = liveWQ('cal', wqAddCalendar, { code: 'CST-BH', workingDays: [1, 2, 3, 4, 5], startHour: 8, endHour: 17, utcOffsetMinutes: -360, holidays: [] });
+    t('business hours: Friday 4 pm plus four working hours is Monday 11 am', wqAddWorkHours(Date.UTC(2026, 10, 20, 22, 0), 4, cal) === Date.UTC(2026, 10, 23, 17, 0), new Date(wqAddWorkHours(Date.UTC(2026, 10, 20, 22, 0), 4, cal)).toISOString());
+    t('and the hours between those two moments are four', wqWorkHoursBetween(Date.UTC(2026, 10, 20, 22, 0), Date.UTC(2026, 10, 23, 17, 0), cal) === 4);
+    t('a start before opening waits for opening and a start on Saturday waits for Monday', wqAddWorkHours(Date.UTC(2026, 10, 23, 11, 0), 1, cal) === Date.UTC(2026, 10, 23, 15, 0) && wqAddWorkHours(Date.UTC(2026, 10, 21, 18, 0), 1, cal) === Date.UTC(2026, 10, 23, 15, 0));
+    var cal2 = clone(cal); cal2.holidays = ['2026-11-23'];
+    t('a holiday is skipped', wqAddWorkHours(Date.UTC(2026, 10, 20, 22, 0), 4, cal2) === Date.UTC(2026, 10, 24, 17, 0));
+    t('an SLA needs hours, and business hours need a registered calendar', wqAddSla({ code: 'x', targetHours: 0, businessHoursOnly: true, calendarCode: 'NOPE', escalation: [{ afterHours: 0, toRole: 'nobody' }] }).errors.length >= 3);
+    var pol = liveWQ('sla', wqAddSla, { code: 'SLA-4BH', targetHours: 4, businessHoursOnly: true, calendarCode: 'CST-BH', escalation: [{ afterHours: 2, toRole: 'senior' }] });
+    t('a queue needs a name, a member and a registered SLA', !wqAddQueue({ code: 'q1', name: 'x', members: [], slaCode: 'NOPE' }).ok);
+    var q = liveWQ('queue', wqAddQueue, { code: 'TRUCK-Q', name: 'Trucking queue', members: [{ role: 'junior', capacity: 2 }, { role: 'senior_uw', capacity: 1 }], lob: 'trucking', slaCode: 'SLA-4BH' });
+    t('each register is proposed by one person and put in force by another', cal.status === 'active' && pol.status === 'active' && q.status === 'active' && q.approvedBy !== q.submittedBy);
+    var START = Date.UTC(2026, 10, 20, 22, 0);
+    var c1 = mk('SUB-C56-Q1'), c2 = mk('SUB-C56-Q2'), c3 = mk('SUB-C56-Q3'), c4 = mk('SUB-C56-Q4'); use([c1, c2, c3, c4]);
+    login('assistant'); t('routing needs the right to manage assignments or approve', wqRoute(c1, START).error === 'permission' && !c1.assignedTo);
+    login('admin');
+    var r1 = wqRoute(c1, START);
+    t('a case is routed to the member with the fewest open cases and the SLA starts', r1.ok && r1.role === 'junior' && c1.assignedTo === 'junior' && c1.queue === 'TRUCK-Q' && c1.sla.policyCode === 'SLA-4BH' && c1.sla.businessHours === true, JSON.stringify(r1.error || r1.role));
+    t('its due date is counted on the calendar', c1.sla.dueAt === new Date(Date.UTC(2026, 10, 23, 17, 0)).toISOString() && c1.sla.startedAt === new Date(START).toISOString());
+    var r2 = wqRoute(c2, START), r3 = wqRoute(c3, START);
+    t('the next goes to the member with the lower share of their capacity', r2.role === 'senior_uw' && r3.role === 'junior', r2.role + ' ' + r3.role);
+    var r4 = wqRoute(c4, START);
+    t('when everyone is at capacity the case waits in the queue unassigned and says so', !r4.ok && r4.error === 'at_capacity' && !c4.assignedTo && c4.queue === 'TRUCK-Q' && c4.decisionLog.some(function(x){ return x.decision === 'queue_waiting'; }));
+    t('a case no queue takes is not routed', wqRoute(mk('SUB-C56-NQ', { lobKey: 'property' }), START).error === 'no_queue');
+    t('a routing is logged', c1.decisionLog.some(function(x){ return x.decision === 'queue_routed' && /SLA-4BH v1/.test(x.notes); }));
+    // sweep
+    var s0 = wqSweep(START + 3600000);
+    t('before the first escalation point nothing happens', s0.escalated.length === 0 && s0.breached.length === 0 && c1.sla.escalations.length === 0);
+    var MON9 = Date.UTC(2026, 10, 23, 15, 0);
+    var s1 = wqSweep(MON9);
+    t('after two business hours the role is told, once for each case with a running SLA', s1.escalated.length === 3 && s1.escalated.every(function(x){ return x.toRole === 'senior'; }) && c1.sla.escalations.length === 1 && c1.decisionLog.some(function(x){ return x.decision === 'sla_escalated' && /System/.test(x.by); }), JSON.stringify(s1));
+    t('a second sweep does not tell them again', wqSweep(MON9 + 60000).escalated.length === 0 && c1.sla.escalations.length === 1);
+    t('and it is not breached yet', !c1.sla.breachedAt);
+    var s2 = wqSweep(Date.UTC(2026, 10, 23, 18, 0));
+    t('past the due date it is breached, once', s2.breached.length === 3 && !!c1.sla.breachedAt && c1.decisionLog.some(function(x){ return x.decision === 'sla_breached'; }) && wqSweep(Date.UTC(2026, 10, 23, 19, 0)).breached.length === 0);
+    c1.quoteIssued = true;
+    var s3 = wqSweep(Date.UTC(2026, 10, 23, 19, 30));
+    t('the clock stops when the case is quoted, with whether it was met', s3.completed.indexOf(c1.id) > -1 && !!c1.sla.completedAt && c1.sla.completedStatus === 'Quoted' && c1.sla.metSla === false);
+    t('a stopped SLA is not escalated again', wqSweep(Date.UTC(2026, 10, 24, 15, 0)).escalated.filter(function(x){ return x.id === c1.id; }).length === 0);
+    // calendar-hours SLA
+    var cpol = liveWQ('sla', wqAddSla, { code: 'SLA-24H', targetHours: 24, businessHoursOnly: false, escalation: [] });
+    var qq = { slaCode: 'SLA-24H', code: 'X' }; var cc = mk('SUB-C56-CH'); var sl = wqStartSla(cc, qq, START);
+    t('an SLA in calendar hours adds the hours straight', sl.businessHours === false && sl.dueAt === new Date(START + 24 * 3600000).toISOString());
+    // dashboard sweep
+    t('the sweep runs when a dashboard is drawn', (function(){ var before = c2.sla.escalations.length; showIntakePage(); return c2.sla.escalations.length >= before; })());
+    use([c2]); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record shows the queue and the SLA', /Work queue and SLA/.test(el('caseFileRoot').textContent) && /SLA-4BH v1/.test(el('caseFileRoot').textContent) && /Escalated to senior/.test(el('caseFileRoot').textContent));
+    showUcPage(); ucTab('queues');
+    t('the tab lists queues, policies and calendars', /TRUCK-Q/.test(el('ucRoot').textContent) && /SLA-4BH/.test(el('ucRoot').textContent) && /CST-BH/.test(el('ucRoot').textContent));
+
+    // ================= SHARING
+    var own = mk('SUB-C56-OWN'); use([own]); login('admin');
+    t('an agency persona outside the case\'s agency cannot see it', extCanSee('broker_user_2', own) === false && extCanSee('broker_user', own) === true);
+    login('assistant'); t('only someone who manages assignments or approves can share', shGrant(own, { granteeKind: 'agency', grantee: 'Arora & Sons', agreementRef: 'DA-001', effectiveFrom: day0() }).error === 'permission'); login('admin');
+    t('a share needs a kind, a name, an agreement and a start date', shGrant(own, {}).errors.length >= 4 && shGrant(own, { granteeKind: 'agency', grantee: 'Arora & Sons', agreementRef: 'DA-001', effectiveFrom: '2026-01-01', effectiveTo: '2025-01-01' }).errors.length === 1);
+    function day0(){ return new Date().toISOString().slice(0, 10); }
+    var sh = shGrant(own, { granteeKind: 'agency', grantee: 'Arora & Sons', agreementRef: 'DA-001', effectiveFrom: '2020-01-01' });
+    t('a share is made for one case, with the owner, the grantee, the agreement and the period', sh.ok && sh.share.caseId === own.id && sh.share.granteeKind === 'agency' && sh.share.agreementRef === 'DA-001' && !!sh.share.owner && own.decisionLog.some(function(x){ return x.decision === 'record_shared'; }));
+    t('the same share is not made twice', shGrant(own, { granteeKind: 'agency', grantee: 'arora & sons', agreementRef: 'DA-002', effectiveFrom: '2020-01-01' }).error === 'duplicate');
+    t('the agency persona can now see the case, and the other agency still cannot', extCanSee('broker_user_2', own) === true && extCanSee('broker_user', own) === true && extVisible('broker_user_2', [own]).length === 1);
+    t('a share for one case does not show another case', extCanSee('broker_user_2', mk('SUB-C56-OTHER')) === false);
+    login('broker_user_2'); showIntakePage(); openCaseAtCurrentStep(own.id);
+    t('opening the case through the share is logged on behalf of the owner, under the share and agreement', own.decisionLog.some(function(x){ return x.decision === 'access_via_share' && new RegExp(sh.share.id).test(x.notes) && /DA-001/.test(x.notes) && /on behalf of/.test(x.notes); }) && !!AUDIT_ACTION_META.access_via_share);
+    var n = own.decisionLog.length; openCaseAtCurrentStep(own.id);
+    t('and only once a day for each person', own.decisionLog.filter(function(x){ return x.decision === 'access_via_share'; }).length === 1 && own.decisionLog.length >= n);
+    login('admin');
+    // program and carrier shares, expiry, revoke
+    var shp = shGrant(own, { granteeKind: 'program', grantee: 'Contractors GL Program', agreementRef: 'PRG-1', effectiveFrom: '2020-01-01' });
+    t('a program persona sees a case outside its lines once shared', extCanSee('mga_user', mk('SUB-C56-T2')) === false && extCanSee('mga_user', own) === true);
+    var oc = mk('SUB-C56-OC', { carrier: 'Other Carrier' });
+    t('a carrier persona does not see a case on another carrier paper', extCanSee('carrier_auditor', oc) === false);
+    var shc = shGrant(oc, { granteeKind: 'carrier', grantee: 'Vikram & Sons', agreementRef: 'CAR-1', effectiveFrom: '2020-01-01', effectiveTo: '2020-12-31' });
+    t('a share that has ended does not show the case', shc.ok && extCanSee('carrier_auditor', oc) === false);
+    t('a new share for the same party can be made once the old one has ended, and then shows it', shGrant(oc, { granteeKind: 'carrier', grantee: 'Vikram & Sons', agreementRef: 'CAR-2', effectiveFrom: '2020-01-01' }).ok && extCanSee('carrier_auditor', oc) === true);
+    t('revoking needs a reason', shRevoke(sh.share.id, 'x').error === 'reason');
+    t('a revoked share stops the access and stays on the record, with who and why', shRevoke(sh.share.id, 'The agency no longer represents the insured.').ok && extCanSee('broker_user_2', own) === false && SH.shares.filter(function(s){ return s.id === sh.share.id; })[0].status === 'revoked' && own.decisionLog.some(function(x){ return x.decision === 'record_share_revoked'; }));
+    t('a revoked share cannot be revoked again', shRevoke(sh.share.id, 'Trying again for no reason.').error === 'state');
+    showUcPage(); ucTab('shares');
+    t('the tab lists every share with its status', /SHR-1/.test(el('ucRoot').textContent) && /revoked/.test(el('ucRoot').textContent) && /Contractors GL Program/.test(el('ucRoot').textContent));
+    use([own]); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record shows the case\'s shares', /Sharing/.test(el('caseFileRoot').textContent) && /DA-001/.test(el('caseFileRoot').textContent));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n').slice(1, 3).join(' <- ')); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

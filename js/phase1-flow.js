@@ -101,6 +101,8 @@ function p1CheckAppetite(sub) {
       lines.push({ ok: m.verdict !== "out", text: `Product rules: ${m.passed} of ${m.total} pass` + (m.hard.length ? "; cannot be overridden: " + m.hard.map(r => r.factor).join(", ") : "") + "." });
     }
   }
+  // Rule sets at the triage stage run here, before any workflow case is opened (js/uw-rulesets.js).
+  if (typeof rsTriageLines === "function") rsTriageLines(sub).forEach(l => lines.push(l));
   const failed = lines.filter(l => !l.ok);
   if (failed.length) return Object.assign(base, { status: "fail", summary: failed.map(l => l.text).join(" "), lines });
   return Object.assign(base, { status: "pass", summary: "Line, state and years in business are within appetite.", lines });

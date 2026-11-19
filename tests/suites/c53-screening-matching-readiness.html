@@ -1,0 +1,190 @@
+<!-- Suite C53: party screening, duplicate matching and readiness. Screening (KYC, KYB, PEP, adverse media) is recorded with its source, expires by the registered requirement, a
+     potential match is reviewed by a different person and a confirmed match never passes, and a party_screening requirement is checked at bind. Duplicate matching scores two cases
+     on weighted fields (FEIN, name with aliases, address, USDOT), has review and automatic thresholds, feeds Phase 1's duplicate check, and merges and unmerges with survivorship
+     recorded and history never edited. Readiness: each requirement result is satisfied, missing, waived, invalid or not applicable; a stage per item; a ready-for-underwriting flag
+     and a percentage on the case; the queue filters on it. -->
+<script>
+(function(){
+  var out = [], errs = [], toasts = [];
+  window.addEventListener('error', function(e){ errs.push(e.message + ' @' + (e.filename||'').split('/').pop() + ':' + e.lineno); });
+  function t(name, cond, extra){ out.push((cond ? 'PASS ' : 'FAIL ') + name + (extra ? '  [' + extra + ']' : '')); }
+  function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  function el(id){ return document.getElementById(id); }
+  window.showToast = function(m){ toasts.push(String(m)); };
+  window.prompt = function(){ return 'a good reason to do this'; };
+  function login(role){ el('loginUserSelect').value = role; el('loginPasswordInput').value = 'x'; submitLogin(); }
+  var seedT = SEED_SUBMISSIONS_DATASET.filter(function(x){ return x.lobKey === 'trucking'; })[0];
+  function mk(id, over){
+    var s = clone(seedT); s.id = id; s.apiSourced = true; s.lobKey = 'trucking'; s.channelType = 'broker';
+    ['pasSync', 'quoteIssued', 'screenings', 'matchCandidates', 'mergeEvents', 'aliases', 'lifecycleStatus', 'mergedInto', 'complianceChecks', 'copiedFrom', 'readiness', 'completeness'].forEach(function(k){ delete s[k]; });
+    s.decisionLog = []; s.currentStep = 2; s.riskStateSet = { state: 'TX' };
+    for (var k in (over || {})) s[k] = over[k]; return s;
+  }
+  function use(arr){ SUBMISSIONS_DATASET.length = 0; arr.forEach(function(s){ SUBMISSIONS_DATASET.push(s); }); activeSubmissionId = arr[0].id; }
+  function liveReq(code, over){
+    login('admin'); var r = cqAdd(Object.assign({ code: code, name: code, type: 'party_screening', effectiveFrom: '2020-01-01' }, over || {}));
+    if (!r.ok) throw new Error(code + ': ' + JSON.stringify(r)); cqAct(r.req.id, 'submit'); login('senior'); cqAct(r.req.id, 'approve'); login('admin'); return r.req;
+  }
+  function rec(over){ return Object.assign({ partyName: 'Acme Haulers LLC', partyKind: 'organization', role: 'insured', type: 'kyb', result: 'clear', providerRef: 'PROV-1001', screenedOn: todayIso(), note: '' }, over || {}); }
+  function dayAgo(n){ return new Date(Date.now() - n * 86400000).toISOString().slice(0, 10); }
+  try {
+    // ================= SCREENING
+    login('compliance'); var hasCompliance = typeof currentUserRole !== 'undefined';
+    login('admin');
+    var S = mk('SUB-C53-S'); use([S]);
+    t('no screening requirement is built in', CQ.reqs.length === 0 && scStatus(S, 'kyb').state === 'not_screened');
+    t('a requirement for a screening needs the screening and its days', cqValidateRule('party_screening', {}).length === 2 && cqValidateRule('party_screening', { screening: 'kyb', validity_days: 365 }).length === 0 && cqValidateRule('party_screening', { screening: 'dna', validity_days: 5 }).length === 1);
+    login('assistant'); t('recording needs the right on sanctions screening', scRecord(S, rec()).error === 'permission');
+    login('senior_uw'); var canRec = hasPermission('sanctions', 'edit'); t('someone who may edit sanctions screening can record', canRec ? scRecord(S, rec()).ok : true);
+    if (!canRec) { out.push('INFO senior_uw cannot edit sanctions; using the role that can'); }
+    var rolesEdit = ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].filter(function(r){ return PERMISSIONS_MATRIX[r].sanctions && PERMISSIONS_MATRIX[r].sanctions.edit; });
+    var rolesApp = ['assistant', 'junior', 'senior_uw', 'senior', 'admin'].filter(function(r){ return PERMISSIONS_MATRIX[r].sanctions && PERMISSIONS_MATRIX[r].sanctions.approve; });
+    t('there is a role to record and a different role to review', rolesEdit.length >= 1 && rolesApp.length >= 1 && (rolesEdit.length + rolesApp.length) >= 2, rolesEdit.join() + ' / ' + rolesApp.join());
+    var recorder = rolesEdit[0], reviewer = rolesApp.filter(function(r){ return r !== recorder; })[0] || rolesApp[0];
+    S.screenings = []; login(recorder);
+    t('a screening with no name, kind, type, result, reference or date is refused', scRecord(S, { }).errors.length >= 5);
+    t('KYC is for a person and KYB for a business', /KYC is for a person/.test(scRecord(S, rec({ type: 'kyc' })).errors.join()) && /KYB is for a business/.test(scRecord(S, rec({ type: 'kyb', partyKind: 'person' })).errors.join()));
+    t('a date in the future is refused', scRecord(S, rec({ screenedOn: '2999-01-01' })).error === 'invalid');
+    t('without a registered requirement a result does not expire', (function(){ var r = scRecord(S, rec()); return r.ok && r.screening.expiresOn === null; })());
+    t('a clear result is a pass', scStatus(S, 'kyb').state === 'clear');
+
+    // expiry comes from the requirement
+    liveReq('KYB-365', { screening: 'kyb', rule: { screening: 'kyb', validity_days: 365 }, state: ['TX'] });
+    login(recorder); var r2 = scRecord(S, rec({ screenedOn: dayAgo(400) }));
+    t('a result expires after the days the requirement gives', r2.ok && r2.screening.validityDays === 365 && r2.screening.expiresOn > dayAgo(400));
+    t('an expired result is not a pass', scStatus(S, 'kyb').state === 'expired');
+    var r3 = scRecord(S, rec({ screenedOn: dayAgo(10) }));
+    t('a recent result passes and shows when it expires', scStatus(S, 'kyb').state === 'clear' && r3.screening.expiresOn > todayIso());
+
+    // potential match: review
+    var r4 = scRecord(S, rec({ type: 'pep', partyKind: 'person', partyName: 'J. Owner', role: 'owner', result: 'potential_match', providerRef: 'PROV-2' }));
+    t('a potential match awaits review', r4.ok && r4.screening.reviewStatus === 'pending');
+    var r5 = scRecord(S, rec({ type: 'adverse_media', result: 'potential_match', providerRef: 'PROV-3' }));
+    t('for the insured a potential match is not a pass', scStatus(S, 'adverse_media').state === 'review');
+    login(recorder); t('the person who recorded it cannot review it', scResolve(S, r5.screening.id, 'clear', 'Looked at the articles; a different company.').error === 'self' || recorder !== reviewer);
+    login(reviewer);
+    t('a review needs a reason and a verdict', scResolve(S, r5.screening.id, 'clear', 'x').error === 'reason' && scResolve(S, r5.screening.id, 'maybe', 'a long enough reason').error === 'verdict');
+    t('a reviewer clears it with a reason and it passes', scResolve(S, r5.screening.id, 'clear', 'The articles are about a different company of the same name.').ok && scStatus(S, 'adverse_media').state === 'clear');
+    login(recorder); var r6 = scRecord(S, rec({ type: 'pep', result: 'potential_match', providerRef: 'PROV-4' })); login(reviewer);
+    scResolve(S, r6.screening.id, 'confirmed_match', 'The insured is the named politically exposed person.');
+    t('a confirmed match is never a pass', scStatus(S, 'pep').state === 'confirmed');
+    login(recorder); t('a clear result on the screening itself is a pass but a later confirmed one wins', scRecord(S, rec({ type: 'pep', result: 'clear', providerRef: 'PROV-5' })).ok && scStatus(S, 'pep').state === 'clear');
+    t('the decision log has each recording and review', S.decisionLog.some(function(x){ return x.decision === 'party_screening_recorded'; }) && S.decisionLog.some(function(x){ return x.decision === 'party_screening_resolved'; }) && !!AUDIT_ACTION_META.party_screening_resolved);
+
+    // the bind check
+    S.screenings = []; login('senior_uw'); window.ACTIVE_INSURANCE_PRODUCT = null;
+    var rows = cqRun(S, 'bind_request', {}).filter(function(r){ return r.type === 'party_screening'; });
+    t('a registered screening requirement fails when the insured has not been screened', rows.length === 1 && rows[0].result === 'fail' && rows[0].evidence.state === 'not_screened');
+    login(recorder); scRecord(S, rec({ screenedOn: dayAgo(5) })); login('senior_uw');
+    t('and passes once screened clear', cqRun(S, 'bind_request', {}).filter(function(r){ return r.type === 'party_screening'; })[0].result === 'pass');
+    login(recorder); var rr = scRecord(S, rec({ result: 'potential_match', providerRef: 'PROV-9', screenedOn: dayAgo(1) })); login('senior_uw');
+    t('a potential match awaiting review fails it again', cqRun(S, 'bind_request', {}).filter(function(r){ return r.type === 'party_screening'; })[0].evidence.state === 'review');
+
+    // ================= MATCHING
+    login('admin');
+    t('no match rule is built in; the earlier check is unchanged', MM.rules.length === 0 && mmActive() === null && mmScan(mk('X')).length === 0);
+    t('a rule needs weights, ordered thresholds and a code', !mmAddRule({ code: 'x', fein: 'a', name: 1, address: 1, dot: 1, reviewThreshold: 0.8, autoThreshold: 0.7 }).ok && mmAddRule({ code: 'M-OK', fein: 5, name: 3, address: 2, dot: 1, reviewThreshold: 0.6, autoThreshold: 0.9 }).ok);
+    var mr = MM.rules[0]; mmRuleAct(mr.id, 'submit'); mmRuleAct(mr.id, 'approve'); t('the proposer cannot put it in force', mr.status === 'pending');
+    login('senior'); mmRuleAct(mr.id, 'approve'); login('admin'); t('a different person puts it in force', mr.status === 'active' && mmActive().id === mr.id);
+
+    // scoring
+    var A = mk('SUB-C53-A', { insured: 'Acme Haulers LLC', fein: '74-1234567', address: '100 Main Street, Dallas, TX 75201', dot: '1234567', broker: 'Arora & Sons' });
+    var B = mk('SUB-C53-B', { insured: 'ACME Haulers, Inc.', fein: '74-1234567', address: '100 Main St, Dallas, TX 75201', dot: '1234567', broker: 'Other Brokers' });
+    var C = mk('SUB-C53-C', { insured: 'Acme Haulers of Texas', fein: '12-9999999', address: '500 Oak Avenue, Austin, TX 78701', dot: '7654321' });
+    var D = mk('SUB-C53-D', { insured: 'Zenith Cargo Carriers', fein: '55-0000001', address: '9 Pine Road, El Paso, TX 79901', dot: '1111111' });
+    t('a legal suffix and punctuation do not change a name', mmNameSim('Acme Haulers LLC', 'ACME Haulers, Inc.') === 1 && mmNameSim('Acme Haulers', 'Zenith Cargo') === 0);
+    t('an address compares the zip, number and street word', mmAddrSim('100 Main Street, Dallas, TX 75201', '100 Main St, Dallas, TX 75201') === 1 && mmAddrSim('100 Main Street 75201', '500 Oak Avenue 78701') === 0);
+    var sAB = mmScore(A, B, mr), sAC = mmScore(A, C, mr), sAD = mmScore(A, D, mr);
+    t('the same FEIN, name, address and USDOT scores 1 and names the basis', sAB.score === 1 && sAB.basis.length === 4, JSON.stringify(sAB));
+    t('a similar name alone scores partway, below the review threshold', sAC.score > 0 && sAC.score < mr.reviewThreshold, JSON.stringify(sAC));
+    t('an unrelated case scores zero', sAD.score === 0);
+    var noFein = mk('SUB-C53-NF', { insured: 'Acme Haulers LLC', fein: '', address: '100 Main Street, Dallas, TX 75201', dot: '' });
+    t('a field either case lacks is left out of the average', mmScore(A, noFein, mr).score === 1 && !('fein' in mmScore(A, noFein, mr).fields));
+    t('an alias is compared as well as the name', (function(){ var al = mk('SUB-C53-AL', { insured: 'Totally Different Name', fein: '', address: '', dot: '' }); al.aliases = [{ type: 'dba', value: 'Acme Haulers' }]; return mmScore(A, al, mr).fields.name === 1; })());
+
+    // scan and review
+    use([A, B, C, D]); var cands = mmScan(A);
+    t('a scan keeps the candidates at or above the review threshold, blocking at the automatic one', cands.length === 1 && cands[0].otherId === 'SUB-C53-B' && cands[0].level === 'auto' && cands[0].result === 'blocked' && cands[0].score === 1);
+    t('a copy of a case is not its duplicate', (function(){ var cp = mk('SUB-C53-CP', { insured: 'Acme Haulers LLC', fein: '74-1234567', copiedFrom: 'SUB-C53-A' }); SUBMISSIONS_DATASET.push(cp); var n = mmScan(A).length; SUBMISSIONS_DATASET.pop(); return n === 1; })());
+    t('scanning again does not add the same candidate twice', mmScan(A).length === 1 && mmList(A).length === 1);
+    login('assistant'); t('review needs the right to approve workflow steps', mmReview(A, cands[0].id, 'not_a_match', 'a long enough reason').error === 'permission');
+    login('senior_uw'); t('and a reason and a verdict', mmReview(A, cands[0].id, 'confirmed_match', 'x').error === 'reason' && mmReview(A, cands[0].id, 'dunno', 'a long enough reason').error === 'verdict');
+    // clear one as not a match, then confirm another
+    var cl = mmReview(A, cands[0].id, 'not_a_match', 'A different legal entity at the same address, per the broker.');
+    t('clearing an automatic-level match is recorded as overridden', cl.ok && mmList(A)[0].result === 'overridden' && A.decisionLog.some(function(x){ return x.decision === 'duplicate_match_reviewed'; }));
+    A.matchCandidates = []; mmScan(A); var cf = mmReview(A, mmList(A)[0].id, 'confirmed_match', 'Same FEIN, address and USDOT; one customer.');
+    t('confirming a match keeps it blocking', cf.ok && mmList(A)[0].status === 'confirmed_match' && mmList(A)[0].result === 'blocked');
+
+    // merge
+    B.email = 'ops@acme-haulers.example'; A.email = ''; B.docs = [{ name: 'Loss_Runs_Acme.pdf', type: 'pdf' }]; A.docs = [];
+    login('assistant'); t('a merge needs the right', mmMerge(A, mmList(A)[0].id, 'Same customer, confirmed.').error === 'permission'); login('senior_uw');
+    t('a merge needs a reason', mmMerge(A, mmList(A)[0].id, 'x').error === 'reason');
+    var mg = mmMerge(A, mmList(A)[0].id, 'Same customer, confirmed by FEIN and address.');
+    t('the other case is closed as merged into this one and not deleted', mg.ok && B.lifecycleStatus === 'merged' && B.mergedInto === A.id && SUBMISSIONS_DATASET.indexOf(B) > -1 && caseStatus(B) === 'Closed');
+    t('survivorship: the survivor keeps its own value, and takes the other\'s only where it had none', mg.event.survivorship.some(function(s){ return s.attribute === 'insured' && s.rule === 'survivor_kept' && s.source === A.id; }) && mg.event.survivorship.some(function(s){ return s.attribute === 'email' && s.rule === 'filled_from_merged' && s.source === B.id; }) && A.email === 'ops@acme-haulers.example' && A.insured === 'Acme Haulers LLC');
+    t('documents are added and the other name becomes an alias', A.docs.length === 1 && mg.event.docsAdded[0] === 'Loss_Runs_Acme.pdf' && A.aliases.some(function(a){ return a.value === 'ACME Haulers, Inc.' && a.type === 'former_name'; }));
+    t('both cases log it', A.decisionLog.some(function(x){ return x.decision === 'party_merged'; }) && B.decisionLog.some(function(x){ return x.decision === 'party_merged'; }) && !!AUDIT_ACTION_META.party_merged);
+    t('a case already merged cannot be merged again, nor a bound policy', mmMerge(A, mmList(A)[0].id, 'Same customer, again.').error === 'already');
+    // unmerge
+    t('an unmerge needs a reason', mmUnmerge(A, mg.event.id, 'x').error === 'reason');
+    var um = mmUnmerge(A, mg.event.id, 'The broker confirmed these are two separate customers.');
+    t('an unmerge reopens the other case and takes back what the survivor took', um.ok && !B.lifecycleStatus && !B.mergedInto && !A.email && A.docs.length === 0 && !A.aliases.some(function(a){ return a.viaMerge; }));
+    t('an unmerge is a new event that names the merge it reverses, and history stays', um.event.type === 'unmerge' && um.event.reverses === mg.event.id && mmEvents(A).length === 2 && mmEvents(A)[0].type === 'merge');
+    t('a merge cannot be reversed twice', mmUnmerge(A, mg.event.id, 'Reversing it again for no reason.').error === 'already');
+    t('the candidate is open for review again', mmList(A)[0].status === 'pending_review');
+    var bound = mk('SUB-C53-BD', { insured: 'Acme Haulers LLC', fein: '74-1234567', address: '100 Main Street, Dallas, TX 75201', dot: '1234567', pasSync: { status: 'success', policyNumber: 'P-1' } });
+    use([A, bound]); mmScan(A); var cb = mmList(A).filter(function(c){ return c.otherId === 'SUB-C53-BD'; })[0]; mmReview(A, cb.id, 'confirmed_match', 'Same customer, confirmed in writing.');
+    t('a bound policy cannot be merged', mmMerge(A, cb.id, 'Same customer, confirmed.').error === 'bound');
+
+    // aliases
+    t('an alias needs a type and a name', mmAddAlias(A, 'dba', 'x').error === 'invalid' && mmAddAlias(A, 'dba', 'Acme Trucking').ok && mmAddAlias(A, 'dba', 'acme trucking').error === 'exists');
+
+    // Phase 1 uses it
+    var P = mk('SUB-C53-P', { insured: 'Acme Haulers Inc', fein: '', address: '100 Main St, Dallas, TX 75201', dot: '1234567' }); use([P, A]); A.pasSync = undefined; A.aliases = [];
+    var pf = p1CheckFein(P);
+    t('Phase 1: a different FEIN but a very likely duplicate fails the check with the score', pf.status === 'fail' && /Very likely the same customer/.test(pf.summary) && /rule M-OK/.test(pf.lines[0].text), pf.summary);
+    var l = mk('SUB-C53-L', { insured: 'Acme Haulers LLC', fein: '74-1234567', address: '100 Main Street, Dallas, TX 75201', dot: '1234567' });
+    var q = mk('SUB-C53-Q', { insured: 'Acme Haulers', fein: '', address: '100 Main St, Dallas, TX 75201', dot: '7654321' }); use([q, l]);
+    var rv = p1CheckFein(q);
+    t('Phase 1: a review-level match (below the automatic threshold) is a note, not a failure', rv.status === 'pass' && rv.lines.some(function(x){ return /Possible duplicate: SUB-C53-L/.test(x.text) && x.ok === true; }) && mmScore(q, l, mmActive()).score < mmActive().autoThreshold, JSON.stringify(rv.lines));
+
+    // tab and sections
+    login('admin'); showUcPage(); ucTab('matching');
+    t('the match rule tab lists the rule with weights and thresholds', /M-OK/.test(el('ucRoot').textContent) && /FEIN 5/.test(el('ucRoot').textContent) && /automatic 0.9/.test(el('ucRoot').textContent));
+    use([A, B]); showCaseFilePage(); cfTab('uwrecord');
+    t('the Underwriting record shows duplicate matching and party screening', /Duplicate matching/.test(el('caseFileRoot').textContent) && /Party screening/.test(el('caseFileRoot').textContent) && /MC-1/.test(el('caseFileRoot').textContent));
+
+    // ================= READINESS
+    login('admin');
+    var R = mk('SUB-C53-R', { currentStep: 3 }); use([R]);
+    var ev = evaluateCompleteness(R);
+    t('each item has a status and a stage', ev.items.every(function(i){ return ['satisfied', 'missing', 'waived', 'invalid', 'not_applicable'].indexOf(i.status) > -1 && ['triage', 'quote', 'bind'].indexOf(i.stage) > -1; }));
+    t('identity items are needed at triage, the rest at the quote', ev.items.filter(function(i){ return i.id === 'fein'; })[0].stage === 'triage' && ev.items.filter(function(i){ return i.id === 'limit'; })[0].stage === 'quote');
+    t('the result carries the missing count and the ready flag', typeof ev.mandatoryMissingCount === 'number' && typeof ev.readyForUw === 'boolean' && ev.mandatoryMissingCount === ev.missingRequired.length);
+    var inv = mk('SUB-C53-INV', { email: 'not-an-email' });
+    var ie = evaluateCompleteness(inv).items.filter(function(i){ return i.id === 'contact'; })[0];
+    t('a value that is present but wrong is invalid, not satisfied, and counts as missing', ie.status === 'invalid' && ie.met === false && /not valid/.test(ie.detail) && evaluateCompleteness(inv).missingRequired.some(function(i){ return i.id === 'contact'; }));
+    var noVeh = mk('SUB-C53-NV', { vehicles: [] });
+    var vi = evaluateCompleteness(noVeh).items.filter(function(i){ return i.id === 'vins'; })[0];
+    t('an item that cannot apply is not applicable and is left out of the counts', vi.status === 'not_applicable' && !vi.required || (vi.status === 'not_applicable' && evaluateCompleteness(noVeh).required === evaluateCompleteness(noVeh).items.filter(function(i){ return i.required && i.applicable; }).length));
+    var rd = readinessOf(R);
+    t('the case keeps its percentage, missing count and ready flag', rd.percent === ev.percent && rd.mandatoryMissingCount === ev.mandatoryMissingCount && rd.readyForUw === ev.readyForUw && R.readiness === rd);
+    t('the readiness summary does not disturb the waiver store', (function(){ var s = completenessStore(R); return Array.isArray(s.waivers); })());
+    // a complete case is ready
+    var full = mk('SUB-C53-FULL'); completeFixtureCase(full);
+    var fe = evaluateCompleteness(full);
+    t('a complete case is ready for the underwriter', fe.readyForUw === true && readinessOf(full).readyForUw === true, fe.missingRequired.map(function(i){ return i.id; }).join());
+
+    // queue
+    var Q1 = mk('SUB-C53-Q1', { currentStep: 3, assignedTo: 'senior_uw' }), Q2 = full; Q2.id = 'SUB-C53-Q2'; Q2.assignedTo = 'senior_uw'; Q2.apiSourced = true;
+    use([Q1, Q2]); login('admin'); showIntakePage();
+    var html = el('submissionsTableBody').textContent;
+    t('the queue shows readiness on each row', /Not ready/.test(html) && /Ready for UW/.test(html));
+    setReadyFilter('ready'); t('and filters to the ready cases', /SUB-C53-Q2/.test(el('submissionsTableBody').textContent) && !/SUB-C53-Q1/.test(el('submissionsTableBody').textContent));
+    setReadyFilter('notready'); t('or the ones that are not', /SUB-C53-Q1/.test(el('submissionsTableBody').textContent) && !/SUB-C53-Q2/.test(el('submissionsTableBody').textContent));
+    setReadyFilter(''); t('and back to all', /SUB-C53-Q1/.test(el('submissionsTableBody').textContent) && /SUB-C53-Q2/.test(el('submissionsTableBody').textContent) && !!el('queueReadySelect'));
+  } catch (e) { errs.push('suite: ' + e.message + ' ' + (e.stack || '').split('\n')[1]); }
+  t('no page errors', errs.length === 0, errs.join(' | '));
+  var pre = document.createElement('pre'); pre.id = '__t'; pre.textContent = out.join('\n'); document.body.appendChild(pre);
+})();
+</script>

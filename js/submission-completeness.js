@@ -204,6 +204,17 @@ function completenessProductItems() {
 // ----------------------------------------------------------------------------
 // 3. EVALUATION
 // ----------------------------------------------------------------------------
+/**
+ * What each item is checked for beyond being present. stage is where the item is needed (triage, quote or bind; an item not named here
+ * is needed at the quote); valid tests a value that is present (a value that is there but wrong is INVALID, not satisfied); applies is false
+ * when the item cannot apply to this case (NOT APPLICABLE: it is left out of the counts).
+ */
+var COMPLETENESS_META = {
+  insured: { stage: "triage" }, fein: { stage: "triage", valid: v => /^[A-Za-z0-9-]{9,12}$/.test(String(v).trim()) && (String(v).match(/\d/g) || []).length >= 7, why: "a FEIN is nine characters with at least seven digits" },
+  address: { stage: "triage" }, producer: { stage: "triage" }, contact: { stage: "triage", valid: v => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v).trim()), why: "the email address is not valid" },
+  dot: { stage: "triage", valid: v => /^\d{5,8}$/.test(String(v).replace(/\D/g, "")), why: "a USDOT number has five to eight digits" },
+  vins: { applies: s => Array.isArray(s.vehicles) && s.vehicles.length > 0 }
+};
 function completenessItemsFor(sub) {
   return COMPLETENESS_CHECKLISTS.common
     .concat(COMPLETENESS_CHECKLISTS[sub.lobKey] || [])
@@ -225,21 +236,35 @@ function evaluateCompleteness(sub) {
     try { found = it.test(sub, flat); } catch (e) { found = false; }
     const viaComm = !found && completenessResolvedByCommunication(sub, it.label);
     const waiver = store.waivers.find(w => w.id === it.id) || null;
-    const met = !!found || viaComm;
+    const meta = COMPLETENESS_META[it.id] || {};
+    const applies = !meta.applies || meta.applies(sub);
+    let invalid = false;
+    if (found && applies && meta.valid && typeof found === "string") { try { invalid = !meta.valid(found); } catch (e) { invalid = false; } }
+    const met = (!!found && !invalid) || viaComm;
     let gapText = "";
     if (!found && !viaComm && typeof it.gap === "function") { try { gapText = it.gap(sub) || ""; } catch (e) { gapText = ""; } }
     return { id: it.id, kind: it.kind, label: it.label, required: it.required, ask: it.ask, hint: gapText || it.hint || "",
-      met, detail: found ? (typeof found === "string" ? found : "Present") : (viaComm ? "Received (logged in customer communication)" : ""),
-      waived: !met && !!waiver, waiver };
+      met: applies && met, detail: found ? (invalid ? "Present but not valid: " + (meta.why || "it fails its check") : (typeof found === "string" ? found : "Present")) : (viaComm ? "Received (logged in customer communication)" : ""),
+      waived: applies && !met && !!waiver, waiver, stage: meta.stage || "quote", invalid: invalid, applicable: applies,
+      status: !applies ? "not_applicable" : met ? "satisfied" : (!met && waiver) ? "waived" : invalid ? "invalid" : "missing" };
   });
-  const req = items.filter(i => i.required);
+  const req = items.filter(i => i.required && i.applicable);
   const satisfied = req.filter(i => i.met || i.waived);
   const missingRequired = req.filter(i => !i.met && !i.waived);
+  // ready for the underwriter: nothing needed at triage or quote is missing or invalid (bind-stage items are asked for later)
+  const blocking = missingRequired.filter(i => i.stage !== "bind");
   return {
     items, required: req.length, requiredMet: satisfied.length,
     percent: req.length ? Math.round((satisfied.length / req.length) * 100) : 100,
-    missingRequired, status: missingRequired.length ? "incomplete" : "complete"
+    missingRequired, status: missingRequired.length ? "incomplete" : "complete",
+    mandatoryMissingCount: missingRequired.length, readyForUw: blocking.length === 0
   };
+}
+/** The summary kept on the case, so a queue can filter on readiness without recalculating each time. */
+function readinessOf(sub) {
+  const r = evaluateCompleteness(sub);
+  sub.readiness = { percent: r.percent, mandatoryMissingCount: r.mandatoryMissingCount, readyForUw: r.readyForUw, evaluatedAt: nowStamp() };
+  return sub.readiness;
 }
 
 // ----------------------------------------------------------------------------
@@ -275,6 +300,7 @@ function runCompletenessCheck(sub, trigger) {
   }
   store.lastCheckedAt = nowStamp();
   store.lastPercent = r.percent;
+  sub.readiness = { percent: r.percent, mandatoryMissingCount: r.mandatoryMissingCount, readyForUw: r.readyForUw, evaluatedAt: store.lastCheckedAt };
   return r;
 }
 
